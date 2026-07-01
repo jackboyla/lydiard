@@ -1,0 +1,45 @@
+{
+  "name": "lydiard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "server": "tsx server/stravaServer.ts",
+    "worker:dev": "wrangler dev",
+    "worker:deploy": "wrangler deploy",
+    "d1:migrate:local": "wrangler d1 migrations apply lydiard --local",
+    "d1:migrate": "wrangler d1 migrations apply lydiard --remote",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "typecheck:worker": "tsc -p tsconfig.worker.json"
+  },
+  "dependencies": {
+    "@mapbox/polyline": "^1.2.1",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "hono": "^4.12.27",
+    "lucide-react": "^1.17.0",
+    "maplibre-gl": "^5.24.0",
+    "papaparse": "^5.5.3",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "recharts": "^3.8.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260701.1",
+    "@types/express": "^5.0.6",
+    "@types/mapbox__polyline": "^1.0.5",
+    "@types/node": "^25.9.3",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "playwright": "^1.60.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "wrangler": "^4.106.0"
+  }
+}

@@ -1,0 +1,30 @@
+name = "lydiard"
+main = "worker/index.ts"
+compatibility_date = "2026-06-30"
+workers_dev = true
+
+# Cloud cron — no local machine needed. Runs the Strava sync every 4 hours.
+[triggers]
+crons = ["0 */4 * * *"]
+
+# Serverless SQLite = the single source of truth.
+# Create it once with:  npx wrangler d1 create lydiard
+# then paste the returned database_id below (and keep database_name).
+[[d1_databases]]
+binding = "lydiard"
+database_name = "lydiard"
+database_id = "bcee80a9-dd5f-4f1d-b78f-610fd4686b17"
+# Local dev uses a placeholder. For production run `npx wrangler d1 create lydiard`
+# and paste the returned id here before `npm run worker:deploy`.
+migrations_dir = "migrations"
+
+# Non-secret config. Secrets are set separately (see docs/agent-api.md):
+#   npx wrangler secret put STRAVA_CLIENT_SECRET
+#   npx wrangler secret put AGENT_API_KEY
+[vars]
+STRAVA_CLIENT_ID = "257213"
+STRAVA_REDIRECT_URI = "https://lydiard.lydiard.workers.dev/auth/strava/callback"       # e.g. https://lydiard.<subdomain>.workers.dev/auth/strava/callback
+APP_ORIGIN = ""                # Pages origin allowed for browser CORS, e.g. https://lydiard.pages.dev
+STRAVA_FETCH_YEARS = "3"
+STREAMS_PER_RUN = "40"         # stream fetches per cron cycle (Strava rate-limit budget)
+
