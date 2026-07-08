@@ -248,7 +248,7 @@ async function postBatch(
       );
       return parsed;
     }
-    if ((response.status === 429 || response.status >= 500) && attempt < maxAttempts) {
+    if ((response.status === 401 || response.status === 429 || response.status >= 500) && attempt < maxAttempts) {
       console.warn(`Ingest batch ${opts.batchNumber} attempt ${attempt} failed: ${response.status} ${text}`);
       await sleep(backoffMs(attempt));
       continue;
