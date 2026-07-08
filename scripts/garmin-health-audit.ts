@@ -94,7 +94,7 @@ const [runCoverage] = await sqliteJson<RunCoverageRow>(
     FROM activity
     WHERE activity_type_key LIKE '%running%'
       AND distance > 0
-      AND moving_duration > 0
+      AND COALESCE(moving_duration, duration, elapsed_duration) > 0
   ),
   metric_flags AS (
     SELECT

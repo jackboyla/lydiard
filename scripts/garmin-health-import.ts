@@ -54,6 +54,7 @@ const baseUrl = (process.env.LYDIARD_BASE_URL ?? 'https://lydiard.lydiard.worker
 const ingestKey = process.env.LYDIARD_INGEST_KEY ?? process.env.AGENT_API_KEY;
 const dryRun = process.argv.includes('--dry-run');
 const replace = !process.argv.includes('--no-replace');
+const batchSize = positiveInteger(readArg('--batch-size') ?? process.env.GARMIN_IMPORT_BATCH_SIZE) ?? 25;
 const includeTypes = (process.env.GARMIN_IMPORT_ACTIVITY_TYPES ?? 'running')
   .split(',')
   .map((value) => value.trim().toLowerCase())
@@ -101,58 +102,142 @@ const rows = await sqliteJson<GarminActivityRow>(
   LEFT JOIN running_agg_metrics r ON r.activity_id = a.activity_id
   LEFT JOIN activity_path p ON p.activity_id = a.activity_id
   WHERE a.distance > 0
-    AND a.moving_duration > 0
+    AND COALESCE(a.moving_duration, a.duration, a.elapsed_duration) > 0
   ORDER BY a.start_ts ASC
   `,
 );
 
 const candidates = rows.filter((row) => isIncludedType(row));
-const activities: IngestActivity[] = [];
-for (const row of candidates) {
-  const streams = await loadStreams(row.activity_id);
-  activities.push(toIngestActivity(row, streams));
-  console.log(`prepared garmin-${row.activity_id} ${row.activity_type_key} ${localDate(row.start_ts, row.timezone_offset_hours)}`);
-}
-
-if (activities.length === 0) {
+if (candidates.length === 0) {
   throw new Error(`No Garmin activities matched import types: ${includeTypes.join(', ')}`);
 }
 
+const stats = {
+  activities: 0,
+  withHr: 0,
+  withPower: 0,
+  withStreams: 0,
+  first: undefined as string | undefined,
+  last: undefined as string | undefined,
+  batches: 0,
+  upserted: 0,
+  streamsSaved: 0,
+  finalWeekCount: undefined as number | null | undefined,
+};
+
+let batch: IngestActivity[] = [];
+let sentAnyBatch = false;
+for (const [index, row] of candidates.entries()) {
+  const streams = await loadStreams(row.activity_id);
+  const activity = toIngestActivity(row, streams);
+  recordActivityStats(activity);
+  batch.push(activity);
+  console.log(`prepared garmin-${row.activity_id} ${row.activity_type_key} ${localDate(row.start_ts, row.timezone_offset_hours)}`);
+
+  const isFinalActivity = index === candidates.length - 1;
+  if (!dryRun && (batch.length >= batchSize || isFinalActivity)) {
+    const batchNumber = stats.batches + 1;
+    const response = await postBatch(batch, {
+      batchNumber,
+      replace: replace && !sentAnyBatch,
+      recomputeWeeks: isFinalActivity,
+    });
+    stats.batches = batchNumber;
+    stats.upserted += response.upserted;
+    stats.streamsSaved += response.streamsSaved;
+    stats.finalWeekCount = response.weekCount;
+    sentAnyBatch = true;
+    batch = [];
+  }
+}
+
 if (dryRun) {
-  const withHr = activities.filter((activity) => activity.summary.averageHeartRate).length;
-  const withPower = activities.filter((activity) => activity.summary.averageWatts).length;
-  const withStreams = activities.filter((activity) => activity.streams?.timeSec?.length).length;
   console.log(
     JSON.stringify(
       {
         dryRun: true,
         dbPath,
         replace,
-        activities: activities.length,
-        withHr,
-        withPower,
-        withStreams,
-        first: activities[0]?.summary.startDateLocal,
-        last: activities[activities.length - 1]?.summary.startDateLocal,
+        batchSize,
+        estimatedBatches: Math.ceil(candidates.length / batchSize),
+        activities: stats.activities,
+        withHr: stats.withHr,
+        withPower: stats.withPower,
+        withStreams: stats.withStreams,
+        first: stats.first,
+        last: stats.last,
       },
       null,
       2,
     ),
   );
 } else {
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        source: 'garmin-health-data',
+        replace,
+        batchSize,
+        batches: stats.batches,
+        activities: stats.activities,
+        withHr: stats.withHr,
+        withPower: stats.withPower,
+        withStreams: stats.withStreams,
+        upserted: stats.upserted,
+        streamsSaved: stats.streamsSaved,
+        weekCount: stats.finalWeekCount,
+        first: stats.first,
+        last: stats.last,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+interface BatchResponse {
+  ok: boolean;
+  upserted: number;
+  streamsSaved: number;
+  weekCount: number | null;
+}
+
+async function postBatch(
+  activities: IngestActivity[],
+  opts: { batchNumber: number; replace: boolean; recomputeWeeks: boolean },
+): Promise<BatchResponse> {
   const response = await fetch(`${baseUrl}/api/ingest/activities`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${ingestKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ source: 'garmin-health-data', replace, activities }),
+    body: JSON.stringify({
+      source: 'garmin-health-data',
+      replace: opts.replace,
+      recomputeWeeks: opts.recomputeWeeks,
+      activities,
+    }),
   });
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`Ingest failed: ${response.status} ${text}`);
+    throw new Error(`Ingest batch ${opts.batchNumber} failed: ${response.status} ${text}`);
   }
-  console.log(text);
+  const parsed = JSON.parse(text) as BatchResponse;
+  console.log(
+    `uploaded batch ${opts.batchNumber}: ${parsed.upserted} activities, ${parsed.streamsSaved} streams, recomputeWeeks=${opts.recomputeWeeks}`,
+  );
+  return parsed;
+}
+
+function recordActivityStats(activity: IngestActivity): void {
+  stats.activities += 1;
+  stats.withHr += activity.summary.averageHeartRate ? 1 : 0;
+  stats.withPower += activity.summary.averageWatts ? 1 : 0;
+  stats.withStreams += activity.streams?.timeSec?.length ? 1 : 0;
+  stats.first ??= activity.summary.startDateLocal;
+  stats.last = activity.summary.startDateLocal;
 }
 
 async function loadStreams(activityId: number): Promise<ActivityStreams | undefined> {
@@ -319,9 +404,23 @@ function timestampMs(value: string): number {
   return new Date(`${value.replace(' ', 'T')}Z`).getTime();
 }
 
+function readArg(name: string): string | undefined {
+  const exact = process.argv.find((arg) => arg.startsWith(`${name}=`));
+  if (exact) {
+    return exact.slice(name.length + 1);
+  }
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
 function finiteNumber(value: unknown): number | undefined {
   const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : undefined;
   return n !== undefined && Number.isFinite(n) ? n : undefined;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  const n = finiteNumber(value);
+  return n !== undefined && Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
 function positiveNumber(value: unknown): number | undefined {
