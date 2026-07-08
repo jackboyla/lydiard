@@ -8,3 +8,5 @@ dist
 .local/
 .dev.vars
 .wrangler/
+garmin_data.db
+garmin_files/

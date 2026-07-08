@@ -242,6 +242,8 @@ export default function App() {
   const athleteName = status?.athlete
     ? [status.athlete.firstname, status.athlete.lastname].filter(Boolean).join(' ')
     : '';
+  const hasTrainingData = (status?.activityCount ?? 0) > 0;
+  const isGarminSource = status?.source === 'garmin-health-data' || (!status?.connected && hasTrainingData);
 
   if (needsPassword) {
     return <PasswordGate error={passwordError} onSubmit={submitPassword} />;
@@ -259,9 +261,14 @@ export default function App() {
         </div>
 
         <div className="topbar-controls">
-          <div className="connection-chip" data-connected={status?.connected ? 'true' : 'false'}>
+          <div className="connection-chip" data-connected={status?.connected || isGarminSource ? 'true' : 'false'}>
             <Link2 size={15} aria-hidden="true" />
-            {status?.connected ? (
+            {isGarminSource ? (
+              <span>
+                Garmin Health · {status?.activityCount ?? 0} runs · {status?.streamedCount ?? 0} streamed
+                <small>{formatRelative(status?.lastSyncAt ?? null)}</small>
+              </span>
+            ) : status?.connected ? (
               <span>
                 {athleteName || 'Strava'} · {status.activityCount} runs · {status.streamedCount} streamed
                 <small>{formatRelative(status.lastSyncAt)}</small>
@@ -313,7 +320,7 @@ export default function App() {
             className="icon-button"
             type="button"
             aria-label="Sync now"
-            title="Sync now"
+            title={isGarminSource ? 'Garmin sync runs twice daily from GitHub Actions' : 'Sync now'}
             disabled={isSyncing || !status?.connected}
             onClick={handleSyncNow}
           >
@@ -357,13 +364,13 @@ export default function App() {
           {filteredActivities.length === 0 && (
             <div className="map-empty">
               <MapIcon size={28} aria-hidden="true" />
-              <h2>{status?.connected ? 'No routes in this range' : 'Connect Strava to see your routes'}</h2>
+              <h2>{hasTrainingData ? 'No routes in this range' : 'Import Garmin data to see your routes'}</h2>
               <p>
-                {status?.connected
-                  ? 'Widen the date range or sync to pull more activities. Routes with GPS appear here automatically.'
-                  : 'One connect + a cloud sync fills this map with every run. No local machine needed.'}
+                {hasTrainingData
+                  ? 'Widen the date range or wait for the next scheduled Garmin sync. Routes with GPS appear here automatically.'
+                  : 'The twice-daily Garmin import fills this map with every run. No local machine needed.'}
               </p>
-              {!status?.connected && (
+              {!status?.connected && !hasTrainingData && (
                 <a className="primary-button" href={stravaLoginUrl()}>
                   Connect Strava
                 </a>
@@ -420,7 +427,15 @@ export default function App() {
                 </div>
                 <div>
                   <dt>Source</dt>
-                  <dd>{usingSample ? 'Sample history' : status?.connected ? 'Strava · D1' : 'CSV import'}</dd>
+                  <dd>
+                    {usingSample
+                      ? 'Sample history'
+                      : isGarminSource
+                        ? 'Garmin Health · D1'
+                        : status?.connected
+                          ? 'Strava · D1'
+                          : 'CSV import'}
+                  </dd>
                 </div>
               </dl>
               <p>
@@ -451,7 +466,7 @@ export default function App() {
                   <small>{selectedWeek.year}</small>
                 </div>
               </div>
-              <p>{formatDateRange(status?.dateRange) || 'Connect Strava to populate the store.'}</p>
+              <p>{formatDateRange(status?.dateRange) || 'Run the Garmin import to populate the store.'}</p>
             </article>
           </section>
 

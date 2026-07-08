@@ -34,6 +34,8 @@
 - 2026-07-07: User asked whether AI/a script can automate Garmin export/import. Product stance: technically yes via an unofficial scraper/browser automation or private Garmin Connect endpoints, but it cannot run reliably inside Cloudflare Workers and carries credential/MFA/brittleness/terms risk. A scheduled GitHub Action or small external job could download FIT files and post them to our Worker, but official Garmin API approval remains the robust path.
 - 2026-07-07: User pushed to try the automated Garmin path. Implemented an experimental unofficial pipeline: `POST /api/ingest/activities` bearer-key endpoint, `scripts/garmin-sync.ts` using `garmin-connect` + `fit-file-parser` + `adm-zip`, `npm run garmin:sync`, scripts typecheck config, and `.github/workflows/garmin-sync.yml` scheduled every 6 hours. The script logs into Garmin Connect, downloads original ZIPs, extracts FIT, parses route/HR/cadence/power streams, encodes summary polylines, and ingests normalized activities. Cloudflare `INGEST_API_KEY` and GitHub `LYDIARD_INGEST_KEY` are set; user still needs to add `GARMIN_USERNAME` and `GARMIN_PASSWORD` GitHub secrets.
 - 2026-07-08: User shared the GitHub Actions Garmin sync failure log. The runner logged into Garmin successfully, then Garmin returned `429 Too Many Requests` while fetching activities. GitHub secrets for Garmin username/password and the Lydiard ingest key were present. Updated the runner to retry Garmin login/list/download calls with exponential backoff, soft-exit successfully on persistent Garmin rate limits, reduce the scheduled cadence to twice daily, lower the default activity list window, and cache Garmin session files in GitHub Actions once a login succeeds to reduce pressure on Garmin's private endpoints.
+- 2026-07-08: User pivoted to `diegoscarabelli/garmin-health-data` after running a local 30-day extract. Audit of `garmin_data.db` showed SQLite integrity OK and no foreign-key issues. Training-log coverage is good: 26 running activities from 2026-06-09 through 2026-07-07, all with GPS paths and FIT time-series, 24 with HR streams, and 24 with positive power samples. 2026-06-28 is present only as a hiking activity, so it should not appear as a run. Health/recovery coverage is incomplete: sleep, HRV, stress, body battery, training readiness, and VO2 max tables are empty.
+- 2026-07-08: Reworked the Garmin automation around `garmin-health-data`: added a SQLite audit script, a SQLite-to-Lydiard importer, replace-mode ingest, power stream storage, Garmin source labelling in weekly features/status/UI, git ignores for generated Garmin DB/files, and a twice-daily GitHub Action that installs/runs `garmin-health-data`, verifies/audits the DB, then imports Garmin runs into Cloudflare D1. Removed the old direct `garmin-connect` Node scraper path.
 
 ## Vision
 
@@ -63,22 +65,22 @@ Create a personal running companion that turns a runner's own training history i
 12. Add a Strava-style single-map training-log view (MapLibre + free tiles), map-first UX with date-range + color-by + click-to-detail. Completed.
 13. Make the sync agent-native: host it free on Cloudflare (Worker + D1 + Cron + Pages) with a Bearer-key REST API + `/openapi.json` for ChatGPT Scheduled Tasks (injury-risk + 1–3 week planning). Completed.
 14. Add a one-view Training page for the last N months with run table, HR/power availability, projected easy pace, and shared-scale fitness/fatigue trend. Completed.
+15. Pivot scheduled training sync from Strava/direct Garmin scraping to `garmin-health-data` SQLite import. Completed for activity/route/HR/power streams; recovery tables are audited but currently empty in the extracted data.
 
 ## Architecture (2026-07-01)
 
 "One synced store, three consumers." Cloudflare only, free tier, no local machine:
 
-- **Cron Worker** (`worker/`, Hono) — refreshes the Strava token, incrementally fetches summary activities (with `summary_polyline`), backfills per-activity streams, computes true decoupling, and recomputes weekly features. Runs every 4h via a Cron Trigger.
+- **GitHub Actions Garmin sync** — twice daily, runs `garmin-health-data` to maintain `garmin_data.db`, audits database/table coverage, and posts normalized Garmin runs to the Worker ingest endpoint.
 - **D1 (SQLite)** — `athlete`, `activities` (+route), `activity_streams`, `weekly_features`, `sync_state`. Single source of truth.
 - **Consumers:** the same Worker now serves the phone-accessible React app as static assets (Map, Training, Dashboard), the public REST API (`/api/*`), and a Bearer-key agent API (`/api/agent/*`) + `/openapi.json` for ChatGPT.
 - **Shared pure code:** `src/data/deriveWeekly.ts` (weekly derivation) and `src/analysis/fatigue.ts` run in both the Worker and the browser. Setup + agent usage documented in `docs/agent-api.md`.
 
 ## Outstanding Tasks
 
-- Provision production Cloudflare resources: `wrangler d1 create lydiard` (paste id into wrangler.toml), set secrets (`STRAVA_CLIENT_SECRET`, `AGENT_API_KEY`) + `[vars]`, deploy the Worker, deploy Pages with `VITE_API_BASE`, and run the one-time `/auth/strava/login`.
-- Validate stream-derived decoupling and stride against the user's real Strava devices once connected.
+- Validate stream-derived decoupling, cadence, and power against the user's Garmin/FIT devices once more history is imported.
 - Retire the legacy Express server (`server/stravaServer.ts`) after production parity is confirmed.
-- Add Garmin health/recovery import so recovery is not neutral (HRV, sleep, stress).
+- Investigate why `garmin-health-data` produced empty recovery tables for sleep, HRV, stress, body battery, training readiness, and VO2 max; the current importer audits those gaps and keeps recovery neutral.
 - Consider frontend code-splitting (maplibre-gl + recharts) — build warns the bundle exceeds 500 kB.
 - Optional: use stream `latlng` for a high-resolution single-activity zoom (overview currently uses the summary polyline).
 - Add the new power migration to production D1 after deploy so future syncs can populate Strava `average_watts`; older rows will display power as missing until re-synced.
@@ -117,3 +119,7 @@ Create a personal running companion that turns a runner's own training history i
 - 2026-07-08: `npm run typecheck:worker`, `npm run typecheck:scripts`, and `npm run build` passed after adding Garmin rate-limit retry/soft-fail handling and lowering the scheduled sync cadence.
 - 2026-07-08: Manual GitHub workflow run `28930067267` completed successfully after 7m37s. The log showed Garmin still returned `429 Too Many Requests` on all four login attempts, but the runner backed off for 60s/120s/240s and exited successfully instead of failing the workflow.
 - 2026-07-08: Manual GitHub workflow run `28930632843` verified the Garmin session cache wiring. The cache restored with a miss, Garmin still returned `429 Too Many Requests` on all four login attempts, no token path existed to save, and the workflow still completed successfully after 7m24s.
+- 2026-07-08: `npm run garmin:audit` passed against local `garmin_data.db`: 386.2 MB DB, integrity OK, 0 foreign-key issues, 26 runs / 289.3 km, 26 paths, 26 FIT time-series, 24 HR streams, 24 power streams, latest run 2026-07-07. Empty recovery tables were reported as warnings, not corruption.
+- 2026-07-08: `npm run garmin:import-db -- --dry-run` prepared 26 Garmin running activities and reported 24 with HR, 24 with power, 26 with streams, replacing enabled.
+- 2026-07-08: Applied local D1 migration `0003_activity_stream_power.sql`, ran local Worker, and imported local Garmin DB into local D1 through `POST /api/ingest/activities`: response `{ok:true, source:"garmin-health-data", replace:true, upserted:26, streamsSaved:26, weekCount:5}`. Local API verification: status source `garmin-health-data`, latest activity 2026-07-07, no 2026-06-28 run, latest run has HR, average watts, power stream, HR stream, route stream, and decoupling.
+- 2026-07-08: `npm run typecheck:scripts`, `npm run typecheck:worker`, and `npm run build` passed after the Garmin health-data pivot. Applied remote D1 migration `0003_activity_stream_power.sql` and deployed Worker version `21a201ec-b0ff-4585-865d-06d3a8380326`; removed the old Worker cron trigger so scheduled sync now lives in GitHub Actions.

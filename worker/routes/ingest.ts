@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { ActivityStreams, ActivitySummary } from '../../src/types';
 import type { Env } from '../env';
-import { upsertActivities, saveStreams, updateSyncState } from '../db';
+import { replaceTrainingData, upsertActivities, saveStreams, updateSyncState } from '../db';
 import { computeDecoupling } from '../streams';
 import { recomputeWeeklyFeatures } from '../sync';
 
@@ -12,6 +12,7 @@ interface IngestActivity {
 
 interface IngestPayload {
   source?: string;
+  replace?: boolean;
   activities?: IngestActivity[];
 }
 
@@ -53,6 +54,10 @@ export function ingestRoutes(): Hono<{ Bindings: Env }> {
       });
     }
 
+    if (payload.replace) {
+      await replaceTrainingData(c.env.lydiard);
+    }
+
     await upsertActivities(c.env.lydiard, summaries);
 
     let streamsSaved = 0;
@@ -69,6 +74,7 @@ export function ingestRoutes(): Hono<{ Bindings: Env }> {
     }, null);
     const result = {
       source: payload.source ?? 'external',
+      replace: Boolean(payload.replace),
       upserted: summaries.length,
       streamsSaved,
       weekCount,

@@ -109,8 +109,14 @@ export async function runSync(env: Env, db: D1Database, options: { force?: boole
 export async function recomputeWeeklyFeatures(db: D1Database): Promise<number> {
   const activities = await getActivities(db);
   const imported = activities.map(storedToImportedActivity);
+  const hasGarmin = activities.some((activity) => activity.id.startsWith('garmin-'));
+  const source = hasGarmin ? 'garmin' : 'strava';
   try {
-    const training = buildImportedTrainingFromActivities(imported, 'strava', 'Strava API');
+    const training = buildImportedTrainingFromActivities(
+      imported,
+      source,
+      hasGarmin ? 'garmin-health-data SQLite' : 'Strava API',
+    );
     await replaceWeeklyFeatures(db, training.weeks);
     return training.weeks.length;
   } catch {

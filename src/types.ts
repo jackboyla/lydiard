@@ -73,7 +73,7 @@ export interface WeeklyAnalysis {
 
 /**
  * Per-activity record served by the API and drawn on the map. This is the
- * durable, queryable shape stored in D1 (one row per Strava activity).
+ * durable, queryable shape stored in D1 (one row per synced activity).
  */
 export interface ActivitySummary {
   id: string;
@@ -105,6 +105,7 @@ export interface ActivityStreams {
   timeSec?: number[];
   heartrate?: number[];
   cadence?: number[];
+  power?: number[];
   velocity?: number[];
   altitude?: number[];
   distanceM?: number[];
@@ -128,5 +129,6 @@ export interface SyncStatus {
   lastSyncAt: string | null;
   lastActivityDate: string | null;
   lastError: string | null;
+  source?: string;
   dateRange: { first: string | null; last: string | null };
 }
