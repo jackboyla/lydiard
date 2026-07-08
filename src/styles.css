@@ -1922,3 +1922,264 @@ dd {
     min-width: 900px;
   }
 }
+
+/* ---- Metric explanations: toolbar guide toggle, inline info dots, guide panel ---- */
+
+.guide-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-control);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.guide-toggle:hover {
+  color: var(--text-strong);
+  border-color: var(--accent);
+}
+
+.guide-toggle.active {
+  color: var(--accent-strong);
+  border-color: var(--accent);
+  background: rgba(91, 124, 250, 0.14);
+}
+
+.guide-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.metric-info {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
+.metric-info > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-control);
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.metric-info > summary::-webkit-details-marker {
+  display: none;
+}
+
+.metric-info > summary::marker {
+  content: '';
+}
+
+.metric-info > summary:hover,
+.metric-info[open] > summary {
+  color: var(--text-strong);
+  border-color: var(--accent);
+  background: var(--surface-soft);
+}
+
+.metric-info > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.metric-info-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 80;
+  width: 300px;
+  max-width: min(300px, calc(100vw - 32px));
+  padding: 14px 15px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.55);
+  text-align: left;
+  cursor: default;
+  animation: metric-info-in 120ms ease;
+}
+
+.metric-info-pop.align-right {
+  left: auto;
+  right: 0;
+}
+
+@keyframes metric-info-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.metric-info-title {
+  margin: 0 0 6px;
+  font-size: 0.88rem;
+  font-weight: 750;
+  color: var(--text-strong);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.metric-info-what {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.metric-info-section {
+  margin-top: 11px;
+}
+
+.metric-info-h {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.64rem;
+  font-weight: 720;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+
+.metric-info-section p {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.metric-info-levels {
+  list-style: none;
+  margin: 5px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.metric-info-levels .lvl {
+  display: flex;
+  gap: 8px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.metric-info-levels .lvl strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.metric-info-levels .lvl-dot {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 5px;
+  background: var(--subtle);
+}
+
+.lvl-good .lvl-dot {
+  background: var(--green);
+}
+
+.lvl-watch .lvl-dot {
+  background: var(--warning);
+}
+
+.lvl-bad .lvl-dot {
+  background: var(--danger);
+}
+
+.metrics-guide {
+  margin-bottom: 16px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: 0 18px 42px var(--shadow);
+}
+
+.metrics-guide-head {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  color: var(--accent-strong);
+}
+
+.metrics-guide-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--text-strong);
+}
+
+.metrics-guide-head p {
+  margin: 3px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 62ch;
+}
+
+.metrics-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+  gap: 12px;
+}
+
+.metrics-guide-card {
+  padding: 14px 15px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--surface-muted);
+}
+
+@media (max-width: 720px) {
+  .metric-info-pop {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    top: auto;
+    width: auto;
+    max-width: none;
+    z-index: 200;
+    animation: metric-info-sheet-in 150ms ease;
+  }
+
+  @keyframes metric-info-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Activity,
+  BookOpen,
   CalendarDays,
   Gauge,
   HeartPulse,
@@ -33,6 +34,22 @@ import {
 import { getActivity } from '../data/api';
 import { activityPaceSecPerKm, decodePolyline } from '../data/mapRoutes';
 import type { ActivityDetail, ActivitySummary, WeeklyAnalysis } from '../types';
+import { MetricInfo, MetricsGuide, type MetricKey } from './MetricInfo';
+
+const GUIDE_METRICS: MetricKey[] = [
+  'load',
+  'ctl',
+  'atl',
+  'freshness',
+  'acwr',
+  'intensityFactor',
+  'hrCost',
+  'decoupling',
+  'hardShare',
+  'longRunShare',
+  'monotony',
+  'weekStatus',
+];
 
 interface TrainingViewProps {
   activities: ActivitySummary[];
@@ -55,6 +72,7 @@ const WEEK_CHUNK = 10;
 
 export function TrainingView({ activities, analyses, usingSample }: TrainingViewProps) {
   const [range, setRange] = useState<RangeKey>('all');
+  const [showGuide, setShowGuide] = useState(false);
   const [visibleWeekCount, setVisibleWeekCount] = useState(INITIAL_WEEK_COUNT);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewDetail, setPreviewDetail] = useState<ActivityDetail | null>(null);
@@ -77,6 +95,10 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
   const runCount = scoped.sessions.length;
   const hrCount = scoped.sessions.filter((session) => session.activity.averageHeartRate).length;
   const powerCount = scoped.sessions.filter((session) => session.activity.averageWatts).length;
+  const chartSpanDays = useMemo(() => {
+    const rows = scoped.chartRows;
+    return rows.length > 1 ? (rows[rows.length - 1].ts - rows[0].ts) / 86_400_000 : 0;
+  }, [scoped.chartRows]);
 
   useEffect(() => {
     setVisibleWeekCount(INITIAL_WEEK_COUNT);
@@ -146,6 +168,16 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
           <h2>All runs, scored by load</h2>
         </div>
         <div className="training-range-controls">
+          <button
+            type="button"
+            className={`guide-toggle${showGuide ? ' active' : ''}`}
+            aria-pressed={showGuide}
+            aria-expanded={showGuide}
+            onClick={() => setShowGuide((current) => !current)}
+          >
+            <BookOpen size={15} aria-hidden="true" />
+            Metrics guide
+          </button>
           <div className="segmented compact-segmented" role="group" aria-label="Training range">
             {RANGE_OPTIONS.map((option) => (
               <button
@@ -162,12 +194,17 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
         </div>
       </section>
 
+      {showGuide && <MetricsGuide metrics={GUIDE_METRICS} />}
+
       <section className="training-load-grid" aria-label="Fitness and fatigue">
         <article className="chart-card training-chart-card">
           <div className="chart-header">
             <div>
               <p>Fitness and fatigue</p>
-              <h2>CTL / ATL load model</h2>
+              <h2>
+                CTL / ATL load model
+                <MetricInfo metric="chart" />
+              </h2>
             </div>
             <span className="chart-pill">load points</span>
           </div>
@@ -181,7 +218,17 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
             >
               <LineChart data={scoped.chartRows} margin={{ top: 14, right: 20, bottom: 4, left: 0 }}>
                 <CartesianGrid stroke="#2c3440" vertical={false} />
-                <XAxis dataKey="label" minTickGap={28} tickLine={false} axisLine={false} tick={{ fill: '#92a0b3', fontSize: 12 }} />
+                <XAxis
+                  dataKey="ts"
+                  type="number"
+                  scale="time"
+                  domain={['dataMin', 'dataMax']}
+                  tickFormatter={(value) => formatAxisTick(value as number, chartSpanDays)}
+                  minTickGap={44}
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: '#92a0b3', fontSize: 12 }}
+                />
                 <YAxis tickLine={false} axisLine={false} tick={{ fill: '#92a0b3', fontSize: 12 }} width={46} />
                 <Tooltip
                   cursor={{ stroke: '#465365', strokeWidth: 1 }}
@@ -193,7 +240,7 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
                     boxShadow: '0 10px 30px rgba(0, 0, 0, 0.32)',
                   }}
                   formatter={(value, name) => [`${Number(value).toFixed(1)}`, name]}
-                  labelFormatter={(_, payload) => payload?.[0]?.payload?.fullLabel ?? ''}
+                  labelFormatter={(value) => formatFullDate(value as number)}
                 />
                 <Legend verticalAlign="top" align="right" iconType="line" wrapperStyle={{ color: '#99a6b8' }} />
                 <ReferenceLine y={0} stroke="#465365" />
@@ -209,24 +256,28 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
           <TrainingKpi
             icon={<Timer size={18} />}
             label="Latest load"
+            info="load"
             value={latestSession ? latestSession.load.toFixed(1) : '-'}
             detail={latestSession ? formatRunDate(latestSession.activity.startDateLocal || latestSession.activity.startDate) : 'no runs'}
           />
           <TrainingKpi
             icon={<ShieldAlert size={18} />}
             label="7-day fatigue"
+            info="atl"
             value={latestDaily ? latestDaily.fatigue.toFixed(1) : '-'}
             detail="ATL"
           />
           <TrainingKpi
             icon={<TrendingUp size={18} />}
             label="42-day fitness"
+            info="ctl"
             value={latestDaily ? latestDaily.fitness.toFixed(1) : '-'}
             detail="CTL"
           />
           <TrainingKpi
             icon={<Gauge size={18} />}
             label="Ramp"
+            info="acwr"
             value={latestDaily ? latestDaily.acwr.toFixed(2) : '-'}
             detail="ATL / CTL"
           />
@@ -503,17 +554,22 @@ function TrainingKpi({
   label,
   value,
   detail,
+  info,
 }: {
   icon: ReactNode;
   label: string;
   value: string;
   detail: string;
+  info?: MetricKey;
 }) {
   return (
     <article className="training-kpi">
       <span aria-hidden="true">{icon}</span>
       <div>
-        <p>{label}</p>
+        <p>
+          {label}
+          {info && <MetricInfo metric={info} align="right" />}
+        </p>
         <strong>{value}</strong>
         <small>{detail}</small>
       </div>
@@ -555,8 +611,8 @@ function scopeLoadModel(model: TrainingLoadModel, range: RangeKey) {
   const days = new Set(sessionsAsc.map((session) => session.day));
   const daily = model.daily.filter((point) => new Date(`${point.day}T00:00:00Z`).getTime() >= fromMs || days.has(point.day));
   const chartRows = daily.map((point) => ({
-    label: formatChartTick(point.day),
-    fullLabel: point.day,
+    ts: Date.parse(`${point.day}T00:00:00Z`),
+    day: point.day,
     fitness: point.fitness,
     fatigue: point.fatigue,
     freshness: point.freshness,
@@ -701,8 +757,19 @@ function formatMonthLabel(day: string): string {
   return new Intl.DateTimeFormat('en-GB', { month: 'short', year: 'numeric' }).format(new Date(`${day}T00:00:00Z`));
 }
 
-function formatChartTick(day: string): string {
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(new Date(`${day}T00:00:00Z`));
+function formatAxisTick(ms: number, spanDays: number): string {
+  const date = new Date(ms);
+  if (spanDays > 400) {
+    return new Intl.DateTimeFormat('en-GB', { month: 'short', year: '2-digit' }).format(date);
+  }
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(date);
+}
+
+function formatFullDate(ms: number): string {
+  if (!Number.isFinite(ms)) {
+    return '';
+  }
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(ms));
 }
 
 function formatDuration(totalSeconds: number): string {
