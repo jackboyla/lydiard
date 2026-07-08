@@ -80,7 +80,7 @@ export default function App() {
   const [needsPassword, setNeedsPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
 
-  const [view, setView] = useState<ViewMode>('map');
+  const [view, setView] = useState<ViewMode>('training');
   const [range, setRange] = useState<RangePreset>('12w');
   const [colorBy, setColorBy] = useState<ColorBy>('severity');
   const [metric, setMetric] = useState<TrendMetricKey>('stride');
@@ -299,9 +299,6 @@ export default function App() {
           )}
 
           <div className="view-toggle" role="tablist" aria-label="View">
-            <button role="tab" aria-selected={view === 'map'} className={view === 'map' ? 'active' : ''} type="button" onClick={() => setView('map')}>
-              <MapIcon size={16} aria-hidden="true" /> Map
-            </button>
             <button
               role="tab"
               aria-selected={view === 'training'}
@@ -310,6 +307,9 @@ export default function App() {
               onClick={() => setView('training')}
             >
               <Activity size={16} aria-hidden="true" /> Training
+            </button>
+            <button role="tab" aria-selected={view === 'map'} className={view === 'map' ? 'active' : ''} type="button" onClick={() => setView('map')}>
+              <MapIcon size={16} aria-hidden="true" /> Map
             </button>
             <button role="tab" aria-selected={view === 'dashboard'} className={view === 'dashboard' ? 'active' : ''} type="button" onClick={() => setView('dashboard')}>
               <Gauge size={16} aria-hidden="true" /> Dashboard

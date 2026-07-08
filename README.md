@@ -27,8 +27,9 @@ run in **both** the Worker and the browser.
 - **Map-first UX:** every run's route on one MapLibre map (free dark tiles, no API key). Date-range
   presets, color routes by weekly fatigue / pace / recency, click a route for its detail card and
   the fatigue context of its week. A Dashboard toggle shows the full indicator/trend view.
-- **Training view:** last-N-month fitness/fatigue chart plus per-run HR, power when recorded, and
-  projected easy pace.
+- **Training log:** the main page is a week-grouped, scrollable run log with CTL/ATL fitness/fatigue,
+  session load, pace, elevation, HR, power, projected easy pace, and hover previews for route +
+  pace-over-time splits.
 - **Cloud sync:** a twice-daily GitHub Action runs `garmin-health-data`, verifies the SQLite DB,
   audits coverage, and imports Garmin runs with full GPS + HR/cadence/power streams.
 - **Agent-native:** a Bearer-key REST API + OpenAPI schema for ChatGPT to assess injury risk and
@@ -96,17 +97,18 @@ with route, HR, cadence, speed, distance, altitude, and power streams into the W
 ```bash
 pip install garmin-health-data
 garmin auth
-garmin extract
+garmin extract --start-date "$(date -u -d '10 years ago' +%F)" --end-date "$(date -u -d 'tomorrow' +%F)"
 npm run garmin:audit
 LYDIARD_INGEST_KEY='...' \
 LYDIARD_BASE_URL=https://lydiard.lydiard.workers.dev \
 npm run garmin:import-db
 ```
 
-The repository includes `.github/workflows/garmin-sync.yml` to run this twice daily. The workflow
-restores/caches `~/.garminconnect`, `garmin_data.db`, and `garmin_files` so `garmin extract` can
-resume instead of repeatedly re-authenticating and redownloading the whole range. Required GitHub
-secrets:
+The repository includes `.github/workflows/garmin-sync.yml` to run this twice daily. By default it asks
+Garmin for the last 10 years of data; set repository variables `GARMIN_EXTRACT_START` and/or
+`GARMIN_EXTRACT_END` to override that range. The workflow restores/caches `~/.garminconnect`,
+`garmin_data.db`, and `garmin_files` so `garmin extract` can resume instead of repeatedly
+re-authenticating and redownloading the whole range. Required GitHub secrets:
 
 - `GARMIN_USERNAME`
 - `GARMIN_PASSWORD`
