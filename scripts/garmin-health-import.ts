@@ -89,13 +89,7 @@ const rows = await sqliteJson<GarminActivityRow>(
     r.elevation_gain AS elevation_gain,
     r.avg_running_cadence,
     r.avg_power AS running_avg_power,
-    (
-      SELECT AVG(value)
-      FROM activity_ts_metric m
-      WHERE m.activity_id = a.activity_id
-        AND lower(m.name) = 'power'
-        AND m.value > 0
-    ) AS stream_avg_power,
+    NULL AS stream_avg_power,
     p.path_json,
     p.point_count
   FROM activity a
@@ -105,6 +99,7 @@ const rows = await sqliteJson<GarminActivityRow>(
     AND COALESCE(a.moving_duration, a.duration, a.elapsed_duration) > 0
   ORDER BY a.start_ts ASC
   `,
+  { maxBuffer: 512 * 1024 * 1024 },
 );
 
 const candidates = rows.filter((row) => isIncludedType(row));
