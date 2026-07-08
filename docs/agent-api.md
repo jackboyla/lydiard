@@ -60,21 +60,26 @@ npm run worker:deploy
 
 # 6. Configure GitHub Actions secrets for the twice-daily Garmin import:
 #    GARMIN_USERNAME, GARMIN_PASSWORD, LYDIARD_INGEST_KEY
-#    Optional repo vars: GARMIN_EXTRACT_START, GARMIN_EXTRACT_END, GARMIN_DATA_TYPES
+#    Optional repo vars: GARMIN_INCREMENTAL_DAYS, GARMIN_EXTRACT_START,
+#    GARMIN_EXTRACT_END, GARMIN_DATA_TYPES
 ```
 
 The same `workers.dev` URL serves the app on desktop and phone. The cron keeps the store fresh with
 no machine running at home; the GitHub workflow extracts Garmin data into SQLite, audits it, then
-posts normalized runs and streams to the Worker. The default Garmin extraction window is the last 10
-years of activity data (`ACTIVITIES_LIST` + `ACTIVITY`), with `GARMIN_EXTRACT_START` /
-`GARMIN_EXTRACT_END` / `GARMIN_DATA_TYPES` available for override.
+posts normalized runs and streams to the Worker. Do the first 10-year Garmin bootstrap locally, then
+let GitHub Actions run incremental updates. The default scheduled Garmin extraction window is the
+last 45 days of activity data (`ACTIVITIES_LIST` + `ACTIVITY`) and imports with `--no-replace`, with
+`GARMIN_INCREMENTAL_DAYS` / `GARMIN_EXTRACT_START` / `GARMIN_EXTRACT_END` / `GARMIN_DATA_TYPES`
+available for override.
 
 ## Script ingest
 
 External sync jobs can post normalized activities to `POST /api/ingest/activities` with
 `Authorization: Bearer <INGEST_API_KEY>`. The Garmin workflow uses this route after
 `garmin-health-data` downloads/processes Garmin Connect data into `garmin_data.db`. The route can
-replace existing training rows, stores streams, recomputes weekly features, and updates sync status.
+replace existing training rows for a full local bootstrap, or upsert without replacement for
+scheduled incremental updates. It stores streams, recomputes weekly features, and updates sync
+status.
 
 ## Security notes
 
