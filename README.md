@@ -8,7 +8,8 @@ query your training over any period**. Runs free on Cloudflare with no always-on
 
 ```
 Garmin Connect
-        │  GitHub Actions twice daily: garmin-health-data → garmin_data.db → audit → ingest
+        │  local 10-year bootstrap, then GitHub Actions twice daily incremental updates
+        │  garmin-health-data → garmin_data.db → audit → ingest
         ▼
    Cloudflare Worker (Hono + static assets) ──► Cloudflare D1 (SQLite) = single source of truth
         │                          activities(+route/power) · activity_streams · weekly_features
@@ -94,10 +95,16 @@ as the local extractor. That CLI downloads Garmin Connect data into `garmin_data
 `garmin_files/storage/`; Lydiard reads that SQLite database, audits it, and imports running activities
 with route, HR, cadence, speed, distance, altitude, and power streams into the Worker ingest endpoint.
 
+Do the initial long historical bootstrap locally. A 10-year Garmin extract can exceed GitHub Actions'
+60-minute job limit, and a short GitHub cache should not be allowed to replace the full D1 history.
+
 ```bash
 pip install garmin-health-data
 garmin auth
-garmin extract --start-date "$(date -u -d '10 years ago' +%F)" --end-date "$(date -u -d 'tomorrow' +%F)" \
+
+START_DATE="$(python3 -c 'from datetime import date; d=date.today(); print(d.replace(year=d.year-10) if not (d.month == 2 and d.day == 29) else d.replace(year=d.year-10, day=28))')"
+END_DATE="$(python3 -c 'from datetime import date, timedelta; print(date.today() + timedelta(days=1))')"
+garmin extract --start-date "$START_DATE" --end-date "$END_DATE" \
   --data-types ACTIVITIES_LIST --data-types ACTIVITY
 npm run garmin:audit
 LYDIARD_INGEST_KEY='...' \
@@ -105,13 +112,14 @@ LYDIARD_BASE_URL=https://lydiard.lydiard.workers.dev \
 npm run garmin:import-db
 ```
 
-The repository includes `.github/workflows/garmin-sync.yml` to run this twice daily. By default it asks
-Garmin for the last 10 years of activity data (`ACTIVITIES_LIST` + `ACTIVITY` FIT files); set
-repository variables `GARMIN_EXTRACT_START` and/or `GARMIN_EXTRACT_END` to override that range, and
-`GARMIN_DATA_TYPES` to change the comma-separated `garmin-health-data` data types. The workflow
+The repository includes `.github/workflows/garmin-sync.yml` to run twice daily after the bootstrap.
+By default it asks Garmin for the last 45 days of activity data (`ACTIVITIES_LIST` + `ACTIVITY` FIT
+files) and imports with `--no-replace`, so it can upsert new/recent activities without wiping older
+history. Set repository variable `GARMIN_INCREMENTAL_DAYS` to change the rolling window, set
+`GARMIN_EXTRACT_START` and/or `GARMIN_EXTRACT_END` to override the exact range for a one-off run, and
+set `GARMIN_DATA_TYPES` to change the comma-separated `garmin-health-data` data types. The workflow
 restores/caches `~/.garminconnect`, `garmin_data.db`, and `garmin_files` so `garmin extract` can
-resume instead of repeatedly re-authenticating and redownloading the whole range. Required GitHub
-secrets:
+resume instead of repeatedly re-authenticating and redownloading recent data. Required GitHub secrets:
 
 - `GARMIN_USERNAME`
 - `GARMIN_PASSWORD`

@@ -42,6 +42,7 @@
 - 2026-07-08: Rebuilt the Training page as the default platform home. It now has CTL/ATL/freshness charting, KPI tiles, a week-grouped scroll log, month jump rail, lazy week rendering, per-run time/pace/elevation/HR/power/load/split columns, and a sticky hover preview with route SVG plus pace-over-time split graph fetched from `/api/activities/:id`.
 - 2026-07-08: Updated the Garmin GitHub Action to call `garmin extract --start-date "$START_DATE" --end-date "$END_DATE"`, defaulting to 10 years ago through tomorrow; repo variables `GARMIN_EXTRACT_START` and `GARMIN_EXTRACT_END` can override the backfill window.
 - 2026-07-08: Manual workflow run `28943079504` showed that a 10-year "all data types" Garmin extraction spends the job fetching daily health files (starting with sleep) and hit the 60-minute timeout before audit/import. Updated the workflow default to activity-only data types (`ACTIVITIES_LIST,ACTIVITY`) for the training log backfill, with `GARMIN_DATA_TYPES` available as an override if recovery endpoints are later needed.
+- 2026-07-08: User asked whether the 10-year bootstrap is best done locally with GitHub Actions only handling updates. Decision: yes. The one-time historical Garmin bootstrap should run locally and may use replace-mode import because it has the full dataset; scheduled GitHub Actions should use a short rolling activity-only window and `--no-replace` so a partial cache/run cannot wipe historical D1 rows.
 
 ## Vision
 
@@ -77,7 +78,7 @@ Create a personal running companion that turns a runner's own training history i
 
 "One synced store, three consumers." Cloudflare only, free tier, no local machine:
 
-- **GitHub Actions Garmin sync** — twice daily, runs `garmin-health-data` to maintain `garmin_data.db`, audits database/table coverage, and posts normalized Garmin runs to the Worker ingest endpoint.
+- **GitHub Actions Garmin sync** — twice daily, runs `garmin-health-data` over a short rolling activity-only window, audits database/table coverage, and upserts normalized Garmin runs to the Worker ingest endpoint without replacing historical D1 rows.
 - **D1 (SQLite)** — `athlete`, `activities` (+route), `activity_streams`, `weekly_features`, `sync_state`. Single source of truth.
 - **Consumers:** the same Worker now serves the phone-accessible React app as static assets (Map, Training, Dashboard), the public REST API (`/api/*`), and a Bearer-key agent API (`/api/agent/*`) + `/openapi.json` for ChatGPT.
 - **Shared pure code:** `src/data/deriveWeekly.ts` (weekly derivation) and `src/analysis/fatigue.ts` run in both the Worker and the browser. Setup + agent usage documented in `docs/agent-api.md`.
@@ -87,6 +88,7 @@ Create a personal running companion that turns a runner's own training history i
 - Validate stream-derived decoupling, cadence, and power against the user's Garmin/FIT devices once more history is imported.
 - Retire the legacy Express server (`server/stravaServer.ts`) after production parity is confirmed.
 - Investigate why `garmin-health-data` produced empty recovery tables for sleep, HRV, stress, body battery, training readiness, and VO2 max; the current importer audits those gaps and keeps recovery neutral.
+- Run the one-time 10-year Garmin bootstrap locally, audit it, and import it to production D1 in replace mode.
 - Add start-time weather/temperature enrichment if a reliable historical weather source is chosen; the new load model currently has no temperature adjustment because Garmin did not provide it in the audited DB.
 - Consider frontend code-splitting (maplibre-gl + recharts) — build warns the bundle exceeds 500 kB.
 - Optional: use stream `latlng` for a high-resolution single-activity zoom (overview currently uses the summary polyline).
@@ -137,3 +139,4 @@ Create a personal running companion that turns a runner's own training history i
 - 2026-07-08: Playwright smoke test against local Worker confirmed the Training page is the default view, renders 5 week blocks and 26 run rows, hover preview displays both route SVG and pace split SVG, and desktop/mobile have no document-level horizontal overflow. Screenshots saved to `progress/screenshots/training-log-desktop.png` and `progress/screenshots/training-log-mobile.png`. Initial 401 console messages were expected password-gate probes before unlock.
 - 2026-07-08: Deployed Worker/site version `3f4909f2-d12e-498a-97ae-054c0f60e43e` to `https://lydiard.lydiard.workers.dev`. Cache-bypassed production HTML references the new `index-DB27FhTk.js` / `index-ByM9t5bk.css` assets.
 - 2026-07-08: Manual GitHub workflow run `28943079504` on commit `804dc20` timed out/cancelled during `garmin extract` after 60 minutes. The log showed the CLI was fetching every daily health endpoint for 2016 onward because no `--data-types` filter was provided. Patched the workflow to pass `--data-types ACTIVITIES_LIST --data-types ACTIVITY` by default.
+- 2026-07-08: Cancelled follow-up 10-year activity-only GitHub workflow run `28947262937` after deciding that full historical bootstrap belongs locally, not inside the 60-minute scheduled runner.
