@@ -54,6 +54,7 @@ const baseUrl = (process.env.LYDIARD_BASE_URL ?? 'https://lydiard.lydiard.worker
 const ingestKey = process.env.LYDIARD_INGEST_KEY ?? process.env.AGENT_API_KEY;
 const dryRun = process.argv.includes('--dry-run');
 const replace = !process.argv.includes('--no-replace');
+const quiet = process.argv.includes('--quiet');
 const batchSize = positiveInteger(readArg('--batch-size') ?? process.env.GARMIN_IMPORT_BATCH_SIZE) ?? 25;
 const includeTypes = (process.env.GARMIN_IMPORT_ACTIVITY_TYPES ?? 'running')
   .split(',')
@@ -127,7 +128,9 @@ for (const [index, row] of candidates.entries()) {
   const activity = toIngestActivity(row, streams);
   recordActivityStats(activity);
   batch.push(activity);
-  console.log(`prepared garmin-${row.activity_id} ${row.activity_type_key} ${localDate(row.start_ts, row.timezone_offset_hours)}`);
+  if (!quiet) {
+    console.log(`prepared garmin-${row.activity_id} ${row.activity_type_key} ${localDate(row.start_ts, row.timezone_offset_hours)}`);
+  }
 
   const isFinalActivity = index === candidates.length - 1;
   if (!dryRun && (batch.length >= batchSize || isFinalActivity)) {
@@ -202,28 +205,48 @@ async function postBatch(
   activities: IngestActivity[],
   opts: { batchNumber: number; replace: boolean; recomputeWeeks: boolean },
 ): Promise<BatchResponse> {
-  const response = await fetch(`${baseUrl}/api/ingest/activities`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${ingestKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      source: 'garmin-health-data',
-      replace: opts.replace,
-      recomputeWeeks: opts.recomputeWeeks,
-      activities,
-    }),
+  const body = JSON.stringify({
+    source: 'garmin-health-data',
+    replace: opts.replace,
+    recomputeWeeks: opts.recomputeWeeks,
+    activities,
   });
-  const text = await response.text();
-  if (!response.ok) {
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/api/ingest/activities`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${ingestKey}`,
+          'Content-Type': 'application/json',
+        },
+        body,
+      });
+    } catch (error) {
+      if (attempt === maxAttempts) {
+        throw new Error(`Ingest batch ${opts.batchNumber} request failed after ${attempt} attempts: ${String(error)}`);
+      }
+      await sleep(backoffMs(attempt));
+      continue;
+    }
+
+    const text = await response.text();
+    if (response.ok) {
+      const parsed = JSON.parse(text) as BatchResponse;
+      console.log(
+        `uploaded batch ${opts.batchNumber}: ${parsed.upserted} activities, ${parsed.streamsSaved} streams, recomputeWeeks=${opts.recomputeWeeks}`,
+      );
+      return parsed;
+    }
+    if ((response.status === 429 || response.status >= 500) && attempt < maxAttempts) {
+      console.warn(`Ingest batch ${opts.batchNumber} attempt ${attempt} failed: ${response.status} ${text}`);
+      await sleep(backoffMs(attempt));
+      continue;
+    }
     throw new Error(`Ingest batch ${opts.batchNumber} failed: ${response.status} ${text}`);
   }
-  const parsed = JSON.parse(text) as BatchResponse;
-  console.log(
-    `uploaded batch ${opts.batchNumber}: ${parsed.upserted} activities, ${parsed.streamsSaved} streams, recomputeWeeks=${opts.recomputeWeeks}`,
-  );
-  return parsed;
+  throw new Error(`Ingest batch ${opts.batchNumber} failed unexpectedly.`);
 }
 
 function recordActivityStats(activity: IngestActivity): void {
@@ -397,6 +420,14 @@ function localDate(value: string, offsetHours: number): string {
 
 function timestampMs(value: string): number {
   return new Date(`${value.replace(' ', 'T')}Z`).getTime();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function backoffMs(attempt: number): number {
+  return Math.min(30_000, 2000 * 2 ** (attempt - 1));
 }
 
 function readArg(name: string): string | undefined {
