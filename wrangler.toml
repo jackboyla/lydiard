@@ -3,6 +3,12 @@ main = "worker/index.ts"
 compatibility_date = "2026-06-30"
 workers_dev = true
 
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/auth/*", "/openapi.json"]
+
 # Cloud cron — no local machine needed. Runs the Strava sync every 4 hours.
 [triggers]
 crons = ["0 */4 * * *"]
@@ -27,4 +33,3 @@ STRAVA_REDIRECT_URI = "https://lydiard.lydiard.workers.dev/auth/strava/callback"
 APP_ORIGIN = ""                # Pages origin allowed for browser CORS, e.g. https://lydiard.pages.dev
 STRAVA_FETCH_YEARS = "3"
 STREAMS_PER_RUN = "40"         # stream fetches per cron cycle (Strava rate-limit budget)
-

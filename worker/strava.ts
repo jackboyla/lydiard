@@ -36,6 +36,8 @@ export interface StravaActivity {
   average_cadence?: number;
   total_elevation_gain?: number;
   suffer_score?: number;
+  average_watts?: number;
+  weighted_average_watts?: number;
   average_speed?: number;
   start_latlng?: [number, number] | null;
   end_latlng?: [number, number] | null;
@@ -192,6 +194,7 @@ export function mapActivityToSummary(activity: StravaActivity): ActivitySummary 
     averageCadenceSpm: runLike ? normalizeRunCadence(activity.average_cadence) : activity.average_cadence,
     elevationGainM: activity.total_elevation_gain ?? 0,
     relativeEffort: activity.suffer_score,
+    averageWatts: firstUsefulPower(activity.average_watts, activity.weighted_average_watts),
     averageSpeed: activity.average_speed,
     startLat: activity.start_latlng?.[0],
     startLng: activity.start_latlng?.[1],
@@ -200,6 +203,23 @@ export function mapActivityToSummary(activity: StravaActivity): ActivitySummary 
     summaryPolyline: activity.map?.summary_polyline ?? undefined,
     hasStreams: false,
   };
+}
+
+function firstUsefulPower(...values: Array<number | undefined>): number | undefined {
+  for (const value of values) {
+    const normalized = normalizePower(value);
+    if (normalized !== undefined) {
+      return normalized;
+    }
+  }
+  return undefined;
+}
+
+function normalizePower(value?: number): number | undefined {
+  if (!value || !Number.isFinite(value) || value <= 0 || value > 2000) {
+    return undefined;
+  }
+  return value;
 }
 
 function normalizeRunCadence(value?: number): number | undefined {

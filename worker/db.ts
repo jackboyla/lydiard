@@ -82,6 +82,13 @@ export async function deleteAthlete(db: D1Database): Promise<void> {
   ]);
 }
 
+export async function clearAthleteConnection(db: D1Database): Promise<void> {
+  await db.batch([
+    db.prepare('DELETE FROM athlete'),
+    db.prepare('UPDATE sync_state SET last_error=NULL, rate_limit=NULL WHERE id=1'),
+  ]);
+}
+
 export async function upsertActivities(db: D1Database, activities: ActivitySummary[]): Promise<void> {
   if (activities.length === 0) {
     return;
@@ -92,16 +99,16 @@ export async function upsertActivities(db: D1Database, activities: ActivitySumma
       .prepare(
         `INSERT INTO activities (
            id, name, sport_type, start_date, start_date_local, distance_km, moving_time_s, elapsed_time_s,
-           average_heartrate, max_heartrate, average_cadence_spm, elevation_gain_m, relative_effort, average_speed,
+           average_heartrate, max_heartrate, average_cadence_spm, elevation_gain_m, relative_effort, average_watts, average_speed,
            start_lat, start_lng, end_lat, end_lng, summary_polyline, created_at, updated_at
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)
          ON CONFLICT(id) DO UPDATE SET
            name=excluded.name, sport_type=excluded.sport_type, start_date=excluded.start_date,
            start_date_local=excluded.start_date_local, distance_km=excluded.distance_km,
            moving_time_s=excluded.moving_time_s, elapsed_time_s=excluded.elapsed_time_s,
            average_heartrate=excluded.average_heartrate, max_heartrate=excluded.max_heartrate,
            average_cadence_spm=excluded.average_cadence_spm, elevation_gain_m=excluded.elevation_gain_m,
-           relative_effort=excluded.relative_effort, average_speed=excluded.average_speed,
+           relative_effort=excluded.relative_effort, average_watts=excluded.average_watts, average_speed=excluded.average_speed,
            start_lat=excluded.start_lat, start_lng=excluded.start_lng, end_lat=excluded.end_lat, end_lng=excluded.end_lng,
            summary_polyline=excluded.summary_polyline, updated_at=excluded.updated_at`,
       )
@@ -119,6 +126,7 @@ export async function upsertActivities(db: D1Database, activities: ActivitySumma
         activity.averageCadenceSpm ?? null,
         activity.elevationGainM,
         activity.relativeEffort ?? null,
+        activity.averageWatts ?? null,
         activity.averageSpeed ?? null,
         activity.startLat ?? null,
         activity.startLng ?? null,
@@ -146,6 +154,7 @@ interface ActivityRow {
   average_cadence_spm: number | null;
   elevation_gain_m: number;
   relative_effort: number | null;
+  average_watts: number | null;
   average_speed: number | null;
   start_lat: number | null;
   start_lng: number | null;
@@ -171,6 +180,7 @@ function rowToActivity(row: ActivityRow): StoredActivity {
     averageCadenceSpm: row.average_cadence_spm ?? undefined,
     elevationGainM: row.elevation_gain_m,
     relativeEffort: row.relative_effort ?? undefined,
+    averageWatts: row.average_watts ?? undefined,
     averageSpeed: row.average_speed ?? undefined,
     startLat: row.start_lat ?? undefined,
     startLng: row.start_lng ?? undefined,

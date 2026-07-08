@@ -1,0 +1,27 @@
+name: Garmin sync
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "20 */6 * * *"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Pull Garmin Connect and ingest
+        run: npm run garmin:sync
+        env:
+          GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          LYDIARD_INGEST_KEY: ${{ secrets.LYDIARD_INGEST_KEY }}
+          LYDIARD_BASE_URL: ${{ vars.LYDIARD_BASE_URL || 'https://lydiard.lydiard.workers.dev' }}
+          GARMIN_SYNC_DAYS: ${{ vars.GARMIN_SYNC_DAYS || '21' }}
+          GARMIN_LIMIT: ${{ vars.GARMIN_LIMIT || '80' }}
