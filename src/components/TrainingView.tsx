@@ -1,10 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Activity,
   CalendarDays,
   Gauge,
   HeartPulse,
+  ListFilter,
+  Map as MapIcon,
+  Mountain,
   ShieldAlert,
+  Timer,
   TrendingUp,
   Zap,
 } from 'lucide-react';
@@ -13,14 +17,22 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
 import { formatPace } from '../analysis/fatigue';
-import { activityPaceSecPerKm, toWeekIdUtc } from '../data/mapRoutes';
-import type { ActivitySummary, WeeklyAnalysis } from '../types';
+import {
+  buildTrainingLoadModel,
+  type SessionLoad,
+  type TrainingLoadModel,
+  type WeekLoadSummary,
+} from '../analysis/loadModel';
+import { getActivity } from '../data/api';
+import { activityPaceSecPerKm, decodePolyline } from '../data/mapRoutes';
+import type { ActivityDetail, ActivitySummary, WeeklyAnalysis } from '../types';
 
 interface TrainingViewProps {
   activities: ActivitySummary[];
@@ -28,65 +40,136 @@ interface TrainingViewProps {
   usingSample: boolean;
 }
 
-const QUICK_MONTHS = [3, 6, 12, 24];
+type RangeKey = '3m' | '6m' | '12m' | '10y' | 'all';
+
+const RANGE_OPTIONS: Array<{ key: RangeKey; label: string; months?: number }> = [
+  { key: 'all', label: 'All' },
+  { key: '3m', label: '3m', months: 3 },
+  { key: '6m', label: '6m', months: 6 },
+  { key: '12m', label: '12m', months: 12 },
+  { key: '10y', label: '10y', months: 120 },
+];
+
+const INITIAL_WEEK_COUNT = 12;
+const WEEK_CHUNK = 10;
 
 export function TrainingView({ activities, analyses, usingSample }: TrainingViewProps) {
-  const [months, setMonths] = useState(6);
+  const [range, setRange] = useState<RangeKey>('all');
+  const [visibleWeekCount, setVisibleWeekCount] = useState(INITIAL_WEEK_COUNT);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewDetail, setPreviewDetail] = useState<ActivityDetail | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const detailCache = useRef(new Map<string, ActivityDetail>());
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  const model = useMemo(() => buildTrainingModel(activities, analyses, months), [activities, analyses, months]);
-  const latest = model.chartRows[model.chartRows.length - 1];
-  const latestAnalysis = model.scopedAnalyses[model.scopedAnalyses.length - 1] ?? analyses[analyses.length - 1];
-  const projectedEasy = latestAnalysis ? formatPace(latestAnalysis.week.easyPaceSecPerKm) : '-';
-  const hrCoverage = model.runCount > 0 ? `${model.hrCount}/${model.runCount}` : '-';
-  const powerCoverage = model.runCount > 0 ? `${model.powerCount}/${model.runCount}` : '-';
+  const loadModel = useMemo(() => buildTrainingLoadModel(activities), [activities]);
+  const scoped = useMemo(() => scopeLoadModel(loadModel, range), [loadModel, range]);
+  const analysisByWeek = useMemo(
+    () => new Map(analyses.map((analysis) => [analysis.week.weekStart, analysis])),
+    [analyses],
+  );
+  const visibleWeeks = scoped.weeks.slice(0, visibleWeekCount);
+  const latestDaily = scoped.daily[scoped.daily.length - 1];
+  const latestSession = scoped.sessions[0];
+  const latestWeek = scoped.weeks[0];
+  const previewSession = previewId ? loadModel.sessionsById.get(previewId) : undefined;
+  const runCount = scoped.sessions.length;
+  const hrCount = scoped.sessions.filter((session) => session.activity.averageHeartRate).length;
+  const powerCount = scoped.sessions.filter((session) => session.activity.averageWatts).length;
+
+  useEffect(() => {
+    setVisibleWeekCount(INITIAL_WEEK_COUNT);
+  }, [range, loadModel.sessions.length]);
+
+  useEffect(() => {
+    const root = scrollerRef.current;
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel || visibleWeekCount >= scoped.weeks.length) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleWeekCount((current) => Math.min(scoped.weeks.length, current + WEEK_CHUNK));
+        }
+      },
+      { root, rootMargin: '420px 0px 420px 0px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [scoped.weeks.length, visibleWeekCount]);
+
+  useEffect(() => {
+    if (!previewId) {
+      setPreviewLoading(false);
+      return;
+    }
+    const cached = detailCache.current.get(previewId);
+    if (cached) {
+      setPreviewDetail(cached);
+      setPreviewLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setPreviewLoading(true);
+    getActivity(previewId)
+      .then((detail) => {
+        detailCache.current.set(previewId, detail);
+        if (!cancelled) {
+          setPreviewDetail(detail);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPreviewDetail(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPreviewLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewId]);
 
   return (
-    <main className="training-view" aria-label="Training history">
+    <main ref={scrollerRef} className="training-view training-log-view" aria-label="Training history">
       <section className="training-toolbar" aria-label="Training range">
         <div>
           <p className="eyebrow">
             <Activity size={15} aria-hidden="true" />
             Training log
           </p>
-          <h2>Last {months} months</h2>
+          <h2>All runs, scored by load</h2>
         </div>
         <div className="training-range-controls">
-          <div className="segmented compact-segmented" role="group" aria-label="Quick month range">
-            {QUICK_MONTHS.map((value) => (
+          <div className="segmented compact-segmented" role="group" aria-label="Training range">
+            {RANGE_OPTIONS.map((option) => (
               <button
-                key={value}
+                key={option.key}
                 type="button"
-                className={months === value ? 'active' : ''}
-                aria-pressed={months === value}
-                onClick={() => setMonths(value)}
+                className={range === option.key ? 'active' : ''}
+                aria-pressed={range === option.key}
+                onClick={() => setRange(option.key)}
               >
-                {value}m
+                {option.label}
               </button>
             ))}
           </div>
-          <label className="month-stepper" htmlFor="training-months">
-            <span>Months</span>
-            <input
-              id="training-months"
-              type="number"
-              min={1}
-              max={60}
-              step={1}
-              value={months}
-              onChange={(event) => setMonths(clampMonthInput(event.target.value))}
-            />
-          </label>
         </div>
       </section>
 
-      <section className="training-grid" aria-label="Fitness and fatigue">
+      <section className="training-load-grid" aria-label="Fitness and fatigue">
         <article className="chart-card training-chart-card">
           <div className="chart-header">
             <div>
               <p>Fitness and fatigue</p>
-              <h2>Personal load index</h2>
+              <h2>CTL / ATL load model</h2>
             </div>
-            <span className="chart-pill">0-100</span>
+            <span className="chart-pill">load points</span>
           </div>
           <div className="fitness-chart">
             <ResponsiveContainer
@@ -94,18 +177,12 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
               height="100%"
               minWidth={0}
               minHeight={0}
-              initialDimension={{ width: 900, height: 340 }}
+              initialDimension={{ width: 900, height: 320 }}
             >
-              <LineChart data={model.chartRows} margin={{ top: 14, right: 20, bottom: 4, left: 0 }}>
+              <LineChart data={scoped.chartRows} margin={{ top: 14, right: 20, bottom: 4, left: 0 }}>
                 <CartesianGrid stroke="#2c3440" vertical={false} />
-                <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#92a0b3', fontSize: 12 }} />
-                <YAxis
-                  domain={[0, 100]}
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fill: '#92a0b3', fontSize: 12 }}
-                  width={44}
-                />
+                <XAxis dataKey="label" minTickGap={28} tickLine={false} axisLine={false} tick={{ fill: '#92a0b3', fontSize: 12 }} />
+                <YAxis tickLine={false} axisLine={false} tick={{ fill: '#92a0b3', fontSize: 12 }} width={46} />
                 <Tooltip
                   cursor={{ stroke: '#465365', strokeWidth: 1 }}
                   contentStyle={{
@@ -115,30 +192,14 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
                     color: '#edf2f7',
                     boxShadow: '0 10px 30px rgba(0, 0, 0, 0.32)',
                   }}
-                  formatter={(value, name) => [`${Math.round(Number(value))}/100`, name]}
-                  labelFormatter={(_, payload) => payload?.[0]?.payload?.weekLabel ?? ''}
+                  formatter={(value, name) => [`${Number(value).toFixed(1)}`, name]}
+                  labelFormatter={(_, payload) => payload?.[0]?.payload?.fullLabel ?? ''}
                 />
                 <Legend verticalAlign="top" align="right" iconType="line" wrapperStyle={{ color: '#99a6b8' }} />
-                <Line
-                  type="monotone"
-                  dataKey="fitness"
-                  name="Fitness"
-                  stroke="#22b982"
-                  strokeWidth={3}
-                  dot={false}
-                  isAnimationActive={false}
-                  activeDot={{ r: 5, fill: '#22b982' }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="fatigue"
-                  name="Fatigue"
-                  stroke="#ff5a66"
-                  strokeWidth={3}
-                  dot={false}
-                  isAnimationActive={false}
-                  activeDot={{ r: 5, fill: '#ff5a66' }}
-                />
+                <ReferenceLine y={0} stroke="#465365" />
+                <Line type="monotone" dataKey="fitness" name="Fitness CTL" stroke="#22b982" strokeWidth={3} dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="fatigue" name="Fatigue ATL" stroke="#ff5a66" strokeWidth={3} dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="freshness" name="Freshness" stroke="#f2c94c" strokeWidth={2} dot={false} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -146,104 +207,294 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
 
         <aside className="training-kpis" aria-label="Current training metrics">
           <TrainingKpi
-            icon={<TrendingUp size={18} />}
-            label="Fitness"
-            value={latest ? `${latest.fitness}/100` : '-'}
-            detail={latestAnalysis ? `${latestAnalysis.week.chronicLoad} chronic` : 'no data'}
+            icon={<Timer size={18} />}
+            label="Latest load"
+            value={latestSession ? latestSession.load.toFixed(1) : '-'}
+            detail={latestSession ? formatRunDate(latestSession.activity.startDateLocal || latestSession.activity.startDate) : 'no runs'}
           />
           <TrainingKpi
             icon={<ShieldAlert size={18} />}
-            label="Fatigue"
-            value={latest ? `${latest.fatigue}/100` : '-'}
-            detail={latestAnalysis ? `${latestAnalysis.week.acuteLoad} acute` : 'no data'}
+            label="7-day fatigue"
+            value={latestDaily ? latestDaily.fatigue.toFixed(1) : '-'}
+            detail="ATL"
+          />
+          <TrainingKpi
+            icon={<TrendingUp size={18} />}
+            label="42-day fitness"
+            value={latestDaily ? latestDaily.fitness.toFixed(1) : '-'}
+            detail="CTL"
           />
           <TrainingKpi
             icon={<Gauge size={18} />}
-            label="Projected easy"
-            value={projectedEasy}
-            detail={latestAnalysis ? `${latestAnalysis.week.easyHeartRate} bpm anchor` : 'no data'}
+            label="Ramp"
+            value={latestDaily ? latestDaily.acwr.toFixed(2) : '-'}
+            detail="ATL / CTL"
           />
           <TrainingKpi
             icon={<CalendarDays size={18} />}
             label="Runs"
-            value={String(model.runCount)}
-            detail={`${Math.round(model.distanceKm)} km`}
+            value={String(runCount)}
+            detail={`${Math.round(scoped.distanceKm)} km`}
           />
           <TrainingKpi
             icon={<HeartPulse size={18} />}
-            label="Heart rate"
-            value={hrCoverage}
-            detail={model.averageHeartRate ? `${Math.round(model.averageHeartRate)} bpm avg` : 'not recorded'}
-          />
-          <TrainingKpi
-            icon={<Zap size={18} />}
-            label="Power"
-            value={powerCoverage}
-            detail={model.averageWatts ? `${Math.round(model.averageWatts)} W avg` : 'not recorded'}
+            label="HR / power"
+            value={`${hrCount}/${runCount} · ${powerCount}/${runCount}`}
+            detail="recorded coverage"
           />
         </aside>
       </section>
 
-      <section className="chart-card training-table-card" aria-label="Run history">
-        <div className="chart-header">
-          <div>
-            <p>Runs</p>
-            <h2>Heart rate, power, projected easy pace</h2>
+      <section className="training-log-shell" aria-label="Activity log">
+        <aside className="training-jump-rail" aria-label="Jump to month">
+          <div className="training-sticky-card">
+            <p className="rail-label">
+              <ListFilter size={14} aria-hidden="true" />
+              Jump
+            </p>
+            <nav>
+              {scoped.months.map((month) => (
+                <a key={month.id} href={`#month-${month.id}`}>
+                  <span>{month.label}</span>
+                  <small>{month.count}</small>
+                </a>
+              ))}
+            </nav>
           </div>
-          <span className="chart-pill">{model.runCount} runs</span>
+        </aside>
+
+        <div className="training-week-list">
+          {visibleWeeks.length > 0 ? (
+            visibleWeeks.map((week, index) => {
+              const previous = visibleWeeks[index - 1];
+              const currentMonth = monthIdFromWeek(week);
+              const showMonthAnchor = !previous || monthIdFromWeek(previous) !== currentMonth;
+              return (
+                <div key={week.weekId} className="training-week-block-wrap">
+                  {showMonthAnchor && <span id={`month-${currentMonth}`} className="month-anchor" />}
+                  <WeekBlock
+                    week={week}
+                    analysis={analysisByWeek.get(week.weekId)}
+                    previewId={previewId}
+                    onPreview={setPreviewId}
+                  />
+                </div>
+              );
+            })
+          ) : (
+            <div className="training-empty">
+              <Activity size={28} aria-hidden="true" />
+              <h3>{usingSample ? 'Import Garmin data for run rows' : 'No runs in this range'}</h3>
+            </div>
+          )}
+          {visibleWeekCount < scoped.weeks.length && <div ref={sentinelRef} className="training-scroll-sentinel" />}
         </div>
 
-        {model.rows.length > 0 ? (
-          <div className="training-table-wrap">
-            <table className="training-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Run</th>
-                  <th>Distance</th>
-                  <th>Pace</th>
-                  <th>Heart rate</th>
-                  <th>Power</th>
-                  <th>Projected easy</th>
-                  <th>Fitness</th>
-                  <th>Fatigue</th>
-                </tr>
-              </thead>
-              <tbody>
-                {model.rows.map((row) => (
-                  <tr key={row.activity.id}>
-                    <td>
-                      <strong>{formatRunDate(row.activity.startDateLocal || row.activity.startDate)}</strong>
-                      <span>{row.weekLabel}</span>
-                    </td>
-                    <td>
-                      <strong>{row.activity.name}</strong>
-                      <span>{row.activity.sportType}</span>
-                    </td>
-                    <td>{row.activity.distanceKm.toFixed(1)} km</td>
-                    <td>{formatPace(row.paceSecPerKm)}</td>
-                    <td>{row.activity.averageHeartRate ? `${Math.round(row.activity.averageHeartRate)} bpm` : '-'}</td>
-                    <td>{row.activity.averageWatts ? `${Math.round(row.activity.averageWatts)} W` : '-'}</td>
-                    <td>{row.projectedEasySecPerKm ? formatPace(row.projectedEasySecPerKm) : '-'}</td>
-                    <td>{row.fitnessIndex !== undefined ? `${row.fitnessIndex}/100` : '-'}</td>
-                    <td>
-                      <span className={`fatigue-chip ${row.severity ?? 'steady'}`}>
-                        {row.fatigueIndex !== undefined ? `${row.fatigueIndex}/100` : '-'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <aside className="training-preview-rail" aria-label="Activity preview">
+          <div className="training-sticky-card">
+            <HoverPreview detail={previewDetail} session={previewSession} loading={previewLoading} />
           </div>
-        ) : (
-          <div className="training-empty">
-            <Activity size={28} aria-hidden="true" />
-            <h3>{usingSample ? 'Import Garmin data for run rows' : 'No runs in this range'}</h3>
-          </div>
-        )}
+        </aside>
       </section>
     </main>
+  );
+}
+
+function WeekBlock({
+  week,
+  analysis,
+  previewId,
+  onPreview,
+}: {
+  week: WeekLoadSummary;
+  analysis?: WeeklyAnalysis;
+  previewId: string | null;
+  onPreview: (id: string) => void;
+}) {
+  const projectedEasy = analysis?.week.easyPaceSecPerKm;
+  return (
+    <article className={`training-week-block ${week.severity}`}>
+      <header className="training-week-head">
+        <div>
+          <p>{week.label}</p>
+          <h3>{week.status}</h3>
+        </div>
+        <div className="week-load-summary">
+          <Metric label="Load" value={week.load.toFixed(1)} />
+          <Metric label="Fitness" value={week.fitness.toFixed(1)} />
+          <Metric label="Fatigue" value={week.fatigue.toFixed(1)} />
+          <Metric label="Freshness" value={week.freshness.toFixed(1)} />
+          <Metric label="Ramp" value={week.acwr.toFixed(2)} />
+        </div>
+      </header>
+      <div className="week-risk-row">
+        <span>{week.activityCount} runs</span>
+        <span>{week.distanceKm.toFixed(1)} km</span>
+        <span>{week.durationHours.toFixed(1)} h</span>
+        <span>{Math.round(week.hardShare * 100)}% hard load</span>
+        <span>{Math.round(week.longRunShare * 100)}% long-run share</span>
+        {projectedEasy && <span>easy {formatPace(projectedEasy)}</span>}
+      </div>
+      {week.flags.length > 0 && (
+        <div className="week-flags">
+          {week.flags.map((flag) => (
+            <span key={flag}>{flag}</span>
+          ))}
+        </div>
+      )}
+      <div className="run-log-table" role="table" aria-label={`${week.label} runs`}>
+        <div className="run-log-header" role="row">
+          <span>Run</span>
+          <span>Time</span>
+          <span>Pace</span>
+          <span>Elev</span>
+          <span>HR</span>
+          <span>Power</span>
+          <span>Load</span>
+          <span>Split</span>
+        </div>
+        {[...week.sessions].reverse().map((session) => (
+          <RunRow
+            key={session.activity.id}
+            session={session}
+            projectedEasySecPerKm={projectedEasy}
+            active={previewId === session.activity.id}
+            onPreview={onPreview}
+          />
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function RunRow({
+  session,
+  projectedEasySecPerKm,
+  active,
+  onPreview,
+}: {
+  session: SessionLoad;
+  projectedEasySecPerKm?: number;
+  active: boolean;
+  onPreview: (id: string) => void;
+}) {
+  const activity = session.activity;
+  return (
+    <button
+      type="button"
+      className={`run-log-row ${active ? 'active' : ''}`}
+      onMouseEnter={() => onPreview(activity.id)}
+      onFocus={() => onPreview(activity.id)}
+      onClick={() => onPreview(activity.id)}
+    >
+      <span className="run-log-main">
+        <strong>{activity.name}</strong>
+        <small>
+          {formatRunDate(activity.startDateLocal || activity.startDate)}
+          {projectedEasySecPerKm ? ` · easy ${formatPace(projectedEasySecPerKm)}` : ''}
+        </small>
+      </span>
+      <RunCell icon={<Timer size={15} />} value={formatDuration(activity.movingTimeSec)} />
+      <RunCell value={formatPace(activityPaceSecPerKm(activity))} />
+      <RunCell icon={<Mountain size={15} />} value={`${Math.round(activity.elevationGainM)} m`} />
+      <RunCell icon={<HeartPulse size={15} />} value={activity.averageHeartRate ? `${Math.round(activity.averageHeartRate)}` : '-'} detail="bpm" />
+      <RunCell icon={<Zap size={15} />} value={activity.averageWatts ? `${Math.round(activity.averageWatts)}` : '-'} detail="W" />
+      <RunCell value={session.load.toFixed(1)} detail={`IF ${session.externalIntensityFactor.toFixed(2)}`} />
+      <RunCell value={formatDecoupling(activity.decouplingPct)} detail={session.reliability.replaceAll('-', ' + ')} />
+    </button>
+  );
+}
+
+function HoverPreview({
+  detail,
+  session,
+  loading,
+}: {
+  detail: ActivityDetail | null;
+  session?: SessionLoad;
+  loading: boolean;
+}) {
+  if (!session) {
+    return (
+      <div className="training-hover-empty">
+        <MapIcon size={24} aria-hidden="true" />
+        <h3>Hover a run</h3>
+        <p>Route and pace-over-time split preview appears here.</p>
+      </div>
+    );
+  }
+
+  const activity = detail ?? session.activity;
+  const split = detail ? splitPaces(detail) : undefined;
+
+  return (
+    <div className="training-hover-preview">
+      <div className="preview-head">
+        <div>
+          <p>{formatRunDate(activity.startDateLocal || activity.startDate)}</p>
+          <h3>{activity.name}</h3>
+        </div>
+        {loading && <span>loading</span>}
+      </div>
+      <RoutePreview detail={detail ?? session.activity} />
+      <SplitsPreview detail={detail} />
+      <div className="preview-stat-grid">
+        <Metric label="Load" value={session.load.toFixed(1)} />
+        <Metric label="External" value={session.externalLoad.toFixed(1)} />
+        <Metric label="HR" value={session.internalLoad?.toFixed(1) ?? '-'} />
+        <Metric label="Power" value={session.powerLoad?.toFixed(1) ?? '-'} />
+      </div>
+      <div className="preview-stat-grid">
+        <Metric label="IF" value={session.externalIntensityFactor.toFixed(2)} />
+        <Metric label="HR cost" value={session.hiddenCostPct === undefined ? '-' : `${session.hiddenCostPct > 0 ? '+' : ''}${session.hiddenCostPct.toFixed(1)}%`} />
+        <Metric label="W/bpm" value={session.powerHrRatio?.toFixed(2) ?? '-'} />
+        <Metric label="Split" value={split ? `${formatPace(split.first)} / ${formatPace(split.second)}` : formatDecoupling(activity.decouplingPct)} />
+      </div>
+      {session.flags.length > 0 && (
+        <div className="preview-flags">
+          {session.flags.map((flag) => (
+            <span key={flag}>{flag}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RoutePreview({ detail }: { detail: ActivityDetail | ActivitySummary }) {
+  const points = routePoints(detail);
+  const path = pointsToPath(points, 320, 154);
+  return (
+    <div className="route-preview" aria-hidden="true">
+      {path ? (
+        <svg viewBox="0 0 320 154" role="img">
+          <path d={path} />
+        </svg>
+      ) : (
+        <span>No route stream</span>
+      )}
+    </div>
+  );
+}
+
+function SplitsPreview({ detail }: { detail: ActivityDetail | null }) {
+  const path = paceStreamPath(detail, 320, 116);
+  const split = detail ? splitPaces(detail) : undefined;
+  return (
+    <div className="splits-preview" aria-label="Pace over time">
+      <div className="splits-head">
+        <span>Pace over time</span>
+        <small>{split ? `${formatPace(split.first)} / ${formatPace(split.second)}` : 'stream pending'}</small>
+      </div>
+      {path ? (
+        <svg viewBox="0 0 320 116" role="img">
+          <line x1="0" y1="58" x2="320" y2="58" />
+          <path d={path} />
+        </svg>
+      ) : (
+        <div className="split-placeholder">Hover data is loading or this run has no speed stream.</div>
+      )}
+    </div>
   );
 }
 
@@ -253,7 +504,7 @@ function TrainingKpi({
   value,
   detail,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value: string;
   detail: string;
@@ -270,72 +521,170 @@ function TrainingKpi({
   );
 }
 
-function buildTrainingModel(activities: ActivitySummary[], analyses: WeeklyAnalysis[], months: number) {
-  const maxLoad = Math.max(
-    1,
-    ...analyses.flatMap((analysis) => [analysis.week.acuteLoad, analysis.week.chronicLoad]),
+function RunCell({ icon, value, detail }: { icon?: ReactNode; value: string; detail?: string }) {
+  return (
+    <span className="run-cell">
+      <span>
+        {icon}
+        <strong>{value}</strong>
+      </span>
+      {detail && <small>{detail}</small>}
+    </span>
   );
-  const weekById = new Map(analyses.map((analysis) => [analysis.week.weekStart, analysis]));
-  const anchorMs = latestTimestamp(activities, analyses);
-  const fromMs = subtractMonths(anchorMs, months);
+}
 
-  const scopedAnalyses = analyses.filter((analysis) => new Date(analysis.week.weekStart).getTime() >= fromMs);
-  const scopedActivities = activities
-    .filter((activity) => isRunLike(activity))
-    .filter((activity) => new Date(activity.startDate).getTime() >= fromMs)
-    .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="compact-metric">
+      <small>{label}</small>
+      <strong>{value}</strong>
+    </span>
+  );
+}
 
-  const chartRows = scopedAnalyses.map((analysis) => ({
-    label: formatWeekTick(analysis.week.weekStart),
-    weekLabel: analysis.week.label,
-    fitness: loadIndex(analysis.week.chronicLoad, maxLoad),
-    fatigue: loadIndex(analysis.week.acuteLoad, maxLoad),
+function scopeLoadModel(model: TrainingLoadModel, range: RangeKey) {
+  const option = RANGE_OPTIONS.find((item) => item.key === range);
+  const latestMs = model.sessions[model.sessions.length - 1]
+    ? new Date(model.sessions[model.sessions.length - 1].activity.startDate).getTime()
+    : Date.now();
+  const fromMs = option?.months ? subtractMonths(latestMs, option.months) : -Infinity;
+  const sessionsAsc = model.sessions.filter((session) => new Date(session.activity.startDate).getTime() >= fromMs);
+  const sessions = [...sessionsAsc].reverse();
+  const weekIds = new Set(sessionsAsc.map((session) => session.weekId));
+  const weeks = model.weeks.filter((week) => weekIds.has(week.weekId)).reverse();
+  const days = new Set(sessionsAsc.map((session) => session.day));
+  const daily = model.daily.filter((point) => new Date(`${point.day}T00:00:00Z`).getTime() >= fromMs || days.has(point.day));
+  const chartRows = daily.map((point) => ({
+    label: formatChartTick(point.day),
+    fullLabel: point.day,
+    fitness: point.fitness,
+    fatigue: point.fatigue,
+    freshness: point.freshness,
   }));
 
-  const rows = scopedActivities.map((activity) => {
-    const weekId = toWeekIdUtc(activity.startDate);
-    const analysis = weekById.get(weekId);
-    return {
-      activity,
-      paceSecPerKm: activityPaceSecPerKm(activity),
-      weekLabel: analysis?.week.label ?? formatWeekTick(weekId),
-      projectedEasySecPerKm: analysis?.week.easyPaceSecPerKm,
-      fitnessIndex: analysis ? loadIndex(analysis.week.chronicLoad, maxLoad) : undefined,
-      fatigueIndex: analysis ? loadIndex(analysis.week.acuteLoad, maxLoad) : undefined,
-      severity: analysis?.severity,
-    };
-  });
-
-  const hrWeighted = weightedAverage(
-    scopedActivities
-      .filter((activity) => activity.averageHeartRate)
-      .map((activity) => [activity.averageHeartRate as number, activity.movingTimeSec] as const),
-  );
-  const powerWeighted = weightedAverage(
-    scopedActivities
-      .filter((activity) => activity.averageWatts)
-      .map((activity) => [activity.averageWatts as number, activity.movingTimeSec] as const),
-  );
-
   return {
-    scopedAnalyses,
+    sessions,
+    weeks,
+    daily,
     chartRows,
-    rows,
-    runCount: scopedActivities.length,
-    distanceKm: scopedActivities.reduce((total, activity) => total + activity.distanceKm, 0),
-    hrCount: scopedActivities.filter((activity) => activity.averageHeartRate).length,
-    powerCount: scopedActivities.filter((activity) => activity.averageWatts).length,
-    averageHeartRate: hrWeighted,
-    averageWatts: powerWeighted,
+    months: buildMonthNav(sessions),
+    distanceKm: sessions.reduce((total, session) => total + session.activity.distanceKm, 0),
   };
 }
 
-function latestTimestamp(activities: ActivitySummary[], analyses: WeeklyAnalysis[]): number {
-  const timestamps = [
-    ...activities.map((activity) => new Date(activity.startDate).getTime()),
-    ...analyses.map((analysis) => new Date(analysis.week.weekStart).getTime()),
-  ].filter(Number.isFinite);
-  return timestamps.length > 0 ? Math.max(...timestamps) : Date.now();
+function buildMonthNav(sessions: SessionLoad[]) {
+  const months = new Map<string, { id: string; label: string; count: number }>();
+  for (const session of sessions) {
+    const id = session.day.slice(0, 7);
+    const existing = months.get(id);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      months.set(id, { id, label: formatMonthLabel(session.day), count: 1 });
+    }
+  }
+  return [...months.values()];
+}
+
+function monthIdFromWeek(week: WeekLoadSummary): string {
+  const latestSession = week.sessions[week.sessions.length - 1];
+  return (latestSession?.day ?? week.weekId).slice(0, 7);
+}
+
+function routePoints(detail: ActivityDetail | ActivitySummary): Array<[number, number]> {
+  if ('streams' in detail && detail.streams?.latlng?.length) {
+    return detail.streams.latlng;
+  }
+  if (detail.summaryPolyline) {
+    return decodePolyline(detail.summaryPolyline).map(([lng, lat]) => [lat, lng]);
+  }
+  return [];
+}
+
+function pointsToPath(points: Array<[number, number]>, width: number, height: number): string {
+  if (points.length < 2) {
+    return '';
+  }
+  const latitudes = points.map(([lat]) => lat);
+  const longitudes = points.map(([, lng]) => lng);
+  const minLat = Math.min(...latitudes);
+  const maxLat = Math.max(...latitudes);
+  const minLng = Math.min(...longitudes);
+  const maxLng = Math.max(...longitudes);
+  const pad = 14;
+  const usableWidth = width - pad * 2;
+  const usableHeight = height - pad * 2;
+  return points
+    .map(([lat, lng], index) => {
+      const x = pad + ((lng - minLng) / Math.max(maxLng - minLng, 0.000001)) * usableWidth;
+      const y = pad + ((maxLat - lat) / Math.max(maxLat - minLat, 0.000001)) * usableHeight;
+      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(' ');
+}
+
+function paceStreamPath(detail: ActivityDetail | null, width: number, height: number): string {
+  const time = detail?.streams?.timeSec;
+  const velocity = detail?.streams?.velocity;
+  if (!time || !velocity) {
+    return '';
+  }
+  const n = Math.min(time.length, velocity.length);
+  const points: Array<[number, number]> = [];
+  for (let index = 0; index < n; index += 1) {
+    const pace = velocity[index] > 0 ? 1000 / velocity[index] : 0;
+    if (Number.isFinite(pace) && pace >= 140 && pace <= 720) {
+      points.push([time[index], pace]);
+    }
+  }
+  if (points.length < 2) {
+    return '';
+  }
+  const stride = Math.max(1, Math.ceil(points.length / 180));
+  const sampled = points.filter((_, index) => index % stride === 0 || index === points.length - 1);
+  const minTime = sampled[0][0];
+  const maxTime = sampled[sampled.length - 1][0];
+  const paces = sampled.map(([, pace]) => pace);
+  const fast = percentile(paces, 0.08) ?? Math.min(...paces);
+  const slow = percentile(paces, 0.92) ?? Math.max(...paces);
+  const pad = 10;
+  const usableWidth = width - pad * 2;
+  const usableHeight = height - pad * 2;
+  return sampled
+    .map(([seconds, pace], index) => {
+      const x = pad + ((seconds - minTime) / Math.max(maxTime - minTime, 1)) * usableWidth;
+      const y = pad + ((pace - fast) / Math.max(slow - fast, 1)) * usableHeight;
+      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(' ');
+}
+
+function splitPaces(detail: ActivityDetail): { first: number; second: number } | undefined {
+  const time = detail.streams?.timeSec;
+  const distance = detail.streams?.distanceM;
+  if (!time || !distance) {
+    return undefined;
+  }
+  const n = Math.min(time.length, distance.length);
+  if (n < 6) {
+    return undefined;
+  }
+  const midTime = time[0] + (time[n - 1] - time[0]) / 2;
+  let mid = 1;
+  while (mid < n - 1 && time[mid] < midTime) {
+    mid += 1;
+  }
+  const firstTime = time[mid] - time[0];
+  const secondTime = time[n - 1] - time[mid];
+  const firstDistanceKm = (distance[mid] - distance[0]) / 1000;
+  const secondDistanceKm = (distance[n - 1] - distance[mid]) / 1000;
+  if (firstTime <= 0 || secondTime <= 0 || firstDistanceKm <= 0 || secondDistanceKm <= 0) {
+    return undefined;
+  }
+  return {
+    first: firstTime / firstDistanceKm,
+    second: secondTime / secondDistanceKm,
+  };
 }
 
 function subtractMonths(anchorMs: number, months: number): number {
@@ -344,34 +693,40 @@ function subtractMonths(anchorMs: number, months: number): number {
   return date.getTime();
 }
 
-function loadIndex(value: number, maxLoad: number): number {
-  return Math.round(Math.min(100, Math.max(0, (value / maxLoad) * 100)));
-}
-
-function weightedAverage(values: ReadonlyArray<readonly [number, number]>): number | undefined {
-  const totalWeight = values.reduce((total, [, weight]) => total + weight, 0);
-  if (totalWeight <= 0) {
-    return undefined;
-  }
-  return values.reduce((total, [value, weight]) => total + value * weight, 0) / totalWeight;
-}
-
-function isRunLike(activity: ActivitySummary): boolean {
-  return /run|jog|race/i.test(`${activity.sportType} ${activity.name}`);
-}
-
-function clampMonthInput(value: string): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return 1;
-  }
-  return Math.min(60, Math.max(1, Math.round(parsed)));
-}
-
 function formatRunDate(iso: string): string {
   return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
 }
 
-function formatWeekTick(iso: string): string {
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(new Date(iso));
+function formatMonthLabel(day: string): string {
+  return new Intl.DateTimeFormat('en-GB', { month: 'short', year: 'numeric' }).format(new Date(`${day}T00:00:00Z`));
+}
+
+function formatChartTick(day: string): string {
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(new Date(`${day}T00:00:00Z`));
+}
+
+function formatDuration(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.round(totalSeconds % 60);
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatDecoupling(value?: number): string {
+  if (value === undefined) {
+    return '-';
+  }
+  return `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
+}
+
+function percentile(values: number[], ratio: number): number | undefined {
+  const clean = values.filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
+  if (clean.length === 0) {
+    return undefined;
+  }
+  const index = Math.min(clean.length - 1, Math.max(0, Math.round((clean.length - 1) * ratio)));
+  return clean[index];
 }
