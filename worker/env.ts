@@ -10,6 +10,7 @@ export interface Env {
 
   // Agent access
   AGENT_API_KEY: string; // secret — bearer token for /api/agent/*
+  INGEST_API_KEY?: string; // optional separate bearer token for external Garmin/file ingest
 
   // Human-facing map/dashboard gate. When set, the public /api/* read endpoints
   // require this password (sent by the frontend). Unset => endpoints stay open.

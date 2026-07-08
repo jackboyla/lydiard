@@ -1,8 +1,9 @@
 # Agent API — query your training from ChatGPT (or any agent)
 
-Lydiard's Cloudflare Worker exposes a small, **API-key-secured** REST surface designed for AI
-agents. It reads the same D1 store the map and dashboard use, so an agent can analyze any time
-period and produce injury-risk assessments and 1–3 week training plans.
+Lydiard's Cloudflare Worker serves both the phone-accessible web app and a small,
+**API-key-secured** REST surface designed for AI agents. It reads the same D1 store the map,
+training log, and dashboard use, so an agent can analyze any time period and produce injury-risk
+assessments and 1–3 week training plans.
 
 - **Base URL:** `https://lydiard.<your-subdomain>.workers.dev`
 - **Auth:** every `/api/agent/*` call needs `Authorization: Bearer <AGENT_API_KEY>`
@@ -50,10 +51,11 @@ npm run d1:migrate            # remote (production)
 # 3. Set secrets
 npx wrangler secret put STRAVA_CLIENT_SECRET
 npx wrangler secret put AGENT_API_KEY        # generate a long random string
+npx wrangler secret put SITE_PASSWORD        # password for the phone/desktop web app
 
 # 4. Fill wrangler.toml [vars]: STRAVA_CLIENT_ID, STRAVA_REDIRECT_URI, APP_ORIGIN
 
-# 5. Deploy the Worker (includes the every-4-hours cron sync)
+# 5. Deploy the Worker (includes the web app, API, and every-4-hours cron sync)
 npm run worker:deploy
 
 # 6. Connect Strava once (stores the refresh token in D1, kicks off the first sync)
@@ -63,8 +65,22 @@ open https://lydiard.<your-subdomain>.workers.dev/auth/strava/login
 In your Strava API app settings, set the **Authorization Callback Domain** to your Worker's host
 (e.g. `lydiard.<your-subdomain>.workers.dev`).
 
-The cron keeps the store fresh with no machine running at home; streams (full GPS + HR, and true
-HR-pace decoupling) backfill a batch each cycle to stay within Strava's rate limits.
+The same `workers.dev` URL serves the app on desktop and phone. The cron keeps the store fresh with
+no machine running at home; streams (full GPS + HR, and true HR-pace decoupling) backfill a batch
+each cycle to stay within Strava's rate limits.
+
+If sync returns `403 Application Status Inactive`, the Worker has reached Strava but Strava is
+rejecting the API app. Check the API app owner account at `https://www.strava.com/settings/api`,
+make sure the app's developer tier/status is active, and verify the callback domain. Once active,
+sync again; if you changed client credentials, clear the stored Strava connection in the site header
+and reconnect.
+
+## Script ingest
+
+External sync jobs can post normalized activities to `POST /api/ingest/activities` with
+`Authorization: Bearer <INGEST_API_KEY>`. The experimental Garmin workflow uses this route after it
+downloads and parses FIT files. The route upserts activities, stores streams, recomputes weekly
+features, and updates sync status.
 
 ## Security notes
 

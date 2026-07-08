@@ -174,6 +174,7 @@ export function buildOpenApiDocument(origin: string): unknown {
         averageCadenceSpm: num,
         elevationGainM: num,
         relativeEffort: num,
+        averageWatts: num,
         averageSpeed: num,
         hasStreams: bool,
         decouplingPct: num,

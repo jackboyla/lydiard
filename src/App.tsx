@@ -10,11 +10,13 @@ import {
   ShieldAlert,
   Sparkles,
   TrendingUp,
+  Unlink,
 } from 'lucide-react';
 import { analyzeWeeks, formatPace } from './analysis/fatigue';
 import { IndicatorList } from './components/IndicatorList';
 import { LoadStory } from './components/LoadStory';
 import { MapView } from './components/MapView';
+import { TrainingView } from './components/TrainingView';
 import { TrendPanel } from './components/TrendPanel';
 import {
   getActivities,
@@ -22,6 +24,7 @@ import {
   getSiteKey,
   getSyncStatus,
   getWeeks,
+  disconnectStrava,
   setSiteKey,
   SiteUnauthorizedError,
   stravaLoginUrl,
@@ -40,7 +43,7 @@ import type {
 } from './types';
 
 type RangePreset = '4w' | '12w' | '6mo' | '1y' | 'all';
-type ViewMode = 'map' | 'dashboard';
+type ViewMode = 'map' | 'training' | 'dashboard';
 
 const RANGE_DAYS: Record<RangePreset, number> = {
   '4w': 28,
@@ -120,6 +123,9 @@ export default function App() {
       setApiWeeks(nextWeeks);
       setActivities(nextActivities);
       setNeedsPassword(false);
+      if (nextStatus.lastError) {
+        setLoadError(formatSyncError(nextStatus.lastError));
+      }
     } catch (error) {
       if (error instanceof SiteUnauthorizedError) {
         setNeedsPassword(true);
@@ -199,6 +205,23 @@ export default function App() {
     }
   }, [loadData]);
 
+  const handleDisconnectStrava = useCallback(async () => {
+    const confirmed = window.confirm(
+      'Clear the stored Strava connection? Existing synced training rows will stay, but new syncs will require reconnecting Strava.',
+    );
+    if (!confirmed) {
+      return;
+    }
+    try {
+      await disconnectStrava();
+      setBanner('Strava connection cleared. Reconnect after the Strava API app is active.');
+      setLoadError('');
+      await loadData();
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Could not clear the Strava connection.');
+    }
+  }, [loadData]);
+
   const handleFileImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -251,24 +274,35 @@ export default function App() {
           </div>
 
           {view === 'map' && (
-            <Segmented
-              ariaLabel="Route color"
-              options={COLOR_OPTIONS.map((option) => ({ key: option.key, label: option.label }))}
-              value={colorBy}
-              onChange={(next) => setColorBy(next as ColorBy)}
-            />
-          )}
+            <>
+              <Segmented
+                ariaLabel="Route color"
+                options={COLOR_OPTIONS.map((option) => ({ key: option.key, label: option.label }))}
+                value={colorBy}
+                onChange={(next) => setColorBy(next as ColorBy)}
+              />
 
-          <Segmented
-            ariaLabel="Date range"
-            options={(Object.keys(RANGE_DAYS) as RangePreset[]).map((key) => ({ key, label: RANGE_LABELS[key] }))}
-            value={range}
-            onChange={(next) => setRange(next as RangePreset)}
-          />
+              <Segmented
+                ariaLabel="Date range"
+                options={(Object.keys(RANGE_DAYS) as RangePreset[]).map((key) => ({ key, label: RANGE_LABELS[key] }))}
+                value={range}
+                onChange={(next) => setRange(next as RangePreset)}
+              />
+            </>
+          )}
 
           <div className="view-toggle" role="tablist" aria-label="View">
             <button role="tab" aria-selected={view === 'map'} className={view === 'map' ? 'active' : ''} type="button" onClick={() => setView('map')}>
               <MapIcon size={16} aria-hidden="true" /> Map
+            </button>
+            <button
+              role="tab"
+              aria-selected={view === 'training'}
+              className={view === 'training' ? 'active' : ''}
+              type="button"
+              onClick={() => setView('training')}
+            >
+              <Activity size={16} aria-hidden="true" /> Training
             </button>
             <button role="tab" aria-selected={view === 'dashboard'} className={view === 'dashboard' ? 'active' : ''} type="button" onClick={() => setView('dashboard')}>
               <Gauge size={16} aria-hidden="true" /> Dashboard
@@ -285,6 +319,17 @@ export default function App() {
           >
             <RefreshCw size={17} aria-hidden="true" className={isSyncing ? 'spin' : ''} />
           </button>
+          {status?.connected && (
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="Clear Strava connection"
+              title="Clear Strava connection"
+              onClick={handleDisconnectStrava}
+            >
+              <Unlink size={17} aria-hidden="true" />
+            </button>
+          )}
           <button className="icon-button" type="button" aria-label="Import CSV" title="Import activity CSV" onClick={() => fileInputRef.current?.click()}>
             <ArrowDownToLine size={17} aria-hidden="true" />
           </button>
@@ -339,6 +384,8 @@ export default function App() {
             )}
           </aside>
         </main>
+      ) : view === 'training' ? (
+        <TrainingView activities={activities} analyses={usingSample ? [] : analyses} usingSample={usingSample} />
       ) : (
         <main className="dashboard">
           <section className="overview-grid" aria-label="Current analysis">
@@ -466,6 +513,17 @@ function formatDateRange(range?: { first: string | null; last: string | null }):
   return `${format(range.first)} – ${format(range.last)}`;
 }
 
+function formatSyncError(error: string): string {
+  if (/Application.*Status.*Inactive|Status.*Inactive|Application Status Inactive/i.test(error)) {
+    return (
+      'Last Strava sync failed because the Strava API app is inactive. Reactivate the app in Strava API settings ' +
+      '(Standard Tier now requires active developer access/subscription), then reconnect Strava or sync again.'
+    );
+  }
+  const message = error.length > 180 ? `${error.slice(0, 177)}...` : error;
+  return `Last Strava sync failed: ${message}`;
+}
+
 function Segmented({
   options,
   value,
@@ -579,6 +637,7 @@ function ActivityCard({
         <Stat label="Time" value={formatDuration(detail.movingTimeSec)} />
         <Stat label="Pace" value={pace ? formatPace(pace) : '—'} />
         <Stat label="Avg HR" value={detail.averageHeartRate ? `${Math.round(detail.averageHeartRate)} bpm` : '—'} />
+        <Stat label="Power" value={detail.averageWatts ? `${Math.round(detail.averageWatts)} W` : '—'} />
         <Stat label="Elev gain" value={`${Math.round(detail.elevationGainM)} m`} />
         <Stat label="Cadence" value={detail.averageCadenceSpm ? `${Math.round(detail.averageCadenceSpm)} spm` : '—'} />
         <Stat

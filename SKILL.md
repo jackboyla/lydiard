@@ -39,7 +39,7 @@ Optional `from` / `to` (`YYYY-MM-DD`) change the trend window; with no params it
 1. **Injury risk.** Combine `current.riskScore`/`severity` with `loadStatus.acRatio`
    (≳1.4 = spike, classic risk) and any drift in `weeklyTrend`: falling `strideLengthCm`, rising
    `hrPaceDecouplingPct`, or slower `easyPaceSecPerKm` vs earlier weeks are the key warning signs.
-   Everything is judged against the runner's OWN rolling baseline, not population norms.
+   Everything is judged against the runner's OWN rolling baseline, not population norms.close wor
 2. **Plan the next 1–3 weeks.** Recommend target weekly volume (km), number of quality sessions,
    long-run distance, and recovery guidance. Progress conservatively when severity is `watch`/`high`
    and keep the acute/chronic ratio in a safe band (~0.8–1.3).

@@ -89,6 +89,7 @@ export interface ActivitySummary {
   averageCadenceSpm?: number;
   elevationGainM: number;
   relativeEffort?: number;
+  averageWatts?: number;
   averageSpeed?: number; // m/s
   startLat?: number;
   startLng?: number;

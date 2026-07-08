@@ -47,6 +47,7 @@ function makeActivity(index: number, daysAgo: number): Fixture {
   const hr = Math.round((isQuality ? 168 : 146) + fatigue * 0.4 + (index % 3));
   const cadence = 176 + (index % 6);
   const elevation = 30 + (index % 5) * 18;
+  const watts = Math.round((isQuality ? 265 : 205) + distanceKm * 1.5 + fatigue * 0.8);
   const route = jitterRoute(index, isLong ? 1.6 : 1);
   const encoded = polyline.encode(route);
 
@@ -64,6 +65,7 @@ function makeActivity(index: number, daysAgo: number): Fixture {
     averageCadenceSpm: cadence,
     elevationGainM: elevation,
     relativeEffort: Math.round(distanceKm * (isQuality ? 9 : 5)),
+    averageWatts: index % 4 === 1 ? undefined : watts,
     averageSpeed: 1000 / pace,
     startLat: route[0][0],
     startLng: route[0][1],
@@ -121,12 +123,12 @@ lines.push(
 for (const { summary } of fixtures) {
   lines.push(
     `INSERT INTO activities (id, name, sport_type, start_date, start_date_local, distance_km, moving_time_s, elapsed_time_s, ` +
-      `average_heartrate, max_heartrate, average_cadence_spm, elevation_gain_m, relative_effort, average_speed, ` +
+      `average_heartrate, max_heartrate, average_cadence_spm, elevation_gain_m, relative_effort, average_watts, average_speed, ` +
       `start_lat, start_lng, end_lat, end_lng, summary_polyline, has_streams, decoupling_pct, created_at, updated_at) VALUES (` +
       `${q(summary.id)}, ${q(summary.name)}, ${q(summary.sportType)}, ${q(summary.startDate)}, ${q(summary.startDateLocal)}, ` +
       `${num(summary.distanceKm)}, ${num(summary.movingTimeSec)}, ${num(summary.elapsedTimeSec)}, ${num(summary.averageHeartRate)}, ` +
       `${num(summary.maxHeartRate)}, ${num(summary.averageCadenceSpm)}, ${num(summary.elevationGainM)}, ${num(summary.relativeEffort)}, ` +
-      `${num(summary.averageSpeed)}, ${num(summary.startLat)}, ${num(summary.startLng)}, ${num(summary.endLat)}, ${num(summary.endLng)}, ` +
+      `${num(summary.averageWatts)}, ${num(summary.averageSpeed)}, ${num(summary.startLat)}, ${num(summary.startLng)}, ${num(summary.endLat)}, ${num(summary.endLng)}, ` +
       `${q(summary.summaryPolyline as string)}, 0, NULL, ${q(now)}, ${q(now)});`,
   );
 }

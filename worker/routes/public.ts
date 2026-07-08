@@ -3,6 +3,7 @@ import type { ActivityDetail, SyncStatus, WeeklyAnalysis } from '../../src/types
 import { analyzeWeeks } from '../../src/analysis/fatigue';
 import type { Env } from '../env';
 import {
+  clearAthleteConnection,
   getActivities,
   getActivity,
   getAthlete,
@@ -106,6 +107,11 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
       }),
     );
     return c.json({ ok: true, message: 'Sync started.' }, 202);
+  });
+
+  app.post('/strava/disconnect', async (c) => {
+    await clearAthleteConnection(c.env.lydiard);
+    return c.json({ ok: true, message: 'Strava connection cleared. Existing training rows were kept.' });
   });
 
   return app;

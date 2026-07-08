@@ -108,3 +108,13 @@ export async function triggerSync(): Promise<void> {
     throw new Error(`Sync request failed: ${response.status}`);
   }
 }
+
+export async function disconnectStrava(): Promise<void> {
+  const response = await fetch(`${BASE}/api/strava/disconnect`, { method: 'POST', headers: siteHeaders() });
+  if (response.status === 401) {
+    throw new SiteUnauthorizedError();
+  }
+  if (!response.ok) {
+    throw new Error(`Disconnect request failed: ${response.status}`);
+  }
+}
