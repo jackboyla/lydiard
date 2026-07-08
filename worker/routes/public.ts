@@ -9,6 +9,7 @@ import {
   getAthlete,
   getCounts,
   getDateRange,
+  getGymSessions,
   getStreams,
   getSyncState,
   getWeeklyFeatures,
@@ -84,6 +85,14 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
     const streams = await getStreams(c.env.lydiard, activity.id);
     const detail: ActivityDetail = { ...activity, streams: streams ?? undefined };
     return c.json(detail);
+  });
+
+  app.get('/gym', async (c) => {
+    const sessions = await getGymSessions(c.env.lydiard, {
+      from: normalizeFrom(c.req.query('from')),
+      to: normalizeTo(c.req.query('to')),
+    });
+    return c.json({ sessions });
   });
 
   app.get('/weeks', async (c) => {

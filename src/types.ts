@@ -100,6 +100,22 @@ export interface ActivitySummary {
   decouplingPct?: number; // true stream-derived HR-pace decoupling
 }
 
+/**
+ * A gym / strength session. Deliberately separate from ActivitySummary: gym work
+ * is tracked for visibility only and never contributes to the running load model,
+ * weekly derivation, run counts, or averages.
+ */
+export interface GymSession {
+  id: string;
+  name: string;
+  sportType: string;
+  startDate: string; // UTC ISO
+  startDateLocal: string;
+  durationSec: number;
+  averageHeartRate?: number;
+  calories?: number;
+}
+
 export interface ActivityStreams {
   latlng?: Array<[number, number]>;
   timeSec?: number[];

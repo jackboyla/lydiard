@@ -4,6 +4,7 @@
 import type {
   ActivityDetail,
   ActivitySummary,
+  GymSession,
   SyncStatus,
   WeeklyAnalysis,
   WeeklyRunBlock,
@@ -82,6 +83,11 @@ export async function getActivities(range?: DateRange): Promise<ActivitySummary[
 
 export function getActivity(id: string): Promise<ActivityDetail> {
   return getJson<ActivityDetail>(`/api/activities/${encodeURIComponent(id)}`);
+}
+
+export async function getGymSessions(range?: DateRange): Promise<GymSession[]> {
+  const data = await getJson<{ sessions: GymSession[] }>(`/api/gym${rangeQuery(range)}`);
+  return data.sessions;
 }
 
 export async function getWeeks(range?: DateRange): Promise<WeeklyRunBlock[]> {

@@ -3,6 +3,7 @@ import {
   Activity,
   BookOpen,
   CalendarDays,
+  Dumbbell,
   Gauge,
   HeartPulse,
   ListFilter,
@@ -32,8 +33,8 @@ import {
   type WeekLoadSummary,
 } from '../analysis/loadModel';
 import { getActivity } from '../data/api';
-import { activityPaceSecPerKm, decodePolyline } from '../data/mapRoutes';
-import type { ActivityDetail, ActivitySummary, WeeklyAnalysis } from '../types';
+import { activityPaceSecPerKm, decodePolyline, toWeekIdUtc } from '../data/mapRoutes';
+import type { ActivityDetail, ActivitySummary, GymSession, WeeklyAnalysis } from '../types';
 import { MetricInfo, MetricsGuide, type MetricKey } from './MetricInfo';
 
 const GUIDE_METRICS: MetricKey[] = [
@@ -54,7 +55,16 @@ const GUIDE_METRICS: MetricKey[] = [
 interface TrainingViewProps {
   activities: ActivitySummary[];
   analyses: WeeklyAnalysis[];
+  gymSessions: GymSession[];
   usingSample: boolean;
+}
+
+// A week in the log is either a scored run week (with any gym that week attached)
+// or a gym-only week. Gym never contributes to load — it rides alongside.
+interface WeekEntry {
+  weekId: string;
+  week?: WeekLoadSummary;
+  gym: GymSession[];
 }
 
 type RangeKey = '3m' | '6m' | '12m' | '10y' | 'all';
@@ -70,7 +80,7 @@ const RANGE_OPTIONS: Array<{ key: RangeKey; label: string; months?: number }> = 
 const INITIAL_WEEK_COUNT = 12;
 const WEEK_CHUNK = 10;
 
-export function TrainingView({ activities, analyses, usingSample }: TrainingViewProps) {
+export function TrainingView({ activities, analyses, gymSessions, usingSample }: TrainingViewProps) {
   const [range, setRange] = useState<RangeKey>('all');
   const [showGuide, setShowGuide] = useState(false);
   const [visibleWeekCount, setVisibleWeekCount] = useState(INITIAL_WEEK_COUNT);
@@ -82,17 +92,17 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const loadModel = useMemo(() => buildTrainingLoadModel(activities), [activities]);
-  const scoped = useMemo(() => scopeLoadModel(loadModel, range), [loadModel, range]);
+  const scoped = useMemo(() => scopeLoadModel(loadModel, range, gymSessions), [loadModel, range, gymSessions]);
   const analysisByWeek = useMemo(
     () => new Map(analyses.map((analysis) => [analysis.week.weekStart, analysis])),
     [analyses],
   );
-  const visibleWeeks = scoped.weeks.slice(0, visibleWeekCount);
+  const visibleWeeks = scoped.weekEntries.slice(0, visibleWeekCount);
   const latestDaily = scoped.daily[scoped.daily.length - 1];
   const latestSession = scoped.sessions[0];
-  const latestWeek = scoped.weeks[0];
   const previewSession = previewId ? loadModel.sessionsById.get(previewId) : undefined;
   const runCount = scoped.sessions.length;
+  const gymCount = scoped.gymCount;
   const hrCount = scoped.sessions.filter((session) => session.activity.averageHeartRate).length;
   const powerCount = scoped.sessions.filter((session) => session.activity.averageWatts).length;
   const chartSpanDays = useMemo(() => {
@@ -107,20 +117,20 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
   useEffect(() => {
     const root = scrollerRef.current;
     const sentinel = sentinelRef.current;
-    if (!root || !sentinel || visibleWeekCount >= scoped.weeks.length) {
+    if (!root || !sentinel || visibleWeekCount >= scoped.weekEntries.length) {
       return;
     }
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          setVisibleWeekCount((current) => Math.min(scoped.weeks.length, current + WEEK_CHUNK));
+          setVisibleWeekCount((current) => Math.min(scoped.weekEntries.length, current + WEEK_CHUNK));
         }
       },
       { root, rootMargin: '420px 0px 420px 0px' },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [scoped.weeks.length, visibleWeekCount]);
+  }, [scoped.weekEntries.length, visibleWeekCount]);
 
   useEffect(() => {
     if (!previewId) {
@@ -285,7 +295,7 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
             icon={<CalendarDays size={18} />}
             label="Runs"
             value={String(runCount)}
-            detail={`${Math.round(scoped.distanceKm)} km`}
+            detail={gymCount > 0 ? `${Math.round(scoped.distanceKm)} km · ${gymCount} gym` : `${Math.round(scoped.distanceKm)} km`}
           />
           <TrainingKpi
             icon={<HeartPulse size={18} />}
@@ -316,19 +326,24 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
 
         <div className="training-week-list">
           {visibleWeeks.length > 0 ? (
-            visibleWeeks.map((week, index) => {
+            visibleWeeks.map((entry, index) => {
               const previous = visibleWeeks[index - 1];
-              const currentMonth = monthIdFromWeek(week);
-              const showMonthAnchor = !previous || monthIdFromWeek(previous) !== currentMonth;
+              const currentMonth = monthIdFromEntry(entry);
+              const showMonthAnchor = !previous || monthIdFromEntry(previous) !== currentMonth;
               return (
-                <div key={week.weekId} className="training-week-block-wrap">
+                <div key={entry.weekId} className="training-week-block-wrap">
                   {showMonthAnchor && <span id={`month-${currentMonth}`} className="month-anchor" />}
-                  <WeekBlock
-                    week={week}
-                    analysis={analysisByWeek.get(week.weekId)}
-                    previewId={previewId}
-                    onPreview={setPreviewId}
-                  />
+                  {entry.week ? (
+                    <WeekBlock
+                      week={entry.week}
+                      gym={entry.gym}
+                      analysis={analysisByWeek.get(entry.weekId)}
+                      previewId={previewId}
+                      onPreview={setPreviewId}
+                    />
+                  ) : (
+                    <GymOnlyBlock weekId={entry.weekId} gym={entry.gym} />
+                  )}
                 </div>
               );
             })
@@ -338,7 +353,7 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
               <h3>{usingSample ? 'Import Garmin data for run rows' : 'No runs in this range'}</h3>
             </div>
           )}
-          {visibleWeekCount < scoped.weeks.length && <div ref={sentinelRef} className="training-scroll-sentinel" />}
+          {visibleWeekCount < scoped.weekEntries.length && <div ref={sentinelRef} className="training-scroll-sentinel" />}
         </div>
 
         <aside className="training-preview-rail" aria-label="Activity preview">
@@ -353,11 +368,13 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
 
 function WeekBlock({
   week,
+  gym,
   analysis,
   previewId,
   onPreview,
 }: {
   week: WeekLoadSummary;
+  gym: GymSession[];
   analysis?: WeeklyAnalysis;
   previewId: string | null;
   onPreview: (id: string) => void;
@@ -393,6 +410,7 @@ function WeekBlock({
           ))}
         </div>
       )}
+      <GymStrip gym={gym} />
       <div className="run-log-table" role="table" aria-label={`${week.label} runs`}>
         <div className="run-log-header" role="row">
           <span>Run</span>
@@ -415,6 +433,52 @@ function WeekBlock({
         ))}
       </div>
     </article>
+  );
+}
+
+// A week with gym but no runs still shows, so gym history is never hidden.
+function GymOnlyBlock({ weekId, gym }: { weekId: string; gym: GymSession[] }) {
+  return (
+    <article className="training-week-block gym-only">
+      <header className="training-week-head">
+        <div>
+          <p>Week of {formatWeekIdLabel(weekId)}</p>
+          <h3>Gym week</h3>
+        </div>
+        <div className="week-gym-count">
+          <Dumbbell size={16} aria-hidden="true" />
+          <strong>{gym.length}</strong>
+          <small>gym {gym.length === 1 ? 'session' : 'sessions'}</small>
+        </div>
+      </header>
+      <GymStrip gym={gym} />
+    </article>
+  );
+}
+
+// Non-scored strip: shows each gym session in the week so you can see when you
+// trained in the gym. Purely informational — it feeds nothing.
+function GymStrip({ gym }: { gym: GymSession[] }) {
+  if (gym.length === 0) {
+    return null;
+  }
+  const sorted = [...gym].sort((a, b) => a.startDate.localeCompare(b.startDate));
+  return (
+    <div className="week-gym-strip" aria-label={`${gym.length} gym ${gym.length === 1 ? 'session' : 'sessions'}`}>
+      <span className="week-gym-strip-label">
+        <Dumbbell size={14} aria-hidden="true" />
+        Gym
+      </span>
+      <div className="gym-badges">
+        {sorted.map((session) => (
+          <span key={session.id} className="gym-badge" title={gymTitle(session)}>
+            <strong>{formatGymDay(session.startDateLocal || session.startDate)}</strong>
+            {session.durationSec > 0 && <span>{Math.round(session.durationSec / 60)}m</span>}
+            {session.averageHeartRate && <span>{Math.round(session.averageHeartRate)} bpm</span>}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -598,7 +662,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function scopeLoadModel(model: TrainingLoadModel, range: RangeKey) {
+function scopeLoadModel(model: TrainingLoadModel, range: RangeKey, gymSessions: GymSession[]) {
   const option = RANGE_OPTIONS.find((item) => item.key === range);
   const latestMs = model.sessions[model.sessions.length - 1]
     ? new Date(model.sessions[model.sessions.length - 1].activity.startDate).getTime()
@@ -618,13 +682,39 @@ function scopeLoadModel(model: TrainingLoadModel, range: RangeKey) {
     freshness: point.freshness,
   }));
 
+  // Gym rides alongside runs: grouped by the same ISO week but never scored.
+  const gymInRange = gymSessions.filter((session) => new Date(session.startDate).getTime() >= fromMs);
+  const gymByWeek = new Map<string, GymSession[]>();
+  for (const session of gymInRange) {
+    const weekId = toWeekIdUtc(session.startDate);
+    const bucket = gymByWeek.get(weekId);
+    if (bucket) {
+      bucket.push(session);
+    } else {
+      gymByWeek.set(weekId, [session]);
+    }
+  }
+
+  const entriesById = new Map<string, WeekEntry>();
+  for (const week of weeks) {
+    entriesById.set(week.weekId, { weekId: week.weekId, week, gym: gymByWeek.get(week.weekId) ?? [] });
+  }
+  for (const [weekId, gym] of gymByWeek) {
+    if (!entriesById.has(weekId)) {
+      entriesById.set(weekId, { weekId, gym });
+    }
+  }
+  const weekEntries = [...entriesById.values()].sort((a, b) => b.weekId.localeCompare(a.weekId));
+
   return {
     sessions,
     weeks,
+    weekEntries,
     daily,
     chartRows,
     months: buildMonthNav(sessions),
     distanceKm: sessions.reduce((total, session) => total + session.activity.distanceKm, 0),
+    gymCount: gymInRange.length,
   };
 }
 
@@ -642,9 +732,12 @@ function buildMonthNav(sessions: SessionLoad[]) {
   return [...months.values()];
 }
 
-function monthIdFromWeek(week: WeekLoadSummary): string {
-  const latestSession = week.sessions[week.sessions.length - 1];
-  return (latestSession?.day ?? week.weekId).slice(0, 7);
+function monthIdFromEntry(entry: WeekEntry): string {
+  if (entry.week) {
+    const latestSession = entry.week.sessions[entry.week.sessions.length - 1];
+    return (latestSession?.day ?? entry.weekId).slice(0, 7);
+  }
+  return entry.weekId.slice(0, 7);
 }
 
 function routePoints(detail: ActivityDetail | ActivitySummary): Array<[number, number]> {
@@ -755,6 +848,27 @@ function formatRunDate(iso: string): string {
 
 function formatMonthLabel(day: string): string {
   return new Intl.DateTimeFormat('en-GB', { month: 'short', year: 'numeric' }).format(new Date(`${day}T00:00:00Z`));
+}
+
+function formatWeekIdLabel(weekId: string): string {
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
+    new Date(`${weekId}T00:00:00Z`),
+  );
+}
+
+function formatGymDay(iso: string): string {
+  return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(iso));
+}
+
+function gymTitle(session: GymSession): string {
+  const parts = [session.name, formatGymDay(session.startDateLocal || session.startDate)];
+  if (session.durationSec > 0) {
+    parts.push(`${Math.round(session.durationSec / 60)} min`);
+  }
+  if (session.calories) {
+    parts.push(`${Math.round(session.calories)} kcal`);
+  }
+  return parts.join(' · ');
 }
 
 function formatAxisTick(ms: number, spanDays: number): string {

@@ -1243,8 +1243,16 @@ dd {
   display: grid;
   grid-template-columns: 170px minmax(0, 1fr) 370px;
   gap: 14px;
-  align-items: start;
+  /* stretch (not start) so the rail cells are as tall as the week list, giving
+     their sticky cards room to travel as you scroll. */
+  align-items: stretch;
   padding-bottom: 24px;
+}
+
+/* The rails hold a sticky card at the top of a full-height column. */
+.training-jump-rail,
+.training-preview-rail {
+  min-width: 0;
 }
 
 .training-sticky-card {
@@ -1536,8 +1544,10 @@ dd {
 }
 
 .training-preview-rail .training-sticky-card {
-  top: 0;
+  top: 8px;
   padding: 14px;
+  max-height: calc(100vh - 24px);
+  overflow: auto;
 }
 
 .training-hover-empty {
@@ -1862,9 +1872,7 @@ dd {
   .race-grid,
   .indicator-detail,
   .indicator-detail dl,
-  .training-kpis,
   .training-week-head,
-  .week-load-summary,
   .preview-stat-grid {
     grid-template-columns: 1fr;
   }
@@ -2181,5 +2189,178 @@ dd {
       opacity: 1;
       transform: none;
     }
+  }
+}
+
+/* ---- Gym / strength sessions (informational, never scored) ---- */
+
+.week-gym-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-soft);
+  background: rgba(91, 124, 250, 0.05);
+}
+
+.week-gym-strip-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-strong);
+  font-size: 0.74rem;
+  font-weight: 760;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.gym-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.gym-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 24px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  font-size: 0.76rem;
+  color: var(--muted);
+  font-weight: 640;
+}
+
+.gym-badge strong {
+  color: var(--text);
+  font-weight: 720;
+}
+
+.training-week-block.gym-only {
+  border-style: dashed;
+  border-color: var(--border);
+  background: var(--surface-muted);
+}
+
+.training-week-block.gym-only .week-gym-strip {
+  border-bottom: 0;
+  background: transparent;
+}
+
+.week-gym-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  justify-self: end;
+  color: var(--accent-strong);
+}
+
+.week-gym-count strong {
+  font-size: 1.2rem;
+  color: var(--text-strong);
+}
+
+.week-gym-count small {
+  color: var(--subtle);
+  font-weight: 680;
+}
+
+/* ---- Mobile refinements for the Training view (override earlier 760px rules) ---- */
+
+@media (max-width: 760px) {
+  .training-view {
+    padding: 4px 0 32px;
+  }
+
+  /* Keep KPI tiles two-up instead of a tall single column. */
+  .training-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .training-kpi {
+    min-height: 76px;
+    padding: 11px;
+    gap: 9px;
+  }
+
+  .training-kpi > span {
+    flex-basis: 32px;
+    width: 32px;
+    height: 32px;
+  }
+
+  .training-kpi strong {
+    font-size: 1.02rem;
+  }
+
+  /* Week metric summary: compact 3-up grid rather than five stacked rows. */
+  .week-load-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .training-week-head {
+    gap: 10px;
+    padding: 12px 13px;
+  }
+
+  .week-risk-row,
+  .week-flags,
+  .week-gym-strip {
+    padding: 10px 13px;
+  }
+
+  /* Run rows become stacked cards: no more 980px horizontal scroll. */
+  .run-log-table {
+    overflow-x: visible;
+  }
+
+  .run-log-header {
+    display: none;
+  }
+
+  .run-log-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 5px 14px;
+    min-width: 0;
+    min-height: 0;
+    padding: 12px 13px;
+  }
+
+  .run-log-main {
+    flex: 1 0 100%;
+    margin-bottom: 2px;
+  }
+
+  .run-cell {
+    flex: 0 0 auto;
+  }
+
+  .run-cell > span {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  .run-cell small {
+    display: inline;
+    margin-top: 0;
+    margin-left: 3px;
+  }
+
+  .fitness-chart {
+    height: 260px;
+  }
+
+  .gym-badge {
+    font-size: 0.74rem;
   }
 }
