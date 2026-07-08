@@ -37,6 +37,13 @@ interface IngestActivity {
   streams?: ActivityStreams;
 }
 
+class GarminRateLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GarminRateLimitError';
+  }
+}
+
 const username = requiredEnv('GARMIN_USERNAME');
 const password = requiredEnv('GARMIN_PASSWORD');
 const baseUrl = (process.env.LYDIARD_BASE_URL ?? 'https://lydiard.lydiard.workers.dev').replace(/\/$/, '');
@@ -44,6 +51,9 @@ const ingestKey = process.env.LYDIARD_INGEST_KEY ?? process.env.AGENT_API_KEY;
 const days = numberEnv('GARMIN_SYNC_DAYS', 365);
 const limit = numberEnv('GARMIN_LIMIT', 200);
 const dryRun = process.argv.includes('--dry-run');
+const retryAttempts = numberEnv('GARMIN_RETRY_ATTEMPTS', process.env.GITHUB_ACTIONS ? 4 : 3);
+const retryBaseMs = numberEnv('GARMIN_RETRY_BASE_MS', process.env.GITHUB_ACTIONS ? 60000 : 10000);
+const softFailRateLimit = process.env.GARMIN_SOFT_FAIL_RATE_LIMIT !== 'false';
 
 if (!ingestKey && !dryRun) {
   throw new Error('Set LYDIARD_INGEST_KEY or AGENT_API_KEY, or run with --dry-run.');
@@ -65,20 +75,21 @@ try {
     }
   }
   if (!loggedIn) {
-    await client.login();
+    await withGarminRetry('Garmin login', () => client.login());
     if (tokenDir) {
       await fs.mkdir(tokenDir, { recursive: true });
       client.exportTokenToFile(tokenDir);
     }
   }
 
-  const all = (await client.getActivities(0, limit)) as GarminActivity[];
+  const all = (await withGarminRetry('Garmin activity list', () => client.getActivities(0, limit))) as GarminActivity[];
   const candidates = all
     .filter(isRunLike)
     .filter((activity) => new Date(startDateUtc(activity)).getTime() >= sinceMs)
     .sort((a, b) => new Date(a.startTimeGMT ?? '').getTime() - new Date(b.startTimeGMT ?? '').getTime());
 
   const ingestActivities: IngestActivity[] = [];
+  let hitRateLimit = false;
   for (const activity of candidates) {
     try {
       const fitBuffer = await downloadFit(client, activity, workDir);
@@ -86,11 +97,21 @@ try {
       ingestActivities.push(toIngestActivity(activity, parsed));
       console.log(`prepared garmin-${activity.activityId} ${activity.activityName ?? 'Run'}`);
     } catch (error) {
+      if (error instanceof GarminRateLimitError) {
+        hitRateLimit = true;
+        console.warn(error.message);
+        break;
+      }
       console.warn(`skipped garmin-${activity.activityId}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  if (dryRun) {
+  if (hitRateLimit && ingestActivities.length === 0 && softFailRateLimit) {
+    console.warn('Garmin rate-limited this run before any activities were prepared. Exiting successfully; the next schedule can retry.');
+    process.exitCode = 0;
+  } else if (ingestActivities.length === 0) {
+    console.log(JSON.stringify({ ok: true, activities: 0, message: 'No Garmin activities to ingest.' }, null, 2));
+  } else if (dryRun) {
     console.log(JSON.stringify({ dryRun: true, activities: ingestActivities.length }, null, 2));
   } else {
     const response = await fetch(`${baseUrl}/api/ingest/activities`, {
@@ -107,12 +128,21 @@ try {
     }
     console.log(text);
   }
+} catch (error) {
+  if (error instanceof GarminRateLimitError && softFailRateLimit) {
+    console.warn(`${error.message}. Exiting successfully; the next schedule can retry.`);
+    process.exitCode = 0;
+  } else {
+    throw error;
+  }
 } finally {
   await fs.rm(workDir, { recursive: true, force: true });
 }
 
 async function downloadFit(client: GarminConnect, activity: GarminActivity, dir: string): Promise<Buffer> {
-  await client.downloadOriginalActivityData({ activityId: activity.activityId }, dir, 'zip');
+  await withGarminRetry(`Garmin original activity download ${activity.activityId}`, () =>
+    client.downloadOriginalActivityData({ activityId: activity.activityId }, dir, 'zip'),
+  );
   const zipPath = path.join(dir, `${activity.activityId}.zip`);
   const zip = new AdmZip(zipPath);
   const fitEntry = zip
@@ -326,4 +356,32 @@ function requiredEnv(name: string): string {
 function numberEnv(name: string, fallback: number): number {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+async function withGarminRetry<T>(label: string, operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isRateLimitError(error) || attempt === retryAttempts) {
+        if (isRateLimitError(error)) {
+          throw new GarminRateLimitError(`${label} was rate-limited after ${attempt} attempt${attempt === 1 ? '' : 's'}`);
+        }
+        throw error;
+      }
+      const delayMs = retryBaseMs * 2 ** (attempt - 1);
+      console.warn(`${label} rate-limited; retrying in ${Math.round(delayMs / 1000)}s (${attempt}/${retryAttempts})`);
+      await sleep(delayMs);
+    }
+  }
+  throw new GarminRateLimitError(`${label} was rate-limited.`);
+}
+
+function isRateLimitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /429|too many requests|rate limited/i.test(message);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
