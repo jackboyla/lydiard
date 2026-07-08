@@ -56,6 +56,8 @@ const dryRun = process.argv.includes('--dry-run');
 const replace = !process.argv.includes('--no-replace');
 const quiet = process.argv.includes('--quiet');
 const batchSize = positiveInteger(readArg('--batch-size') ?? process.env.GARMIN_IMPORT_BATCH_SIZE) ?? 25;
+const offset = nonNegativeInteger(readArg('--offset') ?? process.env.GARMIN_IMPORT_OFFSET) ?? 0;
+const limit = positiveInteger(readArg('--limit') ?? process.env.GARMIN_IMPORT_LIMIT);
 const includeTypes = (process.env.GARMIN_IMPORT_ACTIVITY_TYPES ?? 'running')
   .split(',')
   .map((value) => value.trim().toLowerCase())
@@ -103,9 +105,10 @@ const rows = await sqliteJson<GarminActivityRow>(
   { maxBuffer: 512 * 1024 * 1024 },
 );
 
-const candidates = rows.filter((row) => isIncludedType(row));
+const allCandidates = rows.filter((row) => isIncludedType(row));
+const candidates = allCandidates.slice(offset, limit ? offset + limit : undefined);
 if (candidates.length === 0) {
-  throw new Error(`No Garmin activities matched import types: ${includeTypes.join(', ')}`);
+  throw new Error(`No Garmin activities matched import types/window: ${includeTypes.join(', ')} offset=${offset} limit=${limit ?? 'all'}`);
 }
 
 const stats = {
@@ -157,6 +160,9 @@ if (dryRun) {
         dbPath,
         replace,
         batchSize,
+        offset,
+        limit: limit ?? null,
+        matchedActivities: allCandidates.length,
         estimatedBatches: Math.ceil(candidates.length / batchSize),
         activities: stats.activities,
         withHr: stats.withHr,
@@ -177,6 +183,9 @@ if (dryRun) {
         source: 'garmin-health-data',
         replace,
         batchSize,
+        offset,
+        limit: limit ?? null,
+        matchedActivities: allCandidates.length,
         batches: stats.batches,
         activities: stats.activities,
         withHr: stats.withHr,
@@ -447,6 +456,11 @@ function finiteNumber(value: unknown): number | undefined {
 function positiveInteger(value: unknown): number | undefined {
   const n = finiteNumber(value);
   return n !== undefined && Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
+function nonNegativeInteger(value: unknown): number | undefined {
+  const n = finiteNumber(value);
+  return n !== undefined && Number.isInteger(n) && n >= 0 ? n : undefined;
 }
 
 function positiveNumber(value: unknown): number | undefined {
