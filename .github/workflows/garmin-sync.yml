@@ -15,6 +15,13 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+      - name: Restore Garmin session cache
+        uses: actions/cache@v4
+        with:
+          path: .garmin-tokens
+          key: garmin-session-${{ github.repository_id }}-${{ github.run_id }}
+          restore-keys: |
+            garmin-session-${{ github.repository_id }}-
       - run: npm ci
       - name: Pull Garmin Connect and ingest
         run: npm run garmin:sync
@@ -27,4 +34,5 @@ jobs:
           GARMIN_LIMIT: ${{ vars.GARMIN_LIMIT || '40' }}
           GARMIN_RETRY_ATTEMPTS: ${{ vars.GARMIN_RETRY_ATTEMPTS || '4' }}
           GARMIN_RETRY_BASE_MS: ${{ vars.GARMIN_RETRY_BASE_MS || '60000' }}
+          GARMIN_TOKEN_DIR: .garmin-tokens
           GARMIN_SOFT_FAIL_RATE_LIMIT: "true"
