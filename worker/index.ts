@@ -41,9 +41,13 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
       runSync(env, env.lydiard).catch(async (error: unknown) => {
-        await updateSyncState(env.lydiard, {
-          last_error: error instanceof Error ? error.message : String(error),
-        });
+        const message = error instanceof Error ? error.message : String(error);
+        // Strava is legacy; Garmin data is synced via GitHub Actions. Don't record
+        // the "Strava is not connected" noise as a sync error the UI would surface.
+        if (/strava is not connected/i.test(message)) {
+          return;
+        }
+        await updateSyncState(env.lydiard, { last_error: message });
       }),
     );
   },

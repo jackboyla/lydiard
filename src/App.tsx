@@ -6,11 +6,13 @@ import {
   Gauge,
   Link2,
   Map as MapIcon,
+  Menu,
   RefreshCw,
   ShieldAlert,
   Sparkles,
   TrendingUp,
   Unlink,
+  X,
 } from 'lucide-react';
 import { analyzeWeeks, formatPace } from './analysis/fatigue';
 import { IndicatorList } from './components/IndicatorList';
@@ -84,6 +86,11 @@ export default function App() {
   const [passwordError, setPasswordError] = useState('');
 
   const [view, setView] = useState<ViewMode>('training');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const selectView = useCallback((next: ViewMode) => {
+    setView(next);
+    setMenuOpen(false);
+  }, []);
   const [range, setRange] = useState<RangePreset>('12w');
   const [colorBy, setColorBy] = useState<ColorBy>('severity');
   const [metric, setMetric] = useState<TrendMetricKey>('stride');
@@ -128,8 +135,16 @@ export default function App() {
       setActivities(nextActivities);
       setGymSessions(nextGym);
       setNeedsPassword(false);
-      if (nextStatus.lastError) {
+      // Garmin data syncs via GitHub Actions; a stale "Strava is not connected"
+      // error is irrelevant noise for a Garmin-sourced store, so don't surface it.
+      const garminSourced =
+        nextStatus.source === 'garmin-health-data' ||
+        (!nextStatus.connected && (nextStatus.activityCount ?? 0) > 0);
+      const stravaNoise = garminSourced && /strava/i.test(nextStatus.lastError ?? '');
+      if (nextStatus.lastError && !stravaNoise) {
         setLoadError(formatSyncError(nextStatus.lastError));
+      } else {
+        setLoadError('');
       }
     } catch (error) {
       if (error instanceof SiteUnauthorizedError) {
@@ -265,7 +280,18 @@ export default function App() {
           <h1>Lydiard</h1>
         </div>
 
-        <div className="topbar-controls">
+        <button
+          className="topbar-menu-toggle"
+          type="button"
+          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={menuOpen}
+          aria-controls="topbar-controls"
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          {menuOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
+        </button>
+
+        <div className={`topbar-controls${menuOpen ? ' open' : ''}`} id="topbar-controls">
           <div className="connection-chip" data-connected={status?.connected || isGarminSource ? 'true' : 'false'}>
             <Link2 size={15} aria-hidden="true" />
             {isGarminSource ? (
@@ -309,14 +335,14 @@ export default function App() {
               aria-selected={view === 'training'}
               className={view === 'training' ? 'active' : ''}
               type="button"
-              onClick={() => setView('training')}
+              onClick={() => selectView('training')}
             >
               <Activity size={16} aria-hidden="true" /> Training
             </button>
-            <button role="tab" aria-selected={view === 'map'} className={view === 'map' ? 'active' : ''} type="button" onClick={() => setView('map')}>
+            <button role="tab" aria-selected={view === 'map'} className={view === 'map' ? 'active' : ''} type="button" onClick={() => selectView('map')}>
               <MapIcon size={16} aria-hidden="true" /> Map
             </button>
-            <button role="tab" aria-selected={view === 'dashboard'} className={view === 'dashboard' ? 'active' : ''} type="button" onClick={() => setView('dashboard')}>
+            <button role="tab" aria-selected={view === 'dashboard'} className={view === 'dashboard' ? 'active' : ''} type="button" onClick={() => selectView('dashboard')}>
               <Gauge size={16} aria-hidden="true" /> Dashboard
             </button>
           </div>
