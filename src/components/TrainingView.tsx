@@ -79,6 +79,8 @@ const RANGE_OPTIONS: Array<{ key: RangeKey; label: string; months?: number }> = 
 
 const INITIAL_WEEK_COUNT = 12;
 const WEEK_CHUNK = 10;
+// Weeks rendered below a jump target so the scroller can bring it to the top.
+const JUMP_BUFFER_WEEKS = 10;
 
 export function TrainingView({ activities, analyses, gymSessions, usingSample }: TrainingViewProps) {
   const [range, setRange] = useState<RangeKey>('all');
@@ -87,6 +89,7 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample }:
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewDetail, setPreviewDetail] = useState<ActivityDetail | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [pendingJump, setPendingJump] = useState<string | null>(null);
   const detailCache = useRef(new Map<string, ActivityDetail>());
   const scrollerRef = useRef<HTMLElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -109,6 +112,58 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample }:
     const rows = scoped.chartRows;
     return rows.length > 1 ? (rows[rows.length - 1].ts - rows[0].ts) / 86_400_000 : 0;
   }, [scoped.chartRows]);
+
+  // Month/year jump. Week blocks are lazily rendered, so a naive #anchor link
+  // does nothing when the target month isn't in the DOM yet. Instead we render
+  // enough weeks to include the target, then scroll it into the scroller.
+  const jumpToMonth = (monthId: string) => {
+    const index = scoped.weekEntries.findIndex((entry) => monthIdFromEntry(entry) <= monthId);
+    if (index < 0) {
+      return;
+    }
+    // Render a buffer of weeks BELOW the target so the scroller has enough
+    // content to bring the target to the top (otherwise scrollTop clamps and
+    // the jump lands short, showing a newer month).
+    setVisibleWeekCount((current) => Math.max(current, index + 1 + JUMP_BUFFER_WEEKS));
+    setPendingJump(scoped.weekEntries[index].weekId);
+  };
+
+  useEffect(() => {
+    if (!pendingJump) {
+      return;
+    }
+    // Jumping can render many heavy week blocks at once; the browser may take
+    // several frames to lay them all out. Setting scrollTop before that finishes
+    // clamps against a stale (short) scrollHeight and lands far short. So poll
+    // each frame until the scroller can actually reach the target, then scroll.
+    let cancelled = false;
+    let frame = 0;
+    const attempt = () => {
+      if (cancelled) {
+        return;
+      }
+      const root = scrollerRef.current;
+      const target = root?.querySelector<HTMLElement>(`[data-week="${pendingJump}"]`);
+      if (root && target) {
+        const desired = root.scrollTop + target.getBoundingClientRect().top - root.getBoundingClientRect().top - 10;
+        const reachable = root.scrollHeight - root.clientHeight >= desired - 1;
+        if (reachable || frame > 60) {
+          root.scrollTop = desired;
+          setPendingJump(null);
+          return;
+        }
+      } else if (frame > 60) {
+        setPendingJump(null);
+        return;
+      }
+      frame += 1;
+      requestAnimationFrame(attempt);
+    };
+    requestAnimationFrame(attempt);
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingJump]);
 
   useEffect(() => {
     setVisibleWeekCount(INITIAL_WEEK_COUNT);
@@ -315,7 +370,14 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample }:
             </p>
             <nav>
               {scoped.months.map((month) => (
-                <a key={month.id} href={`#month-${month.id}`}>
+                <a
+                  key={month.id}
+                  href={`#month-${month.id}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    jumpToMonth(month.id);
+                  }}
+                >
                   <span>{month.label}</span>
                   <small>{month.count}</small>
                 </a>
@@ -331,7 +393,7 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample }:
               const currentMonth = monthIdFromEntry(entry);
               const showMonthAnchor = !previous || monthIdFromEntry(previous) !== currentMonth;
               return (
-                <div key={entry.weekId} className="training-week-block-wrap">
+                <div key={entry.weekId} className="training-week-block-wrap" data-week={entry.weekId}>
                   {showMonthAnchor && <span id={`month-${currentMonth}`} className="month-anchor" />}
                   {entry.week ? (
                     <WeekBlock
