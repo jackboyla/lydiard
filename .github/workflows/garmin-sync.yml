@@ -8,31 +8,47 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
           cache: npm
-      - name: Restore Garmin session cache
+      - name: Install system tools
+        run: sudo apt-get update && sudo apt-get install -y sqlite3
+      - name: Restore Garmin health cache
         uses: actions/cache@v4
         with:
-          path: .garmin-tokens
-          key: garmin-session-${{ github.repository_id }}-${{ github.run_id }}
+          path: |
+            ~/.garminconnect
+            garmin_data.db
+            garmin_files
+          key: garmin-health-${{ github.repository_id }}-${{ github.run_id }}
           restore-keys: |
-            garmin-session-${{ github.repository_id }}-
-      - run: npm ci
-      - name: Pull Garmin Connect and ingest
-        run: npm run garmin:sync
+            garmin-health-${{ github.repository_id }}-
+      - name: Install Garmin health CLI
+        run: python -m pip install garmin-health-data
+      - name: Extract Garmin health database
+        run: |
+          if ! find "$HOME/.garminconnect" -name garmin_tokens.json -print -quit | grep -q .; then
+            garmin auth --email "$GARMIN_USERNAME" --password "$GARMIN_PASSWORD"
+          fi
+          garmin extract
+          garmin verify
         env:
           GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+      - run: npm ci
+      - name: Audit Garmin database
+        run: npm run garmin:audit
+      - name: Import Garmin database into Lydiard
+        run: npm run garmin:import-db
+        env:
           LYDIARD_INGEST_KEY: ${{ secrets.LYDIARD_INGEST_KEY }}
           LYDIARD_BASE_URL: ${{ vars.LYDIARD_BASE_URL || 'https://lydiard.lydiard.workers.dev' }}
-          GARMIN_SYNC_DAYS: ${{ vars.GARMIN_SYNC_DAYS || '14' }}
-          GARMIN_LIMIT: ${{ vars.GARMIN_LIMIT || '40' }}
-          GARMIN_RETRY_ATTEMPTS: ${{ vars.GARMIN_RETRY_ATTEMPTS || '4' }}
-          GARMIN_RETRY_BASE_MS: ${{ vars.GARMIN_RETRY_BASE_MS || '60000' }}
-          GARMIN_TOKEN_DIR: .garmin-tokens
-          GARMIN_SOFT_FAIL_RATE_LIMIT: "true"
+          GARMIN_IMPORT_ACTIVITY_TYPES: running

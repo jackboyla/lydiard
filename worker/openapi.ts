@@ -253,7 +253,7 @@ export function buildOpenApiDocument(origin: string): unknown {
       '/api/agent/sync': {
         post: {
           operationId: 'triggerSync',
-          summary: 'Trigger a background Strava sync',
+          summary: 'Trigger the legacy background Strava sync',
           responses: { '202': jsonResponse('Sync started', 'SyncAccepted') },
         },
       },

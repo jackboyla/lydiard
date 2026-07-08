@@ -17,7 +17,7 @@ assessments and 1–3 week training plans.
 | `GET /api/agent/risk?asOf` | Full fatigue analysis (risk score, severity, 6 indicators) for the latest week or the week at `asOf`. |
 | `GET /api/agent/weeks?from&to` | Weekly training features for a date range. |
 | `GET /api/agent/activities?from&to` | Per-activity metrics for a date range (no route geometry). |
-| `POST /api/agent/sync` | Trigger a background Strava sync. |
+| `POST /api/agent/sync` | Legacy Strava sync trigger. Scheduled Garmin updates run from GitHub Actions. |
 
 `from` / `to` / `asOf` accept `YYYY-MM-DD`. Ranges are inclusive.
 
@@ -49,42 +49,33 @@ npx wrangler d1 create lydiard
 npm run d1:migrate            # remote (production)
 
 # 3. Set secrets
-npx wrangler secret put STRAVA_CLIENT_SECRET
 npx wrangler secret put AGENT_API_KEY        # generate a long random string
 npx wrangler secret put SITE_PASSWORD        # password for the phone/desktop web app
+npx wrangler secret put INGEST_API_KEY       # used by the Garmin GitHub Action
 
-# 4. Fill wrangler.toml [vars]: STRAVA_CLIENT_ID, STRAVA_REDIRECT_URI, APP_ORIGIN
+# 4. Fill wrangler.toml [vars]: APP_ORIGIN
 
-# 5. Deploy the Worker (includes the web app, API, and every-4-hours cron sync)
+# 5. Deploy the Worker (includes the web app, API, and ingest endpoint)
 npm run worker:deploy
 
-# 6. Connect Strava once (stores the refresh token in D1, kicks off the first sync)
-open https://lydiard.<your-subdomain>.workers.dev/auth/strava/login
+# 6. Configure GitHub Actions secrets for the twice-daily Garmin import:
+#    GARMIN_USERNAME, GARMIN_PASSWORD, LYDIARD_INGEST_KEY
 ```
 
-In your Strava API app settings, set the **Authorization Callback Domain** to your Worker's host
-(e.g. `lydiard.<your-subdomain>.workers.dev`).
-
 The same `workers.dev` URL serves the app on desktop and phone. The cron keeps the store fresh with
-no machine running at home; streams (full GPS + HR, and true HR-pace decoupling) backfill a batch
-each cycle to stay within Strava's rate limits.
-
-If sync returns `403 Application Status Inactive`, the Worker has reached Strava but Strava is
-rejecting the API app. Check the API app owner account at `https://www.strava.com/settings/api`,
-make sure the app's developer tier/status is active, and verify the callback domain. Once active,
-sync again; if you changed client credentials, clear the stored Strava connection in the site header
-and reconnect.
+no machine running at home; the GitHub workflow extracts Garmin data into SQLite, audits it, then
+posts normalized runs and streams to the Worker.
 
 ## Script ingest
 
 External sync jobs can post normalized activities to `POST /api/ingest/activities` with
-`Authorization: Bearer <INGEST_API_KEY>`. The experimental Garmin workflow uses this route after it
-downloads and parses FIT files. The route upserts activities, stores streams, recomputes weekly
-features, and updates sync status.
+`Authorization: Bearer <INGEST_API_KEY>`. The Garmin workflow uses this route after
+`garmin-health-data` downloads/processes Garmin Connect data into `garmin_data.db`. The route can
+replace existing training rows, stores streams, recomputes weekly features, and updates sync status.
 
 ## Security notes
 
 - Training data is private: `/api/agent/*` returns `401` without a valid Bearer key.
-- Your Strava client secret and refresh token live only as Worker secrets / in D1 — never in the
-  frontend bundle or in any agent-visible response.
+- Garmin credentials live in GitHub Secrets. The workflow cache stores `~/.garminconnect`,
+  `garmin_data.db`, and `garmin_files` so scheduled runs can resume.
 - Rotate the key any time with `npx wrangler secret put AGENT_API_KEY`.

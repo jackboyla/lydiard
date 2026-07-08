@@ -45,6 +45,7 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
       getSyncState(c.env.lydiard),
       getDateRange(c.env.lydiard),
     ]);
+    const source = syncSource(state.last_result);
     const status: SyncStatus = {
       connected: Boolean(athlete?.refresh_token),
       athlete: athlete
@@ -61,6 +62,7 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
       lastSyncAt: state.last_sync_at,
       lastActivityDate: state.last_activity_date,
       lastError: state.last_error,
+      source,
       dateRange: range,
     };
     return c.json(status);
@@ -115,4 +117,16 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
   });
 
   return app;
+}
+
+function syncSource(lastResult: string | null): string | undefined {
+  if (!lastResult) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(lastResult) as { source?: unknown };
+    return typeof parsed.source === 'string' ? parsed.source : undefined;
+  } catch {
+    return undefined;
+  }
 }

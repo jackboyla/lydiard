@@ -239,7 +239,7 @@ export function TrainingView({ activities, analyses, usingSample }: TrainingView
         ) : (
           <div className="training-empty">
             <Activity size={28} aria-hidden="true" />
-            <h3>{usingSample ? 'Connect Strava for run rows' : 'No runs in this range'}</h3>
+            <h3>{usingSample ? 'Import Garmin data for run rows' : 'No runs in this range'}</h3>
           </div>
         )}
       </section>

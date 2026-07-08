@@ -2,7 +2,7 @@
 
 Use the **Lydiard Training API** to analyze a single runner's training history and produce
 injury-risk assessments and short-term training plans. The API reads a live store synced from
-Strava (activities, per-week features, and a personalized fatigue model).
+Garmin health-data (activities, per-week features, and a personalized fatigue model).
 
 ## Auth
 

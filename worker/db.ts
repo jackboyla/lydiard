@@ -89,6 +89,18 @@ export async function clearAthleteConnection(db: D1Database): Promise<void> {
   ]);
 }
 
+export async function replaceTrainingData(db: D1Database): Promise<void> {
+  await db.batch([
+    db.prepare('DELETE FROM athlete'),
+    db.prepare('DELETE FROM activity_streams'),
+    db.prepare('DELETE FROM activities'),
+    db.prepare('DELETE FROM weekly_features'),
+    db.prepare(
+      'UPDATE sync_state SET last_sync_at=NULL, last_activity_date=NULL, last_result=NULL, last_error=NULL, rate_limit=NULL WHERE id=1',
+    ),
+  ]);
+}
+
 export async function upsertActivities(db: D1Database, activities: ActivitySummary[]): Promise<void> {
   if (activities.length === 0) {
     return;
@@ -241,11 +253,11 @@ export async function saveStreams(
   await db.batch([
     db
       .prepare(
-        `INSERT INTO activity_streams (activity_id, latlng, time_s, heartrate, cadence, velocity, altitude, distance_m, point_count, fetched_at)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+        `INSERT INTO activity_streams (activity_id, latlng, time_s, heartrate, cadence, power, velocity, altitude, distance_m, point_count, fetched_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
          ON CONFLICT(activity_id) DO UPDATE SET
            latlng=excluded.latlng, time_s=excluded.time_s, heartrate=excluded.heartrate, cadence=excluded.cadence,
-           velocity=excluded.velocity, altitude=excluded.altitude, distance_m=excluded.distance_m,
+           power=excluded.power, velocity=excluded.velocity, altitude=excluded.altitude, distance_m=excluded.distance_m,
            point_count=excluded.point_count, fetched_at=excluded.fetched_at`,
       )
       .bind(
@@ -254,6 +266,7 @@ export async function saveStreams(
         jsonOrNull(streams.timeSec),
         jsonOrNull(streams.heartrate),
         jsonOrNull(streams.cadence),
+        jsonOrNull(streams.power),
         jsonOrNull(streams.velocity),
         jsonOrNull(streams.altitude),
         jsonOrNull(streams.distanceM),
@@ -279,6 +292,7 @@ export async function getStreams(db: D1Database, activityId: string): Promise<Ac
     timeSec: parseJson(row.time_s),
     heartrate: parseJson(row.heartrate),
     cadence: parseJson(row.cadence),
+    power: parseJson(row.power),
     velocity: parseJson(row.velocity),
     altitude: parseJson(row.altitude),
     distanceM: parseJson(row.distance_m),

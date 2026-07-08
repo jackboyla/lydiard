@@ -8,6 +8,7 @@ export interface RawStreams {
   latlng?: Array<[number, number]>;
   heartrate?: number[];
   cadence?: number[];
+  power?: number[];
   velocity_smooth?: number[];
   altitude?: number[];
   distance?: number[];
@@ -104,7 +105,7 @@ function perpendicularDistance(
   return Math.hypot(x - projX, y - projY);
 }
 
-/** Normalize raw Strava streams into stored (downsampled, aligned) arrays. */
+/** Normalize raw activity streams into stored (downsampled, aligned) arrays. */
 export function normalizeStreams(raw: RawStreams): ActivityStreams {
   const length = Math.max(
     raw.time?.length ?? 0,
@@ -112,6 +113,7 @@ export function normalizeStreams(raw: RawStreams): ActivityStreams {
     raw.distance?.length ?? 0,
     raw.velocity_smooth?.length ?? 0,
     raw.cadence?.length ?? 0,
+    raw.power?.length ?? 0,
     raw.altitude?.length ?? 0,
   );
   const stride = length > MAX_STREAM_POINTS ? Math.ceil(length / MAX_STREAM_POINTS) : 1;
@@ -121,6 +123,7 @@ export function normalizeStreams(raw: RawStreams): ActivityStreams {
     timeSec: decimate(raw.time, MAX_STREAM_POINTS, stride),
     heartrate: decimate(raw.heartrate, MAX_STREAM_POINTS, stride),
     cadence: normalizeCadenceStream(decimate(raw.cadence, MAX_STREAM_POINTS, stride)),
+    power: decimate(raw.power, MAX_STREAM_POINTS, stride),
     velocity: decimate(raw.velocity_smooth, MAX_STREAM_POINTS, stride),
     altitude: decimate(raw.altitude, MAX_STREAM_POINTS, stride),
     distanceM: decimate(raw.distance, MAX_STREAM_POINTS, stride),
@@ -131,7 +134,7 @@ function normalizeCadenceStream(values?: number[]): number[] | undefined {
   if (!values) {
     return undefined;
   }
-  // Strava run cadence streams are per-leg (spm/2). Double to full strides/min.
+  // Some providers store run cadence per leg. Double to full strides/min.
   return values.map((value) => (value > 0 && value < 130 ? value * 2 : value));
 }
 

@@ -9,10 +9,6 @@ binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = ["/api/*", "/auth/*", "/openapi.json"]
 
-# Cloud cron — no local machine needed. Runs the Strava sync every 4 hours.
-[triggers]
-crons = ["0 */4 * * *"]
-
 # Serverless SQLite = the single source of truth.
 # Create it once with:  npx wrangler d1 create lydiard
 # then paste the returned database_id below (and keep database_name).
@@ -32,4 +28,4 @@ STRAVA_CLIENT_ID = "257213"
 STRAVA_REDIRECT_URI = "https://lydiard.lydiard.workers.dev/auth/strava/callback"       # e.g. https://lydiard.<subdomain>.workers.dev/auth/strava/callback
 APP_ORIGIN = ""                # Pages origin allowed for browser CORS, e.g. https://lydiard.pages.dev
 STRAVA_FETCH_YEARS = "3"
-STREAMS_PER_RUN = "40"         # stream fetches per cron cycle (Strava rate-limit budget)
+STREAMS_PER_RUN = "40"         # legacy Strava stream fetches per manual sync
