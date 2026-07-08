@@ -13,6 +13,7 @@ interface IngestActivity {
 interface IngestPayload {
   source?: string;
   replace?: boolean;
+  recomputeWeeks?: boolean;
   activities?: IngestActivity[];
 }
 
@@ -68,25 +69,29 @@ export function ingestRoutes(): Hono<{ Bindings: Env }> {
       }
     }
 
-    const weekCount = await recomputeWeeklyFeatures(c.env.lydiard);
+    const recomputeWeeks = payload.recomputeWeeks !== false;
+    const weekCount = recomputeWeeks ? await recomputeWeeklyFeatures(c.env.lydiard) : null;
     const latestDate = summaries.reduce<string | null>((latest, activity) => {
       return !latest || activity.startDate > latest ? activity.startDate : latest;
     }, null);
     const result = {
       source: payload.source ?? 'external',
       replace: Boolean(payload.replace),
+      recomputeWeeks,
       upserted: summaries.length,
       streamsSaved,
       weekCount,
       finishedAt: new Date().toISOString(),
     };
 
-    await updateSyncState(c.env.lydiard, {
-      last_sync_at: result.finishedAt,
-      last_activity_date: latestDate ?? undefined,
-      last_result: JSON.stringify(result),
-      last_error: null,
-    });
+    if (recomputeWeeks) {
+      await updateSyncState(c.env.lydiard, {
+        last_sync_at: result.finishedAt,
+        last_activity_date: latestDate ?? undefined,
+        last_result: JSON.stringify(result),
+        last_error: null,
+      });
+    }
 
     return c.json({ ok: true, ...result });
   });

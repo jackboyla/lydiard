@@ -109,8 +109,13 @@ garmin extract --start-date "$START_DATE" --end-date "$END_DATE" \
 npm run garmin:audit
 LYDIARD_INGEST_KEY='...' \
 LYDIARD_BASE_URL=https://lydiard.lydiard.workers.dev \
-npm run garmin:import-db
+npm run garmin:import-db -- --no-replace --batch-size 20
 ```
+
+The importer batches uploads (`--batch-size`, default 25) and asks the Worker to recompute weekly
+features only on the final batch. For an already-live site, use `--no-replace` for the historical
+bootstrap so a failed midway upload cannot wipe the recent production rows. Omitting `--no-replace`
+is only appropriate when you intentionally want the first batch to clear all existing training data.
 
 The repository includes `.github/workflows/garmin-sync.yml` to run twice daily after the bootstrap.
 By default it asks Garmin for the last 45 days of activity data (`ACTIVITIES_LIST` + `ACTIVITY` FIT
