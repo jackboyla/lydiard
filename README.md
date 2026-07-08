@@ -97,7 +97,8 @@ with route, HR, cadence, speed, distance, altitude, and power streams into the W
 ```bash
 pip install garmin-health-data
 garmin auth
-garmin extract --start-date "$(date -u -d '10 years ago' +%F)" --end-date "$(date -u -d 'tomorrow' +%F)"
+garmin extract --start-date "$(date -u -d '10 years ago' +%F)" --end-date "$(date -u -d 'tomorrow' +%F)" \
+  --data-types ACTIVITIES_LIST --data-types ACTIVITY
 npm run garmin:audit
 LYDIARD_INGEST_KEY='...' \
 LYDIARD_BASE_URL=https://lydiard.lydiard.workers.dev \
@@ -105,10 +106,12 @@ npm run garmin:import-db
 ```
 
 The repository includes `.github/workflows/garmin-sync.yml` to run this twice daily. By default it asks
-Garmin for the last 10 years of data; set repository variables `GARMIN_EXTRACT_START` and/or
-`GARMIN_EXTRACT_END` to override that range. The workflow restores/caches `~/.garminconnect`,
-`garmin_data.db`, and `garmin_files` so `garmin extract` can resume instead of repeatedly
-re-authenticating and redownloading the whole range. Required GitHub secrets:
+Garmin for the last 10 years of activity data (`ACTIVITIES_LIST` + `ACTIVITY` FIT files); set
+repository variables `GARMIN_EXTRACT_START` and/or `GARMIN_EXTRACT_END` to override that range, and
+`GARMIN_DATA_TYPES` to change the comma-separated `garmin-health-data` data types. The workflow
+restores/caches `~/.garminconnect`, `garmin_data.db`, and `garmin_files` so `garmin extract` can
+resume instead of repeatedly re-authenticating and redownloading the whole range. Required GitHub
+secrets:
 
 - `GARMIN_USERNAME`
 - `GARMIN_PASSWORD`

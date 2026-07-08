@@ -36,17 +36,28 @@ jobs:
         run: |
           START_DATE="${GARMIN_EXTRACT_START:-$(date -u -d '10 years ago' +%F)}"
           END_DATE="${GARMIN_EXTRACT_END:-$(date -u -d 'tomorrow' +%F)}"
+          DATA_TYPES="${GARMIN_DATA_TYPES:-ACTIVITIES_LIST,ACTIVITY}"
           echo "Extracting Garmin health data from $START_DATE through $END_DATE (exclusive)."
+          echo "Garmin data types: $DATA_TYPES"
           if ! find "$HOME/.garminconnect" -name garmin_tokens.json -print -quit | grep -q .; then
             garmin auth --email "$GARMIN_USERNAME" --password "$GARMIN_PASSWORD"
           fi
-          garmin extract --start-date "$START_DATE" --end-date "$END_DATE"
+          IFS=',' read -ra TYPE_LIST <<< "$DATA_TYPES"
+          DATA_TYPE_ARGS=()
+          for TYPE_NAME in "${TYPE_LIST[@]}"; do
+            TYPE_NAME="$(echo "$TYPE_NAME" | xargs)"
+            if [ -n "$TYPE_NAME" ]; then
+              DATA_TYPE_ARGS+=(--data-types "$TYPE_NAME")
+            fi
+          done
+          garmin extract --start-date "$START_DATE" --end-date "$END_DATE" "${DATA_TYPE_ARGS[@]}"
           garmin verify
         env:
           GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
           GARMIN_EXTRACT_START: ${{ vars.GARMIN_EXTRACT_START }}
           GARMIN_EXTRACT_END: ${{ vars.GARMIN_EXTRACT_END }}
+          GARMIN_DATA_TYPES: ${{ vars.GARMIN_DATA_TYPES }}
       - run: npm ci
       - name: Audit Garmin database
         run: npm run garmin:audit

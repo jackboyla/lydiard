@@ -60,13 +60,14 @@ npm run worker:deploy
 
 # 6. Configure GitHub Actions secrets for the twice-daily Garmin import:
 #    GARMIN_USERNAME, GARMIN_PASSWORD, LYDIARD_INGEST_KEY
-#    Optional repo vars: GARMIN_EXTRACT_START, GARMIN_EXTRACT_END
+#    Optional repo vars: GARMIN_EXTRACT_START, GARMIN_EXTRACT_END, GARMIN_DATA_TYPES
 ```
 
 The same `workers.dev` URL serves the app on desktop and phone. The cron keeps the store fresh with
 no machine running at home; the GitHub workflow extracts Garmin data into SQLite, audits it, then
 posts normalized runs and streams to the Worker. The default Garmin extraction window is the last 10
-years, with `GARMIN_EXTRACT_START` / `GARMIN_EXTRACT_END` available for override.
+years of activity data (`ACTIVITIES_LIST` + `ACTIVITY`), with `GARMIN_EXTRACT_START` /
+`GARMIN_EXTRACT_END` / `GARMIN_DATA_TYPES` available for override.
 
 ## Script ingest
 
