@@ -12,6 +12,7 @@
     "d1:migrate": "wrangler d1 migrations apply lydiard --remote",
     "garmin:audit": "tsx scripts/garmin-health-audit.ts",
     "garmin:import-db": "tsx scripts/garmin-health-import.ts",
+    "garmin:import-gym": "tsx scripts/garmin-gym-import.ts",
     "garmin:sync": "npm run garmin:import-db",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",

@@ -21,6 +21,7 @@ import { TrendPanel } from './components/TrendPanel';
 import {
   getActivities,
   getActivity,
+  getGymSessions,
   getSiteKey,
   getSyncStatus,
   getWeeks,
@@ -36,6 +37,7 @@ import { sampleWeeks } from './data/sampleWeeks';
 import type {
   ActivityDetail,
   ActivitySummary,
+  GymSession,
   Severity,
   SyncStatus,
   TrendMetricKey,
@@ -72,6 +74,7 @@ export default function App() {
   const [apiWeeks, setApiWeeks] = useState<WeeklyRunBlock[]>([]);
   const [localWeeks, setLocalWeeks] = useState<WeeklyRunBlock[] | null>(null);
   const [activities, setActivities] = useState<ActivitySummary[]>([]);
+  const [gymSessions, setGymSessions] = useState<GymSession[]>([]);
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
   const [activityDetail, setActivityDetail] = useState<ActivityDetail | null>(null);
   const [banner, setBanner] = useState('');
@@ -114,14 +117,16 @@ export default function App() {
   const loadData = useCallback(async () => {
     setLoadError('');
     try {
-      const [nextStatus, nextWeeks, nextActivities] = await Promise.all([
+      const [nextStatus, nextWeeks, nextActivities, nextGym] = await Promise.all([
         getSyncStatus(),
         getWeeks(),
         getActivities(),
+        getGymSessions().catch(() => [] as GymSession[]),
       ]);
       setStatus(nextStatus);
       setApiWeeks(nextWeeks);
       setActivities(nextActivities);
+      setGymSessions(nextGym);
       setNeedsPassword(false);
       if (nextStatus.lastError) {
         setLoadError(formatSyncError(nextStatus.lastError));
@@ -392,7 +397,12 @@ export default function App() {
           </aside>
         </main>
       ) : view === 'training' ? (
-        <TrainingView activities={activities} analyses={usingSample ? [] : analyses} usingSample={usingSample} />
+        <TrainingView
+          activities={activities}
+          analyses={usingSample ? [] : analyses}
+          gymSessions={gymSessions}
+          usingSample={usingSample}
+        />
       ) : (
         <main className="dashboard">
           <section className="overview-grid" aria-label="Current analysis">

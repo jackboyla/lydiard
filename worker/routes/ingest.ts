@@ -1,7 +1,14 @@
 import { Hono } from 'hono';
-import type { ActivityStreams, ActivitySummary } from '../../src/types';
+import type { ActivityStreams, ActivitySummary, GymSession } from '../../src/types';
 import type { Env } from '../env';
-import { replaceTrainingData, upsertActivities, saveStreams, updateSyncState } from '../db';
+import {
+  replaceTrainingData,
+  upsertActivities,
+  saveStreams,
+  updateSyncState,
+  replaceGymSessions,
+  upsertGymSessions,
+} from '../db';
 import { computeDecoupling } from '../streams';
 import { recomputeWeeklyFeatures } from '../sync';
 
@@ -15,6 +22,12 @@ interface IngestPayload {
   replace?: boolean;
   recomputeWeeks?: boolean;
   activities?: IngestActivity[];
+}
+
+interface GymIngestPayload {
+  source?: string;
+  replace?: boolean;
+  sessions?: GymSession[];
 }
 
 export function ingestRoutes(): Hono<{ Bindings: Env }> {
@@ -96,7 +109,61 @@ export function ingestRoutes(): Hono<{ Bindings: Env }> {
     return c.json({ ok: true, ...result });
   });
 
+  // Gym / strength sessions live in a separate table and never touch the run
+  // load model. This endpoint only writes gym_sessions.
+  app.post('/gym', async (c) => {
+    let payload: GymIngestPayload;
+    try {
+      payload = (await c.req.json()) as GymIngestPayload;
+    } catch {
+      return c.json({ error: 'Request body must be JSON.' }, 400);
+    }
+
+    const sessions = payload.sessions ?? [];
+    if (sessions.length === 0) {
+      return c.json({ error: 'No gym sessions provided.' }, 400);
+    }
+
+    const clean: GymSession[] = [];
+    for (const session of sessions) {
+      const error = validateGymSession(session);
+      if (error) {
+        return c.json({ error }, 400);
+      }
+      clean.push(session);
+    }
+
+    if (payload.replace) {
+      await replaceGymSessions(c.env.lydiard);
+    }
+    await upsertGymSessions(c.env.lydiard, clean);
+
+    return c.json({
+      ok: true,
+      source: payload.source ?? 'external',
+      replace: Boolean(payload.replace),
+      upserted: clean.length,
+      finishedAt: new Date().toISOString(),
+    });
+  });
+
   return app;
+}
+
+function validateGymSession(session: GymSession | undefined): string | null {
+  if (!session) {
+    return 'Gym session is missing.';
+  }
+  if (!session.id || !session.name || !session.sportType) {
+    return 'Gym session must include id, name, and sportType.';
+  }
+  if (!Number.isFinite(new Date(session.startDate).getTime())) {
+    return `Gym session ${session.id} has an invalid startDate.`;
+  }
+  if (!Number.isFinite(session.durationSec) || session.durationSec < 0) {
+    return `Gym session ${session.id} has an invalid durationSec.`;
+  }
+  return null;
 }
 
 function validateSummary(summary: ActivitySummary | undefined): string | null {

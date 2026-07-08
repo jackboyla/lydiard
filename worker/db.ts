@@ -1,5 +1,5 @@
 import type { D1Database } from '@cloudflare/workers-types';
-import type { ActivityStreams, ActivitySummary, WeeklyRunBlock } from '../src/types';
+import type { ActivityStreams, ActivitySummary, GymSession, WeeklyRunBlock } from '../src/types';
 
 export interface AthleteRow {
   id: number;
@@ -229,6 +229,88 @@ export async function getActivities(
 export async function getActivity(db: D1Database, id: string): Promise<StoredActivity | null> {
   const row = await db.prepare('SELECT * FROM activities WHERE id = ?1').bind(id).first<ActivityRow>();
   return row ? rowToActivity(row) : null;
+}
+
+interface GymRow {
+  id: string;
+  name: string;
+  sport_type: string;
+  start_date: string;
+  start_date_local: string;
+  duration_s: number;
+  average_heartrate: number | null;
+  calories: number | null;
+}
+
+function rowToGym(row: GymRow): GymSession {
+  return {
+    id: row.id,
+    name: row.name,
+    sportType: row.sport_type,
+    startDate: row.start_date,
+    startDateLocal: row.start_date_local,
+    durationSec: row.duration_s,
+    averageHeartRate: row.average_heartrate ?? undefined,
+    calories: row.calories ?? undefined,
+  };
+}
+
+export async function getGymSessions(
+  db: D1Database,
+  opts: { from?: string; to?: string } = {},
+): Promise<GymSession[]> {
+  const clauses: string[] = [];
+  const binds: string[] = [];
+  if (opts.from) {
+    binds.push(opts.from);
+    clauses.push(`start_date >= ?${binds.length}`);
+  }
+  if (opts.to) {
+    binds.push(opts.to);
+    clauses.push(`start_date <= ?${binds.length}`);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const result = await db
+    .prepare(`SELECT * FROM gym_sessions ${where} ORDER BY start_date ASC`)
+    .bind(...binds)
+    .all<GymRow>();
+  return (result.results ?? []).map(rowToGym);
+}
+
+export async function replaceGymSessions(db: D1Database): Promise<void> {
+  await db.prepare('DELETE FROM gym_sessions').run();
+}
+
+export async function upsertGymSessions(db: D1Database, sessions: GymSession[]): Promise<void> {
+  if (sessions.length === 0) {
+    return;
+  }
+  const now = new Date().toISOString();
+  const statements = sessions.map((session) =>
+    db
+      .prepare(
+        `INSERT INTO gym_sessions (
+           id, name, sport_type, start_date, start_date_local, duration_s, average_heartrate, calories, created_at, updated_at
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+         ON CONFLICT(id) DO UPDATE SET
+           name=excluded.name, sport_type=excluded.sport_type, start_date=excluded.start_date,
+           start_date_local=excluded.start_date_local, duration_s=excluded.duration_s,
+           average_heartrate=excluded.average_heartrate, calories=excluded.calories, updated_at=excluded.updated_at`,
+      )
+      .bind(
+        session.id,
+        session.name,
+        session.sportType,
+        session.startDate,
+        session.startDateLocal,
+        Math.round(session.durationSec) || 0,
+        session.averageHeartRate ?? null,
+        session.calories ?? null,
+        now,
+        now,
+      ),
+  );
+  await db.batch(statements);
 }
 
 export async function getActivitiesNeedingStreams(db: D1Database, limit: number): Promise<StoredActivity[]> {
