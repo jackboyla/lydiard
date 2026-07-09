@@ -18,7 +18,7 @@ import { analyzeWeeks, formatPace } from './analysis/fatigue';
 import { IndicatorList } from './components/IndicatorList';
 import { LoadStory } from './components/LoadStory';
 import { MapView } from './components/MapView';
-import { TrainingView } from './components/TrainingView';
+import { TrainingView, type TrainingJumpApi } from './components/TrainingView';
 import { TrendPanel } from './components/TrendPanel';
 import {
   getActivities,
@@ -87,6 +87,7 @@ export default function App() {
 
   const [view, setView] = useState<ViewMode>('training');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [trainingJump, setTrainingJump] = useState<TrainingJumpApi | null>(null);
   const selectView = useCallback((next: ViewMode) => {
     setView(next);
     setMenuOpen(false);
@@ -347,6 +348,37 @@ export default function App() {
             </button>
           </div>
 
+          {view === 'training' && trainingJump && trainingJump.months.length > 0 && (
+            <label className="menu-jump">
+              <span>
+                <CalendarDays size={15} aria-hidden="true" />
+                Jump to
+              </span>
+              <select
+                aria-label="Jump to month"
+                value=""
+                onChange={(event) => {
+                  const monthId = event.target.value;
+                  if (monthId) {
+                    trainingJump.jumpTo(monthId);
+                    setMenuOpen(false);
+                  }
+                }}
+              >
+                <option value="">Month…</option>
+                {groupMonthsByYear(trainingJump.months).map(([year, months]) => (
+                  <optgroup key={year} label={year}>
+                    {months.map((month) => (
+                      <option key={month.id} value={month.id}>
+                        {month.label} ({month.count})
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+          )}
+
           <button
             className="icon-button"
             type="button"
@@ -428,6 +460,7 @@ export default function App() {
           analyses={usingSample ? [] : analyses}
           gymSessions={gymSessions}
           usingSample={usingSample}
+          onJumpApi={setTrainingJump}
         />
       ) : (
         <main className="dashboard">
@@ -772,6 +805,23 @@ function formatActivityDate(iso: string): string {
     month: 'short',
     year: 'numeric',
   }).format(new Date(iso));
+}
+
+// Group the (newest-first) month list into <optgroup> buckets by year, preserving order.
+function groupMonthsByYear(months: TrainingJumpApi['months']): Array<[string, TrainingJumpApi['months']]> {
+  const order: Array<[string, TrainingJumpApi['months']]> = [];
+  const byYear = new Map<string, TrainingJumpApi['months']>();
+  for (const month of months) {
+    const year = month.id.slice(0, 4);
+    let bucket = byYear.get(year);
+    if (!bucket) {
+      bucket = [];
+      byYear.set(year, bucket);
+      order.push([year, bucket]);
+    }
+    bucket.push(month);
+  }
+  return order;
 }
 
 function formatDuration(totalSeconds: number): string {

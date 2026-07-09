@@ -756,6 +756,11 @@ dd {
   outline-offset: 2px;
 }
 
+/* Month/year jump lives in the mobile menu; on desktop the sticky rail handles it. */
+.menu-jump {
+  display: none;
+}
+
 .topbar-controls {
   display: flex;
   align-items: center;
@@ -1909,6 +1914,41 @@ dd {
 
   .topbar-controls.open .segmented {
     flex-basis: 100%;
+  }
+
+  /* Month/year jump moves into the menu, so the in-log horizontal rail is hidden. */
+  .training-jump-rail {
+    display: none;
+  }
+
+  .menu-jump {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex-basis: 100%;
+  }
+
+  .menu-jump > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--subtle);
+    font-size: 0.72rem;
+    font-weight: 720;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .menu-jump select {
+    width: 100%;
+    min-height: 42px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-control);
+    color: var(--text);
+    font: inherit;
+    font-weight: 640;
   }
 
   .source-switch,
