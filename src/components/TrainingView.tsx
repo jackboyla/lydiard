@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Activity,
   BookOpen,
@@ -52,11 +52,25 @@ const GUIDE_METRICS: MetricKey[] = [
   'weekStatus',
 ];
 
+export interface MonthNav {
+  id: string;
+  label: string;
+  count: number;
+}
+
+// Lets a parent (the top-bar menu) drive the month/year jump without re-implementing
+// the lazy-render + scroll logic that lives here.
+export interface TrainingJumpApi {
+  months: MonthNav[];
+  jumpTo: (monthId: string) => void;
+}
+
 interface TrainingViewProps {
   activities: ActivitySummary[];
   analyses: WeeklyAnalysis[];
   gymSessions: GymSession[];
   usingSample: boolean;
+  onJumpApi?: (api: TrainingJumpApi | null) => void;
 }
 
 // A week in the log is either a scored run week (with any gym that week attached)
@@ -82,7 +96,7 @@ const WEEK_CHUNK = 10;
 // Weeks rendered below a jump target so the scroller can bring it to the top.
 const JUMP_BUFFER_WEEKS = 10;
 
-export function TrainingView({ activities, analyses, gymSessions, usingSample }: TrainingViewProps) {
+export function TrainingView({ activities, analyses, gymSessions, usingSample, onJumpApi }: TrainingViewProps) {
   const [range, setRange] = useState<RangeKey>('all');
   const [showGuide, setShowGuide] = useState(false);
   const [visibleWeekCount, setVisibleWeekCount] = useState(INITIAL_WEEK_COUNT);
@@ -116,28 +130,43 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample }:
   // Month/year jump. Week blocks are lazily rendered, so a naive #anchor link
   // does nothing when the target month isn't in the DOM yet. Instead we render
   // enough weeks to include the target, then scroll it into the scroller.
-  const jumpToMonth = (monthId: string) => {
-    const index = scoped.weekEntries.findIndex((entry) => monthIdFromEntry(entry) <= monthId);
-    if (index < 0) {
+  const jumpToMonth = useCallback(
+    (monthId: string) => {
+      const index = scoped.weekEntries.findIndex((entry) => monthIdFromEntry(entry) <= monthId);
+      if (index < 0) {
+        return;
+      }
+      // Render a buffer of weeks BELOW the target so the scroller has enough
+      // content to bring the target to the top (otherwise scrollTop clamps and
+      // the jump lands short, showing a newer month).
+      setVisibleWeekCount((current) => Math.max(current, index + 1 + JUMP_BUFFER_WEEKS));
+      setPendingJump(scoped.weekEntries[index].weekId);
+    },
+    [scoped.weekEntries],
+  );
+
+  // Publish the jump control to the parent (top-bar menu) so months can be
+  // reached without scrolling back up to the in-log rail.
+  useEffect(() => {
+    if (!onJumpApi) {
       return;
     }
-    // Render a buffer of weeks BELOW the target so the scroller has enough
-    // content to bring the target to the top (otherwise scrollTop clamps and
-    // the jump lands short, showing a newer month).
-    setVisibleWeekCount((current) => Math.max(current, index + 1 + JUMP_BUFFER_WEEKS));
-    setPendingJump(scoped.weekEntries[index].weekId);
-  };
+    onJumpApi({ months: scoped.months, jumpTo: jumpToMonth });
+    return () => onJumpApi(null);
+  }, [scoped.months, jumpToMonth, onJumpApi]);
 
   useEffect(() => {
     if (!pendingJump) {
       return;
     }
     // Jumping can render many heavy week blocks at once; the browser may take
-    // several frames to lay them all out. Setting scrollTop before that finishes
-    // clamps against a stale (short) scrollHeight and lands far short. So poll
-    // each frame until the scroller can actually reach the target, then scroll.
+    // several frames to lay them all out, and the measured target position keeps
+    // shifting until it does. Scrolling too early lands short. So poll each frame
+    // until the target position is both reachable and STABLE across two frames,
+    // then scroll.
     let cancelled = false;
     let frame = 0;
+    let prevDesired = Number.NaN;
     const attempt = () => {
       if (cancelled) {
         return;
@@ -147,12 +176,14 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample }:
       if (root && target) {
         const desired = root.scrollTop + target.getBoundingClientRect().top - root.getBoundingClientRect().top - 10;
         const reachable = root.scrollHeight - root.clientHeight >= desired - 1;
-        if (reachable || frame > 60) {
+        const stable = Math.abs(desired - prevDesired) < 1;
+        if ((reachable && stable) || frame > 90) {
           root.scrollTop = desired;
           setPendingJump(null);
           return;
         }
-      } else if (frame > 60) {
+        prevDesired = desired;
+      } else if (frame > 90) {
         setPendingJump(null);
         return;
       }
