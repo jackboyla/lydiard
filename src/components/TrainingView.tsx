@@ -5,7 +5,6 @@ import {
   CalendarDays,
   Dumbbell,
   Gauge,
-  HeartPulse,
   Mountain,
   ShieldAlert,
   Timer,
@@ -70,6 +69,7 @@ interface TrainingViewProps {
   gymSessions: GymSession[];
   usingSample: boolean;
   onJumpApi?: (api: TrainingJumpApi | null) => void;
+  activityFocus?: { id: string; request: number } | null;
 }
 
 // A week in the log is either a scored run week (with any gym that week attached)
@@ -161,7 +161,7 @@ const ZONE_TEMPLATES: ZoneTemplate[] = [
   { key: 'z5', label: 'Z5', name: 'VO2 / faster', tone: 'danger' as MetricTone, ifMin: 1.02, hrMinRatio: 1.02 },
 ];
 
-export function TrainingView({ activities, analyses, gymSessions, usingSample, onJumpApi }: TrainingViewProps) {
+export function TrainingView({ activities, analyses, gymSessions, usingSample, onJumpApi, activityFocus }: TrainingViewProps) {
   const [range, setRange] = useState<RangeKey>('all');
   const [showGuide, setShowGuide] = useState(false);
   const [visibleWeekCount, setVisibleWeekCount] = useState(INITIAL_WEEK_COUNT);
@@ -263,6 +263,22 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
   }, [pendingJump]);
 
   useEffect(() => {
+    if (!activityFocus) {
+      return;
+    }
+    const session = loadModel.sessionsById.get(activityFocus.id);
+    setPreviewId(activityFocus.id);
+    if (!session) {
+      return;
+    }
+    const index = scoped.weekEntries.findIndex((entry) => entry.weekId === session.weekId);
+    if (index >= 0) {
+      setVisibleWeekCount((current) => Math.max(current, index + 1 + JUMP_BUFFER_WEEKS));
+      setPendingJump(session.weekId);
+    }
+  }, [activityFocus?.id, activityFocus?.request, loadModel.sessionsById, scoped.weekEntries]);
+
+  useEffect(() => {
     setVisibleWeekCount(INITIAL_WEEK_COUNT);
   }, [range, loadModel.sessions.length]);
 
@@ -355,6 +371,31 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
               </button>
             ))}
           </div>
+          {scoped.months.length > 0 && (
+            <label className="training-inline-jump">
+              <span>
+                <CalendarDays size={14} aria-hidden="true" />
+                Jump
+              </span>
+              <select
+                aria-label="Jump to month"
+                value=""
+                onChange={(event) => {
+                  const monthId = event.target.value;
+                  if (monthId) {
+                    jumpToMonth(monthId);
+                  }
+                }}
+              >
+                <option value="">Month...</option>
+                {scoped.months.map((month) => (
+                  <option key={month.id} value={month.id}>
+                    {month.label} ({month.count})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       </section>
 
@@ -447,20 +488,19 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
             value={latestDaily ? latestDaily.acwr.toFixed(2) : '-'}
             detail="ATL / CTL"
           />
-          <TrainingKpi
-            icon={<CalendarDays size={18} />}
-            label="Runs"
-            value={String(runCount)}
-            detail={gymCount > 0 ? `${Math.round(scoped.distanceKm)} km · ${gymCount} gym` : `${Math.round(scoped.distanceKm)} km`}
-          />
-          <TrainingKpi
-            icon={<HeartPulse size={18} />}
-            label="HR / power"
-            value={`${hrCount}/${runCount} · ${powerCount}/${runCount}`}
-            detail="recorded coverage"
-          />
         </aside>
       </section>
+
+      <details className="training-additional-info">
+        <summary>Additional info</summary>
+        <div>
+          <Metric label="Runs" value={String(runCount)} />
+          <Metric label="Distance" value={`${Math.round(scoped.distanceKm)} km`} />
+          <Metric label="Gym" value={String(gymCount)} />
+          <Metric label="HR coverage" value={`${hrCount}/${runCount}`} />
+          <Metric label="Power coverage" value={`${powerCount}/${runCount}`} />
+        </div>
+      </details>
 
       <section className="training-log-shell" aria-label="Activity log">
         <div className="training-week-list">
@@ -526,7 +566,6 @@ function WeekBlock({
   previewId: string | null;
   onPreview: (id: string) => void;
 }) {
-  const projectedEasy = analysis?.week.easyPaceSecPerKm;
   const days = buildWeekCalendarDays(week.weekId, week.sessions, gym);
   return (
     <article className={`training-week-block ${week.severity}`}>
@@ -549,7 +588,6 @@ function WeekBlock({
         <span>{week.durationHours.toFixed(1)} h</span>
         <span>{Math.round(week.hardShare * 100)}% hard load</span>
         <span>{Math.round(week.longRunShare * 100)}% long-run share</span>
-        {projectedEasy && <span>easy {formatPace(projectedEasy)}</span>}
       </div>
       {week.flags.length > 0 && (
         <div className="week-flags">
@@ -560,7 +598,6 @@ function WeekBlock({
       )}
       <WeekCalendar
         days={days}
-        projectedEasySecPerKm={projectedEasy}
         previewId={previewId}
         onPreview={onPreview}
         ariaLabel={`${week.label} training calendar`}
@@ -635,13 +672,11 @@ function GymOnlyBlock({ weekId, gym }: { weekId: string; gym: GymSession[] }) {
 
 function WeekCalendar({
   days,
-  projectedEasySecPerKm,
   previewId,
   onPreview,
   ariaLabel,
 }: {
   days: CalendarDay[];
-  projectedEasySecPerKm?: number;
   previewId?: string | null;
   onPreview?: (id: string) => void;
   ariaLabel: string;
@@ -652,7 +687,6 @@ function WeekCalendar({
         <CalendarDayColumn
           key={day.dayId}
           day={day}
-          projectedEasySecPerKm={projectedEasySecPerKm}
           previewId={previewId ?? null}
           onPreview={onPreview}
         />
@@ -663,12 +697,10 @@ function WeekCalendar({
 
 function CalendarDayColumn({
   day,
-  projectedEasySecPerKm,
   previewId,
   onPreview,
 }: {
   day: CalendarDay;
-  projectedEasySecPerKm?: number;
   previewId: string | null;
   onPreview?: (id: string) => void;
 }) {
@@ -678,12 +710,6 @@ function CalendarDayColumn({
     <section
       className={`week-day-cell tone-${day.tone}${hasRun ? ' has-run' : ''}${hasGym ? ' has-gym' : ''}`}
       aria-label={`${day.weekday} ${day.dateLabel}`}
-      onClick={() => {
-        const firstSession = day.sessions[0];
-        if (firstSession) {
-          onPreview?.(firstSession.activity.id);
-        }
-      }}
     >
       <header className="week-day-head">
         <span>{day.weekday}</span>
@@ -703,7 +729,6 @@ function CalendarDayColumn({
           <CalendarRunCard
             key={session.activity.id}
             session={session}
-            projectedEasySecPerKm={projectedEasySecPerKm}
             active={previewId === session.activity.id}
             onPreview={onPreview}
           />
@@ -719,25 +744,50 @@ function CalendarDayColumn({
 
 function CalendarRunCard({
   session,
-  projectedEasySecPerKm,
   active,
   onPreview,
 }: {
   session: SessionLoad;
-  projectedEasySecPerKm?: number;
   active: boolean;
   onPreview?: (id: string) => void;
 }) {
+  const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const activity = session.activity;
   const effortTone = toneForEffort(session.externalIntensityFactor);
   const runKind = classifyRun(session);
+  const openPreview = () => onPreview?.(activity.id);
   return (
     <button
       type="button"
       className={`calendar-run-card tone-${effortTone} run-${runKind.key}${active ? ' active' : ''}${session.hardLoad > 0 ? ' hard' : ''}`}
-      onClick={(event) => {
+      onPointerDown={(event) => {
         event.stopPropagation();
-        onPreview?.(activity.id);
+        pointerStart.current = { x: event.clientX, y: event.clientY };
+      }}
+      onPointerUp={(event) => {
+        event.stopPropagation();
+        const start = pointerStart.current;
+        pointerStart.current = null;
+        if (!start) {
+          return;
+        }
+        const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+        if (moved <= 8) {
+          openPreview();
+        }
+      }}
+      onPointerCancel={() => {
+        pointerStart.current = null;
+      }}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openPreview();
+        }
       }}
     >
       <span className="calendar-run-title-row">
@@ -750,7 +800,7 @@ function CalendarRunCard({
         </span>
       </span>
       <span className={`calendar-run-reason tone-${runKind.tone}`} title={runKind.reasons.join(' ')}>
-        {runKind.summary}
+        {calendarRunSummary(runKind.key)}
       </span>
       <span className="calendar-run-primary">
         <strong>{activity.distanceKm.toFixed(1)} km</strong>
@@ -762,11 +812,7 @@ function CalendarRunCard({
         <RunMetric label="HR" value={activity.averageHeartRate ? `${Math.round(activity.averageHeartRate)}` : '-'} tone={toneForHeartRate(session)} />
         <RunMetric label="W" value={activity.averageWatts ? `${Math.round(activity.averageWatts)}` : '-'} tone={activity.averageWatts ? 'moderate' : 'muted'} />
         <RunMetric label="Load" value={session.load.toFixed(1)} tone={toneForLoad(session.load)} />
-        <RunMetric label="IF" value={session.externalIntensityFactor.toFixed(2)} tone={effortTone} />
-        <RunMetric label="Split" value={formatDecoupling(activity.decouplingPct)} tone={toneForDecoupling(activity.decouplingPct)} />
-        {projectedEasySecPerKm && <RunMetric label="Easy" value={formatCompactPace(projectedEasySecPerKm)} tone="easy" />}
       </span>
-      <span className="calendar-run-reliability">{formatReliability(session.reliability)}</span>
     </button>
   );
 }
@@ -1318,6 +1364,19 @@ function classifyRun(session: SessionLoad): RunClassification {
   };
 }
 
+function calendarRunSummary(kind: RunKind): string {
+  switch (kind) {
+    case 'session':
+      return 'Quality work';
+    case 'long':
+      return 'Long aerobic load';
+    case 'steady':
+      return 'Controlled aerobic';
+    case 'easy':
+      return 'Low stress';
+  }
+}
+
 function formatOptionalIf(value?: number): string {
   return value === undefined || !Number.isFinite(value) ? '-' : value.toFixed(2);
 }
@@ -1597,19 +1656,6 @@ function formatRunTime(iso: string): string {
 
 function formatCompactPace(totalSeconds: number): string {
   return formatPace(totalSeconds).replace('/km', '');
-}
-
-function formatReliability(value: SessionLoad['reliability']): string {
-  switch (value) {
-    case 'external-hr-power':
-      return 'Ext+HR+Pwr';
-    case 'external-power':
-      return 'Ext+Pwr';
-    case 'external-hr':
-      return 'Ext+HR';
-    case 'external-only':
-      return 'Ext only';
-  }
 }
 
 function formatMonthLabel(day: string): string {

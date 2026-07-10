@@ -861,10 +861,6 @@ dd {
   display: none;
 }
 
-.mobile-more-map {
-  display: none;
-}
-
 .mobile-bottom-nav button {
   font: inherit;
 }
@@ -1377,7 +1373,8 @@ dd {
 }
 
 .session-card-row,
-.proof-grid {
+.proof-grid,
+.best-effort-groups {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
@@ -1443,6 +1440,44 @@ dd {
   background: rgba(209, 90, 54, 0.08);
 }
 
+.load-panel-controls {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.load-panel-controls strong {
+  color: var(--text-strong);
+  font-size: 1.1rem;
+}
+
+.mini-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-control);
+}
+
+.mini-toggle button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 780;
+  cursor: pointer;
+}
+
+.mini-toggle button.active {
+  color: var(--text-strong);
+  background: var(--accent);
+}
+
 .mini-load-bars {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -1452,10 +1487,167 @@ dd {
   margin: 16px 0 12px;
 }
 
-.mini-load-bars span {
+.mini-load-bars button {
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 8px 8px 2px 2px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.mini-load-bars button span {
+  display: block;
+  width: 100%;
   min-height: 8px;
   border-radius: 7px 7px 2px 2px;
   background: linear-gradient(180deg, rgba(209, 90, 54, 0.95), rgba(209, 90, 54, 0.62));
+}
+
+.mini-load-bars button:hover span,
+.mini-load-bars button:focus-visible span,
+.mini-load-bars button.active span {
+  outline: 2px solid rgba(111, 168, 255, 0.8);
+  outline-offset: 2px;
+}
+
+.load-hover-readout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: baseline;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.load-hover-readout span,
+.load-hover-readout small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.load-hover-readout strong {
+  color: var(--text-strong);
+}
+
+.load-hover-readout small {
+  grid-column: 1 / -1;
+}
+
+.best-effort-groups {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.best-effort-group {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.best-effort-group header {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.best-effort-group header span {
+  color: var(--subtle);
+  font-size: 0.72rem;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.best-effort-group header strong {
+  color: var(--text-strong);
+  font-size: 1.28rem;
+  line-height: 1;
+}
+
+.best-effort-group ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.best-effort-group p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.best-effort-group button,
+.best-list button {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.best-effort-group button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 8px;
+  padding: 8px;
+  background: var(--surface-soft);
+}
+
+.best-effort-group button:hover,
+.best-effort-group button:focus-visible,
+.best-list button:hover,
+.best-list button:focus-visible {
+  border-color: rgba(91, 124, 250, 0.72);
+  outline: none;
+}
+
+.best-effort-group button > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  grid-row: span 3;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: rgba(111, 168, 255, 0.12);
+  font-size: 0.78rem;
+  font-weight: 820;
+}
+
+.best-effort-group button strong,
+.best-effort-group button small,
+.best-effort-group button em {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.best-effort-group button strong {
+  color: var(--text-strong);
+  line-height: 1.1;
+}
+
+.best-effort-group button small,
+.best-effort-group button em {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 680;
 }
 
 .fitness-direction-card {
@@ -1516,11 +1708,17 @@ dd {
 
 .zone-list-row,
 .best-list div,
+.best-list button,
 .plan-day-row {
   display: grid;
   gap: 5px;
   padding: 12px 0;
   border-top: 1px solid var(--border-soft);
+}
+
+.best-list button:disabled {
+  cursor: default;
+  opacity: 0.66;
 }
 
 .zone-list-row {
@@ -1643,6 +1841,38 @@ dd {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.training-inline-jump {
+  display: none;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.training-inline-jump span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--subtle);
+  font-size: 0.7rem;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.training-inline-jump select {
+  min-height: 30px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface-control);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 680;
 }
 
 .training-zone-panel {
@@ -1871,6 +2101,28 @@ dd {
   font-weight: 650;
 }
 
+.training-additional-info {
+  margin: -2px 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+
+.training-additional-info summary {
+  min-height: 42px;
+  padding: 11px 14px;
+  color: var(--muted);
+  font-weight: 780;
+  cursor: pointer;
+}
+
+.training-additional-info > div {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
 .training-log-shell {
   position: relative;
   display: grid;
@@ -2029,10 +2281,6 @@ dd {
 
 .week-day-cell.has-gym:not(.has-run) {
   background: rgba(91, 124, 250, 0.06);
-}
-
-.week-day-cell.has-run {
-  cursor: pointer;
 }
 
 .week-day-cell.tone-easy .week-day-head {
@@ -2361,16 +2609,6 @@ dd {
 .calendar-run-metric.tone-danger small,
 .calendar-run-metric.tone-danger strong {
   color: var(--danger);
-}
-
-.calendar-run-reliability {
-  overflow: hidden;
-  color: var(--subtle);
-  font-size: 0.64rem;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
 }
 
 .calendar-gym-pill {
@@ -2979,7 +3217,7 @@ dd {
     gap: 8px;
   }
 
-  /* Keep controls tucked away; the mobile bottom bar opens them through More. */
+  /* Keep secondary controls tucked behind the top-bar menu; primary views live in the bottom bar. */
   .topbar {
     flex-direction: row;
     flex-wrap: wrap;
@@ -2993,7 +3231,7 @@ dd {
   }
 
   .topbar-menu-toggle {
-    display: none;
+    display: inline-flex;
   }
 
   .mobile-bottom-nav {
@@ -3096,27 +3334,12 @@ dd {
     display: none;
   }
 
-  .mobile-more-map {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    flex-basis: 100%;
-    min-height: 42px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    background: var(--surface-control);
-    font-weight: 760;
-    cursor: pointer;
-  }
-
   .topbar-controls.open .segmented {
     flex-basis: 100%;
   }
 
   .menu-jump {
-    display: flex;
+    display: none;
     flex-direction: column;
     gap: 6px;
     flex-basis: 100%;
@@ -3520,7 +3743,8 @@ dd {
   .fitness-lower-grid,
   .control-card-grid,
   .session-card-row,
-  .proof-grid {
+  .proof-grid,
+  .best-effort-groups {
     grid-template-columns: 1fr;
   }
 
@@ -3541,6 +3765,10 @@ dd {
     height: 130px;
   }
 
+  .load-panel-controls {
+    justify-items: start;
+  }
+
   .product-view-toggle {
     overflow-x: auto;
   }
@@ -3551,6 +3779,15 @@ dd {
 
   .training-view {
     padding: 4px 0 calc(112px + env(safe-area-inset-bottom));
+  }
+
+  .training-inline-jump {
+    display: flex;
+    width: 100%;
+  }
+
+  .training-inline-jump select {
+    flex: 1;
   }
 
   /* Keep KPI tiles two-up instead of a tall single column. */
@@ -3573,6 +3810,10 @@ dd {
 
   .training-kpi strong {
     font-size: 1.02rem;
+  }
+
+  .training-additional-info > div {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   /* Week metric summary: compact 3-up grid rather than five stacked rows. */
