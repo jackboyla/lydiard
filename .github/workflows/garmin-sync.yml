@@ -37,9 +37,7 @@ jobs:
       - name: Install Garmin health CLI
         run: python -m pip install garmin-health-data==2.11.2
       - name: Extract Garmin health database
-        id: extract
         run: |
-          echo "skipped=false" >> "$GITHUB_OUTPUT"
           INCREMENTAL_DAYS="${GARMIN_INCREMENTAL_DAYS:-45}"
           START_DATE="${GARMIN_EXTRACT_START:-$(date -u -d "$INCREMENTAL_DAYS days ago" +%F)}"
           END_DATE="${GARMIN_EXTRACT_END:-$(date -u -d 'tomorrow' +%F)}"
@@ -69,10 +67,9 @@ jobs:
                   sleep "$wait_seconds"
                   continue
                 fi
-                echo "::warning::Garmin $label failed with a transient upstream error after 3 attempts. Leaving existing Lydiard data unchanged."
-                echo "skipped=true" >> "$GITHUB_OUTPUT"
+                echo "::error::Garmin $label failed with a transient upstream error after 3 attempts."
                 rm -f "$log_file"
-                return 75
+                return "$status"
               fi
               rm -f "$log_file"
               return "$status"
@@ -84,15 +81,7 @@ jobs:
               echo "::error::GARMIN_USERNAME and GARMIN_PASSWORD secrets are required when no cached Garmin tokens are available."
               exit 1
             fi
-            set +e
             run_garmin_with_retry "auth" garmin auth --email "$GARMIN_USERNAME" --password "$GARMIN_PASSWORD"
-            AUTH_STATUS="$?"
-            set -e
-            if [ "$AUTH_STATUS" -eq 75 ]; then
-              exit 0
-            elif [ "$AUTH_STATUS" -ne 0 ]; then
-              exit "$AUTH_STATUS"
-            fi
           fi
           IFS=',' read -ra TYPE_LIST <<< "$DATA_TYPES"
           DATA_TYPE_ARGS=()
@@ -102,15 +91,7 @@ jobs:
               DATA_TYPE_ARGS+=(--data-types "$TYPE_NAME")
             fi
           done
-          set +e
           run_garmin_with_retry "extract" garmin extract --start-date "$START_DATE" --end-date "$END_DATE" "${DATA_TYPE_ARGS[@]}"
-          EXTRACT_STATUS="$?"
-          set -e
-          if [ "$EXTRACT_STATUS" -eq 75 ]; then
-            exit 0
-          elif [ "$EXTRACT_STATUS" -ne 0 ]; then
-            exit "$EXTRACT_STATUS"
-          fi
           garmin verify
         env:
           GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
@@ -121,25 +102,20 @@ jobs:
           GARMIN_DATA_TYPES: ${{ vars.GARMIN_DATA_TYPES }}
           GARMIN_NO_VERSION_CHECK: "1"
       - run: npm ci
-        if: steps.extract.outputs.skipped != 'true'
       - name: Audit Garmin database
-        if: steps.extract.outputs.skipped != 'true'
         run: npm run garmin:audit
       - name: Import Garmin runs into Lydiard
-        if: steps.extract.outputs.skipped != 'true'
         run: npm run garmin:import-db -- --no-replace
         env:
           LYDIARD_INGEST_KEY: ${{ secrets.LYDIARD_INGEST_KEY }}
           LYDIARD_BASE_URL: ${{ vars.LYDIARD_BASE_URL || 'https://lydiard.lydiard.workers.dev' }}
           GARMIN_IMPORT_ACTIVITY_TYPES: running
       - name: Import Garmin gym sessions into Lydiard
-        if: steps.extract.outputs.skipped != 'true'
         run: npm run garmin:import-gym -- --no-replace --allow-empty
         env:
           LYDIARD_INGEST_KEY: ${{ secrets.LYDIARD_INGEST_KEY }}
           LYDIARD_BASE_URL: ${{ vars.LYDIARD_BASE_URL || 'https://lydiard.lydiard.workers.dev' }}
       - name: Save Garmin health cache
-        if: steps.extract.outputs.skipped != 'true'
         uses: actions/cache/save@v4
         with:
           path: |

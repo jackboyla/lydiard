@@ -62,7 +62,7 @@ const sessions: GymSession[] = rows.map((row) => ({
 
 if (sessions.length === 0) {
   if (allowEmpty) {
-    console.log(JSON.stringify({ ok: true, skipped: true, dbPath, replace, types, matched: 0 }, null, 2));
+    console.log(JSON.stringify({ ok: true, dbPath, replace, types, matched: 0 }, null, 2));
     process.exit(0);
   }
   throw new Error(`No Garmin gym activities matched types: ${types.join(', ')}`);
