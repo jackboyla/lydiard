@@ -19,6 +19,12 @@ import {
   X,
 } from 'lucide-react';
 import { analyzeWeeks, formatPace } from './analysis/fatigue';
+import {
+  buildTrainingLoadModel,
+  type SessionLoad,
+  type TrainingLoadModel,
+  type WeekLoadSummary,
+} from './analysis/loadModel';
 import { IndicatorList } from './components/IndicatorList';
 import { LoadStory } from './components/LoadStory';
 import { MapView } from './components/MapView';
@@ -47,11 +53,12 @@ import type {
   Severity,
   SyncStatus,
   TrendMetricKey,
+  WeeklyAnalysis,
   WeeklyRunBlock,
 } from './types';
 
 type RangePreset = '4w' | '12w' | '6mo' | '1y' | 'all';
-type ViewMode = 'map' | 'training' | 'dashboard';
+type ViewMode = 'home' | 'fitness' | 'plan' | 'analysis' | 'calendar' | 'map';
 type MobileNavKey = 'home' | 'fitness' | 'plan' | 'analysis' | 'calendar' | 'more';
 
 const RANGE_DAYS: Record<RangePreset, number> = {
@@ -90,14 +97,14 @@ export default function App() {
   const [needsPassword, setNeedsPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
 
-  const [view, setView] = useState<ViewMode>('training');
+  const [view, setView] = useState<ViewMode>('home');
   const [menuOpen, setMenuOpen] = useState(false);
-  const [mobileNav, setMobileNav] = useState<MobileNavKey>('calendar');
+  const [mobileNav, setMobileNav] = useState<MobileNavKey>('home');
   const [trainingJump, setTrainingJump] = useState<TrainingJumpApi | null>(null);
   const selectView = useCallback((next: ViewMode) => {
     setView(next);
     setMenuOpen(false);
-    setMobileNav(next === 'training' ? 'calendar' : next === 'dashboard' ? 'analysis' : 'more');
+    setMobileNav(next === 'map' ? 'more' : next);
   }, []);
   const selectMobileNav = useCallback((next: MobileNavKey) => {
     if (next === 'more') {
@@ -107,7 +114,7 @@ export default function App() {
     }
     setMobileNav(next);
     setMenuOpen(false);
-    setView(next === 'calendar' ? 'training' : 'dashboard');
+    setView(next);
   }, []);
   const [range, setRange] = useState<RangePreset>('12w');
   const [colorBy, setColorBy] = useState<ColorBy>('severity');
@@ -118,6 +125,7 @@ export default function App() {
   const weeks = localWeeks ?? (apiWeeks.length >= 4 ? apiWeeks : sampleWeeks);
   const usingSample = !localWeeks && apiWeeks.length < 4;
   const analyses = useMemo(() => analyzeWeeks(weeks), [weeks]);
+  const loadModel = useMemo(() => buildTrainingLoadModel(activities), [activities]);
   const dataKey = `${localWeeks ? 'local' : 'api'}:${weeks.length}`;
 
   const severityByWeek = useMemo(() => {
@@ -270,8 +278,8 @@ export default function App() {
       const csvText = await file.text();
       const imported = parseActivityCsv(csvText, file.name);
       setLocalWeeks(imported.weeks);
-      setBanner(`Loaded ${imported.weekCount} weeks from ${file.name} (dashboard only — CSV has no routes).`);
-      setView('dashboard');
+      setBanner(`Loaded ${imported.weekCount} weeks from ${file.name} (analysis only - CSV has no routes).`);
+      setView('analysis');
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'The file could not be imported.');
     }
@@ -329,6 +337,11 @@ export default function App() {
             )}
           </div>
 
+          <button className="mobile-more-map" type="button" onClick={() => selectView('map')}>
+            <MapIcon size={16} aria-hidden="true" />
+            Open map
+          </button>
+
           {view === 'map' && (
             <>
               <Segmented
@@ -347,25 +360,34 @@ export default function App() {
             </>
           )}
 
-          <div className="view-toggle" role="tablist" aria-label="View">
+          <div className="view-toggle product-view-toggle" role="tablist" aria-label="View">
             <button
               role="tab"
-              aria-selected={view === 'training'}
-              className={view === 'training' ? 'active' : ''}
+              aria-selected={view === 'home'}
+              className={view === 'home' ? 'active' : ''}
               type="button"
-              onClick={() => selectView('training')}
+              onClick={() => selectView('home')}
             >
-              <Activity size={16} aria-hidden="true" /> Training
+              <Home size={16} aria-hidden="true" /> Home
+            </button>
+            <button role="tab" aria-selected={view === 'fitness'} className={view === 'fitness' ? 'active' : ''} type="button" onClick={() => selectView('fitness')}>
+              <UserRound size={16} aria-hidden="true" /> Fitness
+            </button>
+            <button role="tab" aria-selected={view === 'plan'} className={view === 'plan' ? 'active' : ''} type="button" onClick={() => selectView('plan')}>
+              <ClipboardList size={16} aria-hidden="true" /> Plan
+            </button>
+            <button role="tab" aria-selected={view === 'analysis'} className={view === 'analysis' ? 'active' : ''} type="button" onClick={() => selectView('analysis')}>
+              <TrendingUp size={16} aria-hidden="true" /> Analysis
+            </button>
+            <button role="tab" aria-selected={view === 'calendar'} className={view === 'calendar' ? 'active' : ''} type="button" onClick={() => selectView('calendar')}>
+              <CalendarDays size={16} aria-hidden="true" /> Calendar
             </button>
             <button role="tab" aria-selected={view === 'map'} className={view === 'map' ? 'active' : ''} type="button" onClick={() => selectView('map')}>
               <MapIcon size={16} aria-hidden="true" /> Map
             </button>
-            <button role="tab" aria-selected={view === 'dashboard'} className={view === 'dashboard' ? 'active' : ''} type="button" onClick={() => selectView('dashboard')}>
-              <Gauge size={16} aria-hidden="true" /> Dashboard
-            </button>
           </div>
 
-          {view === 'training' && trainingJump && trainingJump.months.length > 0 && (
+          {view === 'calendar' && trainingJump && trainingJump.months.length > 0 && (
             <label className="menu-jump">
               <span>
                 <CalendarDays size={15} aria-hidden="true" />
@@ -431,7 +453,13 @@ export default function App() {
         </div>
       )}
 
-      {view === 'map' ? (
+      {view === 'home' ? (
+        <HomeView loadModel={loadModel} gymSessions={gymSessions} status={status} isLoading={!status && activities.length === 0} />
+      ) : view === 'fitness' ? (
+        <FitnessView loadModel={loadModel} analyses={usingSample ? [] : analyses} status={status} />
+      ) : view === 'plan' ? (
+        <PlanView loadModel={loadModel} />
+      ) : view === 'map' ? (
         <main className="map-stage">
           <MapView
             activities={filteredActivities}
@@ -471,7 +499,7 @@ export default function App() {
             )}
           </aside>
         </main>
-      ) : view === 'training' ? (
+      ) : view === 'calendar' ? (
         <TrainingView
           activities={activities}
           analyses={usingSample ? [] : analyses}
@@ -681,6 +709,536 @@ function MobileBottomNav({ active, onSelect }: { active: MobileNavKey; onSelect:
       ))}
     </nav>
   );
+}
+
+function HomeView({
+  loadModel,
+  gymSessions,
+  status,
+  isLoading,
+}: {
+  loadModel: TrainingLoadModel;
+  gymSessions: GymSession[];
+  status: SyncStatus | null;
+  isLoading: boolean;
+}) {
+  const latestSession = lastItem(loadModel.sessions);
+  const latestWeek = lastItem(loadModel.weeks);
+  const latestDaily = lastItem(loadModel.daily);
+  const recentSessions = [...loadModel.sessions].reverse().slice(0, 4);
+  const read = isLoading && !latestSession
+    ? { status: 'Loading', tone: 'muted', summary: 'Loading your Garmin training history.' }
+    : trainingRead(latestWeek, latestSession);
+  const recentWeeks = loadModel.weeks.slice(-12);
+  const maxWeekLoad = Math.max(1, ...recentWeeks.map((week) => week.load));
+  const latestEmptyLabel = isLoading ? 'Loading runs' : 'No run yet';
+
+  return (
+    <main className="product-page home-view">
+      <section className="product-hero">
+        <p className="eyebrow">Training dashboard</p>
+        <h2>What your training is building.</h2>
+        <p>Based on your recent training, current proof, and the next best step.</p>
+        <span className={`product-pill tone-${read.tone}`}>{read.status}</span>
+      </section>
+
+      <section className="home-grid">
+        <article className="product-card dark-card latest-activity-card">
+          <header>
+            <span>Latest activity</span>
+            <small>{latestSession ? formatActivityDate(latestSession.activity.startDateLocal || latestSession.activity.startDate) : latestEmptyLabel}</small>
+          </header>
+          <h3>{latestSession ? classifyProductSession(latestSession).label : isLoading ? 'Loading training' : 'No run yet'}</h3>
+          {latestSession ? (
+            <>
+              <div className="product-stat-row">
+                <Stat label="Distance" value={`${latestSession.activity.distanceKm.toFixed(1)} km`} />
+                <Stat label="Time" value={formatDuration(latestSession.activity.movingTimeSec)} />
+                <Stat label="Avg pace" value={formatPace(latestSession.paceSecPerKm)} />
+                <Stat label="Avg HR" value={latestSession.activity.averageHeartRate ? `${Math.round(latestSession.activity.averageHeartRate)} bpm` : '-'} />
+              </div>
+              <div className="coach-read">
+                <span>Coach read</span>
+                <p>{classifyProductSession(latestSession).coach}</p>
+              </div>
+            </>
+          ) : (
+            <p>{isLoading ? 'Fetching your synced run rows.' : 'No Garmin run rows are available yet.'}</p>
+          )}
+        </article>
+
+        <article className="product-card week-status-card">
+          <header>
+            <span>This week</span>
+            <small>{latestWeek?.label ?? 'No week'}</small>
+          </header>
+          <h3>{latestWeek ? `${latestWeek.distanceKm.toFixed(1)} km` : '-'}</h3>
+          <div className="product-stat-row compact">
+            <Stat label="Runs" value={latestWeek ? String(latestWeek.activityCount) : '-'} />
+            <Stat label="Avg pace" value={latestWeek ? formatWeekPace(latestWeek) : '-'} />
+            <Stat label="Avg HR" value={formatWeekHr(latestWeek)} />
+            <Stat label="Load" value={read.status} />
+          </div>
+          <p className="runzones-read">
+            <strong>Lydiard read</strong> {read.summary}
+          </p>
+        </article>
+      </section>
+
+      <section className="product-card latest-sessions-panel">
+        <header>
+          <span>Recent · latest sessions</span>
+          <small>{status?.activityCount ?? loadModel.sessions.length} runs stored</small>
+        </header>
+        <div className="session-card-row">
+          {recentSessions.length > 0 ? (
+            recentSessions.map((session) => (
+              <SessionMiniCard key={session.activity.id} session={session} />
+            ))
+          ) : (
+            <p className="product-empty-note">{isLoading ? 'Loading recent sessions...' : 'No recent sessions yet.'}</p>
+          )}
+        </div>
+      </section>
+
+      <section className="product-card load-preview-panel">
+        <header>
+          <span>Training load · 12 week context</span>
+          <strong>{latestWeek ? `${latestWeek.load.toFixed(1)} load` : '-'}</strong>
+        </header>
+        <div className="mini-load-bars" aria-label="Last 12 weeks of load">
+          {recentWeeks.map((week) => (
+            <span key={week.weekId} title={`${week.label}: ${week.load.toFixed(1)}`} style={{ height: `${Math.max(8, (week.load / maxWeekLoad) * 100)}%` }} />
+          ))}
+        </div>
+        <p>{latestDaily ? `Freshness ${latestDaily.freshness.toFixed(1)} · fatigue ${latestDaily.fatigue.toFixed(1)} · fitness ${latestDaily.fitness.toFixed(1)}.` : 'Load builds after runs are synced.'}</p>
+      </section>
+
+      <section className="product-card performance-profile-panel">
+        <header>
+          <span>Current performance profile</span>
+          <small>Best recent proof from your data</small>
+        </header>
+        <div className="proof-grid">
+          {bestEfforts(loadModel.sessions).map((effort) => (
+            <article key={effort.label} className={effort.time ? 'proof-card ready' : 'proof-card'}>
+              <span>{effort.label}</span>
+              <strong>{effort.time ?? 'No proof'}</strong>
+              <small>{effort.detail}</small>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      {gymSessions.length > 0 && (
+        <p className="product-footnote">{gymSessions.length} gym sessions tracked separately from run load.</p>
+      )}
+    </main>
+  );
+}
+
+function FitnessView({
+  loadModel,
+  analyses,
+  status,
+}: {
+  loadModel: TrainingLoadModel;
+  analyses: WeeklyAnalysis[];
+  status: SyncStatus | null;
+}) {
+  const cards = buildFitnessCards(loadModel, analyses);
+  const zones = buildProductZones(loadModel.thresholds);
+  return (
+    <main className="product-page fitness-control-view">
+      <section className="product-page-head">
+        <p className="eyebrow">Fitness</p>
+        <h2>Fitness Control Room</h2>
+        <p>Track strengths, gaps, freshness, and what to do next from the training you log.</p>
+      </section>
+
+      <section className="fitness-direction-card">
+        <p>Fitness direction</p>
+        <h3>{cards.direction}</h3>
+        <span>{cards.directionDetail}</span>
+      </section>
+
+      <section className="control-card-grid">
+        {cards.items.map((card) => (
+          <article key={card.title} className="control-card">
+            <span>{card.kicker}</span>
+            <h3>{card.title}</h3>
+            <p>{card.body}</p>
+            <small className={`product-pill tone-${card.tone}`}>{card.badge}</small>
+          </article>
+        ))}
+      </section>
+
+      <section className="fitness-lower-grid">
+        <article className="product-card zones-now-card">
+          <header>
+            <span>Current fitness</span>
+            <small>{status?.streamedCount ?? 0} streamed runs</small>
+          </header>
+          <h3>Zones now</h3>
+          <div className="zone-list">
+            {zones.map((zone) => (
+              <div key={zone.name} className={`zone-list-row tone-${zone.tone}`}>
+                <span>{zone.name}</span>
+                <strong>{zone.pace}</strong>
+                <small>{zone.hr}</small>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="product-card current-bests-card">
+          <header>
+            <span>Last 180 days</span>
+            <small>Current bests</small>
+          </header>
+          <div className="best-list">
+            {bestEfforts(loadModel.sessions).map((effort) => (
+              <div key={effort.label}>
+                <span>{effort.label}</span>
+                <strong>{effort.time ?? 'No proof yet'}</strong>
+                <small>{effort.detail}</small>
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
+    </main>
+  );
+}
+
+function PlanView({ loadModel }: { loadModel: TrainingLoadModel }) {
+  const latestWeek = lastItem(loadModel.weeks);
+  const plan = buildSuggestedPlan(loadModel);
+  return (
+    <main className="product-page plan-view">
+      <section className="product-page-head">
+        <p className="eyebrow">Plan</p>
+        <h2>Your training plan</h2>
+        <p>A goal-specific week built around your zones, current load, and what your recent training is missing.</p>
+      </section>
+
+      <section className="product-card plan-week-card">
+        <header>
+          <div>
+            <span>Suggested week</span>
+            <strong>{plan.focus}</strong>
+          </div>
+          <small>{latestWeek ? `Current load ${latestWeek.load.toFixed(1)}` : 'Build after sync'}</small>
+        </header>
+        <div className="plan-day-list">
+          {plan.days.map((day) => (
+            <article key={day.day} className={`plan-day-row tone-${day.tone}`}>
+              <span>{day.day}</span>
+              <div>
+                <h3>{day.title}</h3>
+                <p>{day.prescription}</p>
+                <small>{day.reason}</small>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function SessionMiniCard({ session }: { session: SessionLoad }) {
+  const kind = classifyProductSession(session);
+  return (
+    <article className={`session-mini-card tone-${kind.tone}`}>
+      <span>{formatActivityDate(session.activity.startDateLocal || session.activity.startDate)}</span>
+      <strong>{session.activity.distanceKm.toFixed(1)} km</strong>
+      <small>{kind.label} · {formatPace(session.paceSecPerKm)} · {session.activity.averageHeartRate ? `${Math.round(session.activity.averageHeartRate)} bpm` : 'no HR'}</small>
+    </article>
+  );
+}
+
+function lastItem<T>(items: T[]): T | undefined {
+  return items.length > 0 ? items[items.length - 1] : undefined;
+}
+
+function classifyProductSession(session: SessionLoad): { label: string; tone: string; coach: string } {
+  if (
+    session.externalIntensityFactor >= 0.85 ||
+    (session.heartRateIntensityFactor ?? 0) >= 0.92 ||
+    (session.powerIntensityFactor ?? 0) >= 0.88 ||
+    session.flags.includes('quality load')
+  ) {
+    return {
+      label: 'Session',
+      tone: 'danger',
+      coach: 'Quality load. Useful stimulus, but protect the following easy day and watch HR cost.',
+    };
+  }
+  if (session.load >= 70) {
+    return {
+      label: 'Long easy',
+      tone: 'hard',
+      coach: 'Long aerobic stress. This builds durability without needing extra intensity.',
+    };
+  }
+  if (session.externalIntensityFactor >= 0.76) {
+    return {
+      label: 'Steady',
+      tone: 'moderate',
+      coach: 'Controlled aerobic pressure. Useful LT1/steady work if it stays repeatable.',
+    };
+  }
+  return {
+    label: 'Easy',
+    tone: 'easy',
+    coach: 'Low-stress aerobic work. This supports consistency without adding much fatigue.',
+  };
+}
+
+function trainingRead(week?: WeekLoadSummary, session?: SessionLoad): { status: string; tone: string; summary: string } {
+  if (!week) {
+    return { status: 'Building', tone: 'muted', summary: 'Sync runs to build a current training read.' };
+  }
+  if (week.severity === 'high') {
+    return {
+      status: 'Caution',
+      tone: 'danger',
+      summary: 'Fatigue and hard-load signals are elevated. Keep the next work controlled.',
+    };
+  }
+  if (week.hardShare >= 0.45) {
+    return {
+      status: 'Building',
+      tone: 'hard',
+      summary: 'A strong volume week, with quality kept controlled. Solid building load.',
+    };
+  }
+  if ((session?.externalIntensityFactor ?? 0) < 0.76 && week.freshness < -10) {
+    return {
+      status: 'Absorbing',
+      tone: 'moderate',
+      summary: 'Recent load is still being absorbed. Easy aerobic work is the right bias.',
+    };
+  }
+  return {
+    status: 'Building',
+    tone: 'easy',
+    summary: 'Aerobic volume is consistent; threshold work is the next level if freshness allows.',
+  };
+}
+
+function formatWeekPace(week?: WeekLoadSummary): string {
+  if (!week || week.distanceKm <= 0) {
+    return '-';
+  }
+  return formatPace((week.durationHours * 3600) / week.distanceKm);
+}
+
+function formatWeekHr(week?: WeekLoadSummary): string {
+  if (!week) {
+    return '-';
+  }
+  const hrs = week.sessions.map((session) => session.activity.averageHeartRate).filter((value): value is number => Boolean(value));
+  if (hrs.length === 0) {
+    return '-';
+  }
+  return `${Math.round(hrs.reduce((total, value) => total + value, 0) / hrs.length)} bpm`;
+}
+
+function bestEfforts(sessions: SessionLoad[]) {
+  const latest = lastItem(sessions);
+  const cutoff = latest ? new Date(latest.activity.startDate).getTime() - 180 * 86400000 : -Infinity;
+  const recent = sessions.filter((session) => new Date(session.activity.startDate).getTime() >= cutoff);
+  const targets = [
+    { label: '5K', km: 5 },
+    { label: '10K', km: 10 },
+    { label: '15K', km: 15 },
+    { label: 'Half', km: 21.0975 },
+    { label: 'Marathon', km: 42.195 },
+  ];
+  return targets.map((target) => {
+    const candidates = recent
+      .filter((session) => session.activity.distanceKm >= target.km * 0.98)
+      .map((session) => ({ session, seconds: session.paceSecPerKm * target.km }))
+      .sort((a, b) => a.seconds - b.seconds);
+    const best = candidates[0];
+    return {
+      label: target.label,
+      time: best ? formatRaceTime(best.seconds) : undefined,
+      detail: best
+        ? `${formatPace(best.session.paceSecPerKm)} · ${formatActivityDate(best.session.activity.startDateLocal || best.session.activity.startDate)}`
+        : `No recent ${target.label.toLowerCase()} proof`,
+    };
+  });
+}
+
+function buildFitnessCards(loadModel: TrainingLoadModel, analyses: WeeklyAnalysis[]) {
+  const latestWeek = lastItem(loadModel.weeks);
+  const latest = lastItem(loadModel.sessions);
+  const anchor = latest ? new Date(latest.activity.startDate).getTime() : Date.now();
+  const recent = loadModel.sessions.filter((session) => anchor - new Date(session.activity.startDate).getTime() <= 28 * 86400000);
+  const lastQuality = [...loadModel.sessions].reverse().find((session) => classifyProductSession(session).label === 'Session');
+  const lastSteady = [...loadModel.sessions].reverse().find((session) => classifyProductSession(session).label === 'Steady');
+  const longestRecent = recent.reduce<SessionLoad | undefined>((best, session) => (!best || session.activity.distanceKm > best.activity.distanceKm ? session : best), undefined);
+  const decouplingValues = recent.map((session) => session.activity.decouplingPct).filter((value): value is number => value !== undefined);
+  const avgDecoupling = decouplingValues.length
+    ? decouplingValues.reduce((total, value) => total + value, 0) / decouplingValues.length
+    : undefined;
+  const proof = analyses[analyses.length - 1];
+  const qualityDays = lastQuality ? daysBetween(anchor, new Date(lastQuality.activity.startDate).getTime()) : undefined;
+  const steadyDays = lastSteady ? daysBetween(anchor, new Date(lastSteady.activity.startDate).getTime()) : undefined;
+
+  return {
+    direction: latestWeek?.status ?? 'Building',
+    directionDetail: trainingRead(latestWeek, latest).summary,
+    items: [
+      {
+        kicker: 'Training gaps',
+        title: qualityDays === undefined || qualityDays > 14 ? 'LT2 · Long run' : 'No urgent gap',
+        body: qualityDays === undefined || qualityDays > 14
+          ? 'Threshold freshness has slipped; long-run durability is due a top-up.'
+          : 'Recent quality work is present. Keep the next hard effort controlled.',
+        badge: qualityDays === undefined || qualityDays > 14 ? 'needs touch' : 'maintained',
+        tone: qualityDays === undefined || qualityDays > 14 ? 'hard' : 'easy',
+      },
+      {
+        kicker: 'LT1 / steady',
+        title: steadyDays === undefined ? 'Needs touch' : steadyDays <= 14 ? 'Maintained' : 'Stale',
+        body: steadyDays === undefined ? 'No recent steady run was detected.' : `Last steady session was ${formatDaysAgo(steadyDays)}.`,
+        badge: steadyDays !== undefined && steadyDays <= 14 ? 'current' : 'example',
+        tone: steadyDays !== undefined && steadyDays <= 14 ? 'easy' : 'moderate',
+      },
+      {
+        kicker: 'LT2 / threshold',
+        title: qualityDays === undefined ? 'Needs touch' : qualityDays <= 14 ? 'Fresh' : 'Needs touch',
+        body: qualityDays === undefined ? 'No recent threshold-quality work in the last month.' : `Last session-quality run was ${formatDaysAgo(qualityDays)}.`,
+        badge: qualityDays !== undefined && qualityDays <= 14 ? 'fresh' : 'next',
+        tone: qualityDays !== undefined && qualityDays <= 14 ? 'easy' : 'hard',
+      },
+      {
+        kicker: 'Long run freshness',
+        title: longestRecent && longestRecent.activity.distanceKm >= 12 ? 'Fresh' : 'Stale',
+        body: longestRecent ? `Longest recent run was ${longestRecent.activity.distanceKm.toFixed(1)} km.` : 'No recent long run detected.',
+        badge: longestRecent && longestRecent.activity.distanceKm >= 12 ? 'current' : 'due',
+        tone: longestRecent && longestRecent.activity.distanceKm >= 12 ? 'easy' : 'hard',
+      },
+      {
+        kicker: 'Efficiency trend',
+        title: avgDecoupling === undefined ? 'Unknown' : avgDecoupling <= 5 ? 'Stable' : 'Drifting',
+        body: avgDecoupling === undefined ? 'Need stream decoupling to judge aerobic efficiency.' : `Recent HR-pace drift averages ${avgDecoupling.toFixed(1)}%.`,
+        badge: avgDecoupling === undefined ? 'pending' : avgDecoupling <= 5 ? 'stable' : 'watch',
+        tone: avgDecoupling === undefined ? 'muted' : avgDecoupling <= 5 ? 'easy' : 'moderate',
+      },
+      {
+        kicker: 'Proof / confidence',
+        title: proof ? proof.stateLabel : 'Moderate',
+        body: proof ? proof.summary : 'Training rows exist, but analysis proof is still building.',
+        badge: loadModel.sessions.length > 20 ? 'high' : 'moderate',
+        tone: loadModel.sessions.length > 20 ? 'easy' : 'moderate',
+      },
+    ],
+  };
+}
+
+function buildProductZones(thresholds: TrainingLoadModel['thresholds']) {
+  const zoneDefs = [
+    { name: 'Recovery', tone: 'easy', ifMin: undefined, ifMax: 0.68, hrMin: undefined, hrMax: 0.82 },
+    { name: 'Easy', tone: 'easy', ifMin: 0.68, ifMax: 0.78, hrMin: 0.82, hrMax: 0.89 },
+    { name: 'Steady', tone: 'moderate', ifMin: 0.78, ifMax: 0.88, hrMin: 0.89, hrMax: 0.95 },
+    { name: 'Threshold', tone: 'hard', ifMin: 0.88, ifMax: 1.02, hrMin: 0.95, hrMax: 1.02 },
+    { name: 'High intensity', tone: 'danger', ifMin: 1.02, ifMax: undefined, hrMin: 1.02, hrMax: undefined },
+  ];
+  return zoneDefs.map((zone) => ({
+    ...zone,
+    pace: formatIfPaceRange(thresholds.thresholdPaceSecPerKm, zone.ifMin, zone.ifMax),
+    hr: formatHrRange(thresholds.thresholdHeartRate, zone.hrMin, zone.hrMax),
+  }));
+}
+
+function buildSuggestedPlan(loadModel: TrainingLoadModel) {
+  const latest = lastItem(loadModel.sessions);
+  const anchor = latest ? new Date(latest.activity.startDate).getTime() : Date.now();
+  const lastQuality = [...loadModel.sessions].reverse().find((session) => classifyProductSession(session).label === 'Session');
+  const qualityDays = lastQuality ? daysBetween(anchor, new Date(lastQuality.activity.startDate).getTime()) : 99;
+  const focus = qualityDays > 14 ? 'Threshold + long run' : 'Maintain aerobic rhythm';
+  const threshold = formatPace(loadModel.thresholds.thresholdPaceSecPerKm);
+  const easy = formatIfPaceRange(loadModel.thresholds.thresholdPaceSecPerKm, 0.68, 0.78);
+  return {
+    focus,
+    days: [
+      { day: 'Mon', title: 'Easy Zone 2', prescription: `35-50 min · ${easy}`, reason: 'Aerobic base without adding much fatigue.', tone: 'easy' },
+      { day: 'Tue', title: 'Rest or mobility', prescription: 'Walk, mobility, sleep.', reason: 'Protect freshness before quality.', tone: 'muted' },
+      {
+        day: 'Wed',
+        title: qualityDays > 14 ? 'LT2 touch' : 'Steady aerobic',
+        prescription: qualityDays > 14 ? `3-4 x 8 min near ${threshold}` : `45-60 min controlled · ${easy}`,
+        reason: qualityDays > 14 ? 'Threshold-quality work is the clearest current gap.' : 'Keep pressure controlled while recent quality is fresh.',
+        tone: qualityDays > 14 ? 'hard' : 'moderate',
+      },
+      { day: 'Thu', title: 'Recovery jog', prescription: '25-40 min very easy', reason: 'Flush the legs after the quality day.', tone: 'easy' },
+      { day: 'Fri', title: 'Rest', prescription: 'No run unless you feel unusually fresh.', reason: 'Leave room for the weekend long run.', tone: 'muted' },
+      { day: 'Sat', title: 'Long easy', prescription: '75-95 min relaxed', reason: 'Durability and aerobic volume are the main builder.', tone: 'hard' },
+      { day: 'Sun', title: 'Easy + strides', prescription: '35-45 min easy + 4 relaxed strides', reason: 'Keep mechanics alive without turning it into a session.', tone: 'moderate' },
+    ],
+  };
+}
+
+function formatRaceTime(totalSeconds: number): string {
+  const rounded = Math.max(0, Math.round(totalSeconds));
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const seconds = rounded % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatIfPaceRange(thresholdPace: number, ifMin?: number, ifMax?: number): string {
+  if (!Number.isFinite(thresholdPace) || thresholdPace <= 0) {
+    return '-';
+  }
+  if (ifMin && ifMax) {
+    return `${formatPace(thresholdPace / ifMax).replace('/km', '')}-${formatPace(thresholdPace / ifMin)}`;
+  }
+  if (ifMax) {
+    return `slower than ${formatPace(thresholdPace / ifMax)}`;
+  }
+  if (ifMin) {
+    return `faster than ${formatPace(thresholdPace / ifMin)}`;
+  }
+  return formatPace(thresholdPace);
+}
+
+function formatHrRange(thresholdHr?: number, minRatio?: number, maxRatio?: number): string {
+  if (!thresholdHr) {
+    return 'HR pending';
+  }
+  if (minRatio && maxRatio) {
+    return `${Math.round(thresholdHr * minRatio)}-${Math.round(thresholdHr * maxRatio)} bpm`;
+  }
+  if (maxRatio) {
+    return `< ${Math.round(thresholdHr * maxRatio)} bpm`;
+  }
+  if (minRatio) {
+    return `> ${Math.round(thresholdHr * minRatio)} bpm`;
+  }
+  return `${Math.round(thresholdHr)} bpm`;
+}
+
+function daysBetween(anchorMs: number, earlierMs: number): number {
+  return Math.max(0, Math.round((anchorMs - earlierMs) / 86400000));
+}
+
+function formatDaysAgo(days: number): string {
+  if (days === 0) {
+    return 'today';
+  }
+  if (days === 1) {
+    return '1 day ago';
+  }
+  return `${days} days ago`;
 }
 
 function WeekSnapshot({
