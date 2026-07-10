@@ -8,6 +8,7 @@ dist
 .local/
 .dev.vars
 .wrangler/
+.vscode/
 .claude/
 progress/backups/
 progress/logs/
