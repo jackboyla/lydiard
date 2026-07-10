@@ -5,6 +5,10 @@ on:
   schedule:
     - cron: "20 6,18 * * *"
 
+concurrency:
+  group: garmin-sync-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -21,7 +25,7 @@ jobs:
       - name: Install system tools
         run: sudo apt-get update && sudo apt-get install -y sqlite3
       - name: Restore Garmin health cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.garminconnect
@@ -31,9 +35,11 @@ jobs:
           restore-keys: |
             garmin-health-${{ github.repository_id }}-
       - name: Install Garmin health CLI
-        run: python -m pip install garmin-health-data
+        run: python -m pip install garmin-health-data==2.11.2
       - name: Extract Garmin health database
+        id: extract
         run: |
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
           INCREMENTAL_DAYS="${GARMIN_INCREMENTAL_DAYS:-45}"
           START_DATE="${GARMIN_EXTRACT_START:-$(date -u -d "$INCREMENTAL_DAYS days ago" +%F)}"
           END_DATE="${GARMIN_EXTRACT_END:-$(date -u -d 'tomorrow' +%F)}"
@@ -41,8 +47,52 @@ jobs:
           echo "Extracting Garmin health data from $START_DATE through $END_DATE (exclusive)."
           echo "Garmin incremental days: $INCREMENTAL_DAYS"
           echo "Garmin data types: $DATA_TYPES"
+
+          run_garmin_with_retry() {
+            local label="$1"
+            shift
+            local log_file status wait_seconds
+            log_file="$(mktemp)"
+            for attempt in 1 2 3; do
+              echo "Garmin $label attempt $attempt/3"
+              set +e
+              "$@" 2>&1 | tee "$log_file"
+              status="${PIPESTATUS[0]}"
+              if [ "$status" -eq 0 ]; then
+                rm -f "$log_file"
+                return 0
+              fi
+              if grep -Eiq '429|too many requests|rate.?limit|temporarily unavailable|timed? ?out|connection reset|502|503|504' "$log_file"; then
+                if [ "$attempt" -lt 3 ]; then
+                  wait_seconds=$((60 * attempt))
+                  echo "Garmin $label hit a transient upstream error; retrying in ${wait_seconds}s."
+                  sleep "$wait_seconds"
+                  continue
+                fi
+                echo "::warning::Garmin $label failed with a transient upstream error after 3 attempts. Leaving existing Lydiard data unchanged."
+                echo "skipped=true" >> "$GITHUB_OUTPUT"
+                rm -f "$log_file"
+                return 75
+              fi
+              rm -f "$log_file"
+              return "$status"
+            done
+          }
+
           if ! find "$HOME/.garminconnect" -name garmin_tokens.json -print -quit | grep -q .; then
-            garmin auth --email "$GARMIN_USERNAME" --password "$GARMIN_PASSWORD"
+            if [ -z "$GARMIN_USERNAME" ] || [ -z "$GARMIN_PASSWORD" ]; then
+              echo "::error::GARMIN_USERNAME and GARMIN_PASSWORD secrets are required when no cached Garmin tokens are available."
+              exit 1
+            fi
+            set +e
+            run_garmin_with_retry "auth" garmin auth --email "$GARMIN_USERNAME" --password "$GARMIN_PASSWORD"
+            AUTH_STATUS="$?"
+            set -e
+            if [ "$AUTH_STATUS" -eq 75 ]; then
+              exit 0
+            elif [ "$AUTH_STATUS" -ne 0 ]; then
+              exit "$AUTH_STATUS"
+            fi
           fi
           IFS=',' read -ra TYPE_LIST <<< "$DATA_TYPES"
           DATA_TYPE_ARGS=()
@@ -52,7 +102,15 @@ jobs:
               DATA_TYPE_ARGS+=(--data-types "$TYPE_NAME")
             fi
           done
-          garmin extract --start-date "$START_DATE" --end-date "$END_DATE" "${DATA_TYPE_ARGS[@]}"
+          set +e
+          run_garmin_with_retry "extract" garmin extract --start-date "$START_DATE" --end-date "$END_DATE" "${DATA_TYPE_ARGS[@]}"
+          EXTRACT_STATUS="$?"
+          set -e
+          if [ "$EXTRACT_STATUS" -eq 75 ]; then
+            exit 0
+          elif [ "$EXTRACT_STATUS" -ne 0 ]; then
+            exit "$EXTRACT_STATUS"
+          fi
           garmin verify
         env:
           GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
@@ -61,17 +119,31 @@ jobs:
           GARMIN_EXTRACT_START: ${{ vars.GARMIN_EXTRACT_START }}
           GARMIN_EXTRACT_END: ${{ vars.GARMIN_EXTRACT_END }}
           GARMIN_DATA_TYPES: ${{ vars.GARMIN_DATA_TYPES }}
+          GARMIN_NO_VERSION_CHECK: "1"
       - run: npm ci
+        if: steps.extract.outputs.skipped != 'true'
       - name: Audit Garmin database
+        if: steps.extract.outputs.skipped != 'true'
         run: npm run garmin:audit
       - name: Import Garmin runs into Lydiard
+        if: steps.extract.outputs.skipped != 'true'
         run: npm run garmin:import-db -- --no-replace
         env:
           LYDIARD_INGEST_KEY: ${{ secrets.LYDIARD_INGEST_KEY }}
           LYDIARD_BASE_URL: ${{ vars.LYDIARD_BASE_URL || 'https://lydiard.lydiard.workers.dev' }}
           GARMIN_IMPORT_ACTIVITY_TYPES: running
       - name: Import Garmin gym sessions into Lydiard
-        run: npm run garmin:import-gym -- --no-replace
+        if: steps.extract.outputs.skipped != 'true'
+        run: npm run garmin:import-gym -- --no-replace --allow-empty
         env:
           LYDIARD_INGEST_KEY: ${{ secrets.LYDIARD_INGEST_KEY }}
           LYDIARD_BASE_URL: ${{ vars.LYDIARD_BASE_URL || 'https://lydiard.lydiard.workers.dev' }}
+      - name: Save Garmin health cache
+        if: steps.extract.outputs.skipped != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.garminconnect
+            garmin_data.db
+            garmin_files
+          key: garmin-health-${{ github.repository_id }}-${{ github.run_id }}

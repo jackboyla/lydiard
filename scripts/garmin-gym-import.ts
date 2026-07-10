@@ -1,7 +1,7 @@
 // Imports Garmin gym / strength sessions into Lydiard's separate gym_sessions
 // store via POST /api/ingest/gym. These never enter the running load model.
 //
-//   npm run garmin:import-gym -- [--no-replace] [--dry-run]
+//   npm run garmin:import-gym -- [--no-replace] [--dry-run] [--allow-empty]
 //
 // Env: LYDIARD_INGEST_KEY (or AGENT_API_KEY), LYDIARD_BASE_URL, GARMIN_DB_PATH,
 //      GARMIN_GYM_ACTIVITY_TYPES (default "strength_training,fitness_equipment").
@@ -25,6 +25,7 @@ const dbPath = process.env.GARMIN_DB_PATH ?? 'garmin_data.db';
 const baseUrl = (process.env.LYDIARD_BASE_URL ?? 'https://lydiard.lydiard.workers.dev').replace(/\/$/, '');
 const ingestKey = process.env.LYDIARD_INGEST_KEY ?? process.env.AGENT_API_KEY;
 const dryRun = process.argv.includes('--dry-run');
+const allowEmpty = process.argv.includes('--allow-empty');
 const replace = !process.argv.includes('--no-replace');
 const types = (process.env.GARMIN_GYM_ACTIVITY_TYPES ?? 'strength_training,fitness_equipment')
   .split(',')
@@ -60,6 +61,10 @@ const sessions: GymSession[] = rows.map((row) => ({
 }));
 
 if (sessions.length === 0) {
+  if (allowEmpty) {
+    console.log(JSON.stringify({ ok: true, skipped: true, dbPath, replace, types, matched: 0 }, null, 2));
+    process.exit(0);
+  }
   throw new Error(`No Garmin gym activities matched types: ${types.join(', ')}`);
 }
 
