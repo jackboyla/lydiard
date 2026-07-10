@@ -1,17 +1,21 @@
-import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   ArrowDownToLine,
   CalendarDays,
+  ClipboardList,
   Gauge,
+  Home,
   Link2,
   Map as MapIcon,
   Menu,
+  MoreHorizontal,
   RefreshCw,
   ShieldAlert,
   Sparkles,
   TrendingUp,
   Unlink,
+  UserRound,
   X,
 } from 'lucide-react';
 import { analyzeWeeks, formatPace } from './analysis/fatigue';
@@ -48,6 +52,7 @@ import type {
 
 type RangePreset = '4w' | '12w' | '6mo' | '1y' | 'all';
 type ViewMode = 'map' | 'training' | 'dashboard';
+type MobileNavKey = 'home' | 'fitness' | 'plan' | 'analysis' | 'calendar' | 'more';
 
 const RANGE_DAYS: Record<RangePreset, number> = {
   '4w': 28,
@@ -87,10 +92,22 @@ export default function App() {
 
   const [view, setView] = useState<ViewMode>('training');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [mobileNav, setMobileNav] = useState<MobileNavKey>('calendar');
   const [trainingJump, setTrainingJump] = useState<TrainingJumpApi | null>(null);
   const selectView = useCallback((next: ViewMode) => {
     setView(next);
     setMenuOpen(false);
+    setMobileNav(next === 'training' ? 'calendar' : next === 'dashboard' ? 'analysis' : 'more');
+  }, []);
+  const selectMobileNav = useCallback((next: MobileNavKey) => {
+    if (next === 'more') {
+      setMobileNav('more');
+      setMenuOpen((open) => !open);
+      return;
+    }
+    setMobileNav(next);
+    setMenuOpen(false);
+    setView(next === 'calendar' ? 'training' : 'dashboard');
   }, []);
   const [range, setRange] = useState<RangePreset>('12w');
   const [colorBy, setColorBy] = useState<ColorBy>('severity');
@@ -559,6 +576,8 @@ export default function App() {
           <LoadStory analyses={analyses} />
         </main>
       )}
+
+      <MobileBottomNav active={menuOpen ? 'more' : mobileNav} onSelect={selectMobileNav} />
     </div>
   );
 }
@@ -633,6 +652,34 @@ function Segmented({
         </button>
       ))}
     </div>
+  );
+}
+
+function MobileBottomNav({ active, onSelect }: { active: MobileNavKey; onSelect: (next: MobileNavKey) => void }) {
+  const items: Array<{ key: MobileNavKey; label: string; icon: ReactNode }> = [
+    { key: 'home', label: 'Home', icon: <Home size={24} aria-hidden="true" /> },
+    { key: 'fitness', label: 'Fitness', icon: <UserRound size={24} aria-hidden="true" /> },
+    { key: 'plan', label: 'Plan', icon: <ClipboardList size={24} aria-hidden="true" /> },
+    { key: 'analysis', label: 'Analysis', icon: <TrendingUp size={24} aria-hidden="true" /> },
+    { key: 'calendar', label: 'Calendar', icon: <CalendarDays size={24} aria-hidden="true" /> },
+    { key: 'more', label: 'More', icon: <MoreHorizontal size={24} aria-hidden="true" /> },
+  ];
+
+  return (
+    <nav className="mobile-bottom-nav" aria-label="Primary">
+      {items.map((item) => (
+        <button
+          key={item.key}
+          type="button"
+          className={active === item.key ? 'active' : ''}
+          aria-current={active === item.key ? 'page' : undefined}
+          onClick={() => onSelect(item.key)}
+        >
+          {item.icon}
+          <span>{item.label}</span>
+        </button>
+      ))}
+    </nav>
   );
 }
 
