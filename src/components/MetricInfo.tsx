@@ -10,6 +10,8 @@ export type MetricKey =
   | 'intensityFactor'
   | 'hrCost'
   | 'decoupling'
+  | 'paceZones'
+  | 'hrZones'
   | 'hardShare'
   | 'longRunShare'
   | 'monotony'
@@ -120,6 +122,26 @@ export const METRIC_INFO: Record<MetricKey, MetricDef> = {
       { tone: 'good', label: '< 5%', text: 'strong aerobic control.' },
       { tone: 'watch', label: '5 – 8%', text: 'mild drift.' },
       { tone: 'bad', label: '> 8%', text: 'HR drift flagged — fatigue or under-fuelling on longer efforts.' },
+    ],
+  },
+  paceZones: {
+    title: 'Pace zones',
+    what: 'Suggested current training paces for easy, steady, threshold and faster running, based on your own recent and historical run performances.',
+    how: 'The app estimates your threshold pace from the fastest ~18% of eligible runs, then expresses zones as fractions of that threshold speed. Z1 is slower than 68% of threshold speed, Z4 is around threshold, and Z5 is faster than threshold.',
+    levels: [
+      { tone: 'good', label: 'Z1-Z2', text: 'recovery and easy aerobic volume.' },
+      { tone: 'watch', label: 'Z3', text: 'steady work that can accumulate fatigue.' },
+      { tone: 'bad', label: 'Z4-Z5', text: 'sessions: threshold, VO2 or faster running.' },
+    ],
+  },
+  hrZones: {
+    title: 'Heart-rate zones',
+    what: 'Suggested current HR targets inferred from your recorded training heart rates, not a manually entered max-HR formula.',
+    how: 'The app infers max HR from your recorded max/average HR distribution, estimates threshold HR as roughly 90% of that max, then builds five zones around threshold HR. Activity zone time uses the heart-rate stream sample-by-sample.',
+    levels: [
+      { tone: 'good', label: 'Z1-Z2', text: 'recovery and easy aerobic running.' },
+      { tone: 'watch', label: 'Z3', text: 'moderate / steady aerobic stress.' },
+      { tone: 'bad', label: 'Z4-Z5', text: 'threshold and above.' },
     ],
   },
   hardShare: {
