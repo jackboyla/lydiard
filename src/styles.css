@@ -861,6 +861,10 @@ dd {
   display: none;
 }
 
+.mobile-more-map {
+  display: none;
+}
+
 .mobile-bottom-nav button {
   font: inherit;
 }
@@ -1184,6 +1188,429 @@ dd {
 
 .dashboard .overview-grid {
   margin-top: 4px;
+}
+
+/* ---------- Product-style Runzones-inspired pages ---------- */
+
+.product-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0 40px;
+}
+
+.product-hero,
+.product-page-head {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.product-hero h2,
+.product-page-head h2 {
+  max-width: 980px;
+  margin: 0;
+  color: var(--text-strong);
+  font-size: clamp(2.2rem, 6vw, 5rem);
+  line-height: 0.95;
+  letter-spacing: 0;
+}
+
+.product-hero p,
+.product-page-head p {
+  max-width: 78ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: clamp(1rem, 1.6vw, 1.22rem);
+  line-height: 1.55;
+}
+
+.product-pill {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--surface-control);
+  font-size: 0.76rem;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.product-pill.tone-easy {
+  color: var(--green);
+  background: rgba(34, 185, 130, 0.12);
+}
+
+.product-pill.tone-moderate,
+.product-pill.tone-muted {
+  color: var(--accent-strong);
+  background: rgba(111, 168, 255, 0.12);
+}
+
+.product-pill.tone-hard {
+  color: var(--warning);
+  background: rgba(242, 201, 76, 0.13);
+}
+
+.product-pill.tone-danger {
+  color: var(--danger);
+  background: rgba(255, 90, 102, 0.14);
+}
+
+.product-card,
+.control-card,
+.fitness-direction-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: 0 18px 40px var(--shadow);
+}
+
+.product-card {
+  padding: 18px;
+}
+
+.product-card header,
+.latest-activity-card header,
+.week-status-card header,
+.load-preview-panel header,
+.plan-week-card header,
+.fitness-direction-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.product-card header span,
+.control-card > span,
+.fitness-direction-card p,
+.latest-activity-card header span,
+.week-status-card header span {
+  color: var(--subtle);
+  font-size: 0.75rem;
+  font-weight: 820;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.product-card header small,
+.latest-activity-card header small,
+.week-status-card header small,
+.load-preview-panel p,
+.product-footnote {
+  color: var(--muted);
+  font-weight: 680;
+}
+
+.home-grid,
+.fitness-lower-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.latest-activity-card,
+.dark-card {
+  padding: 22px;
+  border-color: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  background: #15110f;
+}
+
+.latest-activity-card h3,
+.week-status-card h3,
+.product-card h3,
+.fitness-direction-card h3 {
+  margin: 12px 0;
+  color: var(--text-strong);
+  font-size: clamp(1.6rem, 3vw, 2.7rem);
+  line-height: 1;
+}
+
+.product-stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.product-stat-row.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.coach-read,
+.runzones-read {
+  margin-top: 16px;
+  padding: 14px;
+  border-left: 3px solid #d15a36;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.coach-read span,
+.runzones-read strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--subtle);
+  font-size: 0.72rem;
+  font-weight: 820;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.coach-read p,
+.runzones-read {
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.latest-sessions-panel,
+.load-preview-panel,
+.performance-profile-panel {
+  margin-bottom: 16px;
+}
+
+.session-card-row,
+.proof-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.session-mini-card,
+.proof-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.session-mini-card.tone-easy {
+  border-left: 3px solid var(--green);
+}
+
+.session-mini-card.tone-moderate {
+  border-left: 3px solid var(--accent-strong);
+}
+
+.session-mini-card.tone-hard {
+  border-left: 3px solid var(--warning);
+}
+
+.session-mini-card.tone-danger {
+  border-left: 3px solid var(--danger);
+}
+
+.session-mini-card span,
+.session-mini-card small,
+.proof-card span,
+.proof-card small {
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 680;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-mini-card strong,
+.proof-card strong {
+  display: block;
+  margin: 8px 0 5px;
+  color: var(--text-strong);
+  font-size: 1.25rem;
+}
+
+.product-empty-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-weight: 680;
+}
+
+.proof-card.ready {
+  border-color: rgba(209, 90, 54, 0.55);
+  background: rgba(209, 90, 54, 0.08);
+}
+
+.mini-load-bars {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-items: end;
+  gap: 8px;
+  height: 170px;
+  margin: 16px 0 12px;
+}
+
+.mini-load-bars span {
+  min-height: 8px;
+  border-radius: 7px 7px 2px 2px;
+  background: linear-gradient(180deg, rgba(209, 90, 54, 0.95), rgba(209, 90, 54, 0.62));
+}
+
+.fitness-direction-card {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 24px;
+  border-color: rgba(255, 255, 255, 0.06);
+  background: #15110f;
+}
+
+.fitness-direction-card h3,
+.fitness-direction-card span {
+  margin: 0;
+}
+
+.fitness-direction-card span {
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.control-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.control-card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 190px;
+  padding: 18px;
+}
+
+.control-card h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1.55rem;
+  line-height: 1.08;
+}
+
+.control-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.48;
+}
+
+.zone-list,
+.best-list,
+.plan-day-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.zone-list-row,
+.best-list div,
+.plan-day-row {
+  display: grid;
+  gap: 5px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.zone-list-row {
+  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1fr) minmax(120px, 0.7fr);
+  align-items: baseline;
+}
+
+.zone-list-row span,
+.best-list span,
+.plan-day-row > span {
+  color: var(--text);
+  font-weight: 760;
+}
+
+.zone-list-row strong,
+.best-list strong {
+  color: var(--text-strong);
+  font-size: 1.05rem;
+}
+
+.zone-list-row small,
+.best-list small,
+.plan-day-row small {
+  color: var(--muted);
+  font-weight: 680;
+}
+
+.zone-list-row.tone-easy {
+  border-left: 3px solid var(--green);
+  padding-left: 10px;
+}
+
+.zone-list-row.tone-moderate {
+  border-left: 3px solid var(--accent-strong);
+  padding-left: 10px;
+}
+
+.zone-list-row.tone-hard {
+  border-left: 3px solid var(--warning);
+  padding-left: 10px;
+}
+
+.zone-list-row.tone-danger {
+  border-left: 3px solid var(--danger);
+  padding-left: 10px;
+}
+
+.plan-week-card {
+  max-width: 960px;
+}
+
+.plan-week-card header strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-strong);
+  font-size: 1.35rem;
+}
+
+.plan-day-row {
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: start;
+  padding: 16px 0;
+}
+
+.plan-day-row h3,
+.plan-day-row p {
+  margin: 0;
+}
+
+.plan-day-row h3 {
+  color: var(--text-strong);
+  font-size: 1.15rem;
+}
+
+.plan-day-row p {
+  color: var(--accent-strong);
+  font-weight: 760;
+  line-height: 1.45;
+}
+
+.plan-day-row.tone-muted p {
+  color: var(--muted);
+}
+
+.plan-day-row.tone-hard p {
+  color: var(--warning);
+}
+
+.plan-day-row.tone-moderate p {
+  color: var(--accent-strong);
 }
 
 /* ---------- Training log view ---------- */
@@ -2652,15 +3079,36 @@ dd {
 
   .topbar-controls.open .connection-chip {
     flex-basis: 100%;
+    align-items: flex-start;
+    min-height: 0;
+    padding: 10px 12px;
+    font-size: 0.86rem;
+    line-height: 1.25;
+    white-space: normal;
   }
 
-  .topbar-controls.open .view-toggle {
-    flex-basis: 100%;
+  .topbar-controls.open .connection-chip span {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
-  .topbar-controls.open .view-toggle button {
-    flex: 1;
+  .topbar-controls.open .product-view-toggle {
+    display: none;
+  }
+
+  .mobile-more-map {
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
+    gap: 8px;
+    flex-basis: 100%;
+    min-height: 42px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    background: var(--surface-control);
+    font-weight: 760;
+    cursor: pointer;
   }
 
   .topbar-controls.open .segmented {
@@ -3057,6 +3505,48 @@ dd {
 
   .dashboard {
     padding-bottom: calc(112px + env(safe-area-inset-bottom));
+  }
+
+  .product-page {
+    padding-bottom: calc(112px + env(safe-area-inset-bottom));
+  }
+
+  .product-hero h2,
+  .product-page-head h2 {
+    font-size: clamp(2.15rem, 10.5vw, 3.25rem);
+  }
+
+  .home-grid,
+  .fitness-lower-grid,
+  .control-card-grid,
+  .session-card-row,
+  .proof-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-stat-row,
+  .product-stat-row.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .zone-list-row {
+    grid-template-columns: 1fr;
+  }
+
+  .control-card {
+    min-height: 0;
+  }
+
+  .mini-load-bars {
+    height: 130px;
+  }
+
+  .product-view-toggle {
+    overflow-x: auto;
+  }
+
+  .product-view-toggle button {
+    flex: 0 0 auto;
   }
 
   .training-view {
