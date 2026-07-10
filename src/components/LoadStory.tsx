@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts';
 import type { WeeklyAnalysis } from '../types';
+import { chartSpanDays, formatChartDate, formatChartTick, utcDayTimestamp } from './chartDates';
 
 interface LoadStoryProps {
   analyses: WeeklyAnalysis[];
@@ -23,12 +24,13 @@ export function LoadStory({ analyses }: LoadStoryProps) {
   const volumeKey: VolumeKey = volumeView === 'mileage' ? 'distanceKm' : 'durationHours';
   const volumeLabel = volumeView === 'mileage' ? 'Mileage' : 'Time';
   const data = analyses.map((analysis) => ({
-    label: analysis.week.label,
+    ts: utcDayTimestamp(analysis.week.weekStart),
     distanceKm: analysis.week.distanceKm,
     durationHours: analysis.week.durationHours,
     chronicLoad: analysis.week.chronicLoad,
     severity: analysis.severity,
   }));
+  const spanDays = chartSpanDays(data.map((point) => point.ts));
 
   return (
     <section className="chart-card load-story" aria-labelledby="load-heading">
@@ -72,7 +74,17 @@ export function LoadStory({ analyses }: LoadStoryProps) {
         >
           <ComposedChart data={data} margin={{ top: 12, right: 24, bottom: 8, left: 0 }}>
             <CartesianGrid stroke="#2c3440" vertical={false} />
-            <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#92a0b3', fontSize: 12 }} />
+            <XAxis
+              dataKey="ts"
+              type="number"
+              scale="time"
+              domain={['dataMin', 'dataMax']}
+              tickFormatter={(value) => formatChartTick(Number(value), spanDays)}
+              minTickGap={54}
+              tickLine={false}
+              axisLine={false}
+              tick={{ fill: '#92a0b3', fontSize: 12 }}
+            />
             <YAxis
               yAxisId="left"
               tickLine={false}
@@ -95,6 +107,7 @@ export function LoadStory({ analyses }: LoadStoryProps) {
                 name === volumeLabel ? formatVolumeValue(Number(value), volumeView) : Math.round(Number(value)),
                 name === volumeLabel ? volumeLabel : 'Fitness load',
               ]}
+              labelFormatter={(value) => formatChartDate(Number(value))}
             />
             <Bar
               yAxisId="left"
