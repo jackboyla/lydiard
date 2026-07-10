@@ -10,6 +10,7 @@ import {
 } from 'recharts';
 import type { TrendMetricKey, WeeklyAnalysis } from '../types';
 import { formatPace } from '../analysis/fatigue';
+import { chartSpanDays, formatChartDate, formatChartTick, utcDayTimestamp } from './chartDates';
 
 interface TrendPanelProps {
   analyses: WeeklyAnalysis[];
@@ -31,12 +32,13 @@ export function TrendPanel({ analyses, metric, selectedIndex, onMetricChange, on
   const safeSelectedIndex = Math.min(selectedIndex, analyses.length - 1);
   const data = analyses.map((analysis, index) => ({
     index,
-    label: analysis.week.label,
+    ts: utcDayTimestamp(analysis.week.weekStart),
     value: valueForMetric(analysis, metric),
     riskScore: analysis.riskScore,
     severity: analysis.severity,
     display: displayForMetric(analysis, metric),
   }));
+  const spanDays = chartSpanDays(data.map((point) => point.ts));
 
   const selected = analyses[safeSelectedIndex];
   const title = titleForMetric(metric);
@@ -77,8 +79,9 @@ export function TrendPanel({ analyses, metric, selectedIndex, onMetricChange, on
               data={data}
               margin={{ top: 16, right: 16, left: 0, bottom: 0 }}
               onClick={(state) => {
-                if (typeof state?.activeTooltipIndex === 'number') {
-                  onWeekSelect(state.activeTooltipIndex);
+                const index = Number(state?.activeTooltipIndex);
+                if (Number.isInteger(index) && index >= 0 && index < analyses.length) {
+                  onWeekSelect(index);
                 }
               }}
             >
@@ -89,7 +92,17 @@ export function TrendPanel({ analyses, metric, selectedIndex, onMetricChange, on
                 </linearGradient>
               </defs>
               <CartesianGrid stroke="#2c3440" vertical={false} />
-              <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#92a0b3', fontSize: 12 }} />
+              <XAxis
+                dataKey="ts"
+                type="number"
+                scale="time"
+                domain={['dataMin', 'dataMax']}
+                tickFormatter={(value) => formatChartTick(Number(value), spanDays)}
+                minTickGap={54}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: '#92a0b3', fontSize: 12 }}
+              />
               <YAxis
                 tickLine={false}
                 axisLine={false}
@@ -108,12 +121,14 @@ export function TrendPanel({ analyses, metric, selectedIndex, onMetricChange, on
                   boxShadow: '0 10px 30px rgba(0, 0, 0, 0.32)',
                 }}
                 formatter={(_, __, item) => [item.payload.display, title]}
+                labelFormatter={(value) => formatChartDate(Number(value))}
               />
               <Area
                 type="linear"
                 dataKey="value"
                 fill="url(#trendFill)"
                 stroke="none"
+                tooltipType="none"
                 connectNulls
                 isAnimationActive={false}
               />

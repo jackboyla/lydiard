@@ -12,17 +12,6 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
 import { formatPace } from '../analysis/fatigue';
 import {
   buildTrainingLoadModel,
@@ -188,10 +177,6 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
   const gymCount = scoped.gymCount;
   const hrCount = scoped.sessions.filter((session) => session.activity.averageHeartRate).length;
   const powerCount = scoped.sessions.filter((session) => session.activity.averageWatts).length;
-  const chartSpanDays = useMemo(() => {
-    const rows = scoped.chartRows;
-    return rows.length > 1 ? (rows[rows.length - 1].ts - rows[0].ts) / 86_400_000 : 0;
-  }, [scoped.chartRows]);
 
   // Month/year jump. Week blocks are lazily rendered, so a naive #anchor link
   // does nothing when the target month isn't in the DOM yet. Instead we render
@@ -403,63 +388,7 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
 
       <ZoneSummary zones={trainingZones} />
 
-      <section className="training-load-grid" aria-label="Fitness and fatigue">
-        <article className="chart-card training-chart-card">
-          <div className="chart-header">
-            <div>
-              <p>Fitness and fatigue</p>
-              <h2>
-                CTL / ATL load model
-                <MetricInfo metric="chart" />
-              </h2>
-            </div>
-            <span className="chart-pill">load points</span>
-          </div>
-          <div className="fitness-chart">
-            <ResponsiveContainer
-              width="100%"
-              height="100%"
-              minWidth={0}
-              minHeight={0}
-              initialDimension={{ width: 900, height: 320 }}
-            >
-              <LineChart data={scoped.chartRows} margin={{ top: 14, right: 20, bottom: 4, left: 0 }}>
-                <CartesianGrid stroke="#2c3440" vertical={false} />
-                <XAxis
-                  dataKey="ts"
-                  type="number"
-                  scale="time"
-                  domain={['dataMin', 'dataMax']}
-                  tickFormatter={(value) => formatAxisTick(value as number, chartSpanDays)}
-                  minTickGap={44}
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fill: '#92a0b3', fontSize: 12 }}
-                />
-                <YAxis tickLine={false} axisLine={false} tick={{ fill: '#92a0b3', fontSize: 12 }} width={46} />
-                <Tooltip
-                  cursor={{ stroke: '#465365', strokeWidth: 1 }}
-                  contentStyle={{
-                    border: '1px solid #303946',
-                    borderRadius: 8,
-                    backgroundColor: '#171b21',
-                    color: '#edf2f7',
-                    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.32)',
-                  }}
-                  formatter={(value, name) => [`${Number(value).toFixed(1)}`, name]}
-                  labelFormatter={(value) => formatFullDate(value as number)}
-                />
-                <Legend verticalAlign="top" align="right" iconType="line" wrapperStyle={{ color: '#99a6b8' }} />
-                <ReferenceLine y={0} stroke="#465365" />
-                <Line type="monotone" dataKey="fitness" name="Fitness CTL" stroke="#22b982" strokeWidth={3} dot={false} isAnimationActive={false} />
-                <Line type="monotone" dataKey="fatigue" name="Fatigue ATL" stroke="#ff5a66" strokeWidth={3} dot={false} isAnimationActive={false} />
-                <Line type="monotone" dataKey="freshness" name="Freshness" stroke="#f2c94c" strokeWidth={2} dot={false} isAnimationActive={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </article>
-
-        <aside className="training-kpis" aria-label="Current training metrics">
+      <aside className="training-kpis training-kpis-wide" aria-label="Current training metrics">
           <TrainingKpi
             icon={<Timer size={18} />}
             label="Latest load"
@@ -488,8 +417,7 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
             value={latestDaily ? latestDaily.acwr.toFixed(2) : '-'}
             detail="ATL / CTL"
           />
-        </aside>
-      </section>
+      </aside>
 
       <details className="training-additional-info">
         <summary>Additional info</summary>
@@ -1070,14 +998,6 @@ function scopeLoadModel(model: TrainingLoadModel, range: RangeKey, gymSessions: 
   const weeks = model.weeks.filter((week) => weekIds.has(week.weekId)).reverse();
   const days = new Set(sessionsAsc.map((session) => session.day));
   const daily = model.daily.filter((point) => new Date(`${point.day}T00:00:00Z`).getTime() >= fromMs || days.has(point.day));
-  const chartRows = daily.map((point) => ({
-    ts: Date.parse(`${point.day}T00:00:00Z`),
-    day: point.day,
-    fitness: point.fitness,
-    fatigue: point.fatigue,
-    freshness: point.freshness,
-  }));
-
   // Gym rides alongside runs: grouped by the same ISO week but never scored.
   const gymInRange = gymSessions.filter((session) => new Date(session.startDate).getTime() >= fromMs);
   const gymByWeek = new Map<string, GymSession[]>();
@@ -1107,7 +1027,6 @@ function scopeLoadModel(model: TrainingLoadModel, range: RangeKey, gymSessions: 
     weeks,
     weekEntries,
     daily,
-    chartRows,
     months: buildMonthNav(sessions),
     distanceKm: sessions.reduce((total, session) => total + session.activity.distanceKm, 0),
     gymCount: gymInRange.length,
@@ -1681,21 +1600,6 @@ function gymTitle(session: GymSession): string {
     parts.push(`${Math.round(session.calories)} kcal`);
   }
   return parts.join(' · ');
-}
-
-function formatAxisTick(ms: number, spanDays: number): string {
-  const date = new Date(ms);
-  if (spanDays > 400) {
-    return new Intl.DateTimeFormat('en-GB', { month: 'short', year: '2-digit' }).format(date);
-  }
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(date);
-}
-
-function formatFullDate(ms: number): string {
-  if (!Number.isFinite(ms)) {
-    return '';
-  }
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(ms));
 }
 
 function formatDuration(totalSeconds: number): string {

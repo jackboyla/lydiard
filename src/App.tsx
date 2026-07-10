@@ -28,6 +28,7 @@ import { IndicatorList } from './components/IndicatorList';
 import { LoadStory } from './components/LoadStory';
 import { MapView } from './components/MapView';
 import { TrainingView, type TrainingJumpApi } from './components/TrainingView';
+import { TrainingLoadChart } from './components/TrainingLoadChart';
 import { TrendPanel } from './components/TrendPanel';
 import {
   getActivities,
@@ -575,6 +576,20 @@ export default function App() {
         />
       ) : (
         <main className="dashboard">
+          <section className="analysis-chart-stack" aria-label="Training analysis charts">
+            <TrainingLoadChart daily={loadModel.daily} />
+
+            <TrendPanel
+              analyses={analyses}
+              metric={metric}
+              selectedIndex={safeSelectedIndex}
+              onMetricChange={setMetric}
+              onWeekSelect={setSelectedIndex}
+            />
+
+            <LoadStory analyses={analyses} />
+          </section>
+
           <section className="overview-grid" aria-label="Current analysis">
             <article className={`risk-panel ${selected.severity}`}>
               <div className="risk-header">
@@ -659,15 +674,6 @@ export default function App() {
 
           <IndicatorList indicators={selected.indicators} />
 
-          <TrendPanel
-            analyses={analyses}
-            metric={metric}
-            selectedIndex={safeSelectedIndex}
-            onMetricChange={setMetric}
-            onWeekSelect={setSelectedIndex}
-          />
-
-          <LoadStory analyses={analyses} />
         </main>
       )}
 

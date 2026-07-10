@@ -2019,15 +2019,17 @@ dd {
   font-weight: 760;
 }
 
-.training-load-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.36fr);
-  gap: 16px;
-  align-items: stretch;
-}
-
 .training-chart-card {
   margin-bottom: 16px;
+}
+
+.analysis-chart-stack {
+  display: grid;
+  gap: 0;
+}
+
+.analysis-load-chart {
+  margin-top: 4px;
 }
 
 .fitness-chart {
@@ -2041,6 +2043,10 @@ dd {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
+}
+
+.training-kpis-wide {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .training-kpi {
@@ -3139,7 +3145,6 @@ dd {
   .overview-grid,
   .insight-grid,
   .trend-layout,
-  .training-load-grid,
   .training-log-shell {
     grid-template-columns: 1fr;
   }
