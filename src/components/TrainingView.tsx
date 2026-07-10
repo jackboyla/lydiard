@@ -6,12 +6,11 @@ import {
   Dumbbell,
   Gauge,
   HeartPulse,
-  ListFilter,
-  Map as MapIcon,
   Mountain,
   ShieldAlert,
   Timer,
   TrendingUp,
+  X,
   Zap,
 } from 'lucide-react';
 import {
@@ -81,7 +80,64 @@ interface WeekEntry {
   gym: GymSession[];
 }
 
+interface CalendarDay {
+  dayId: string;
+  weekday: string;
+  dateLabel: string;
+  sessions: SessionLoad[];
+  gym: GymSession[];
+  distanceKm: number;
+  load: number;
+  tone: MetricTone;
+}
+
 type RangeKey = '3m' | '6m' | '12m' | '10y' | 'all';
+type MetricTone = 'easy' | 'moderate' | 'hard' | 'danger' | 'muted';
+type RunKind = 'easy' | 'steady' | 'long' | 'session';
+
+interface RunClassification {
+  key: RunKind;
+  label: string;
+  tone: MetricTone;
+  summary: string;
+  reasons: string[];
+}
+
+interface TrainingZone {
+  key: string;
+  label: string;
+  name: string;
+  tone: MetricTone;
+  paceRange: string;
+  hrRange: string;
+  hrMin?: number;
+  hrMax?: number;
+}
+
+interface LapSplit {
+  label: string;
+  distanceKm: number;
+  durationSec: number;
+  paceSecPerKm: number;
+  averageHeartRate?: number;
+  averagePower?: number;
+}
+
+interface HrZoneTotal {
+  zone: TrainingZone;
+  seconds: number;
+}
+
+interface ZoneTemplate {
+  key: string;
+  label: string;
+  name: string;
+  tone: MetricTone;
+  ifMin?: number;
+  ifMax?: number;
+  hrMinRatio?: number;
+  hrMaxRatio?: number;
+}
 
 const RANGE_OPTIONS: Array<{ key: RangeKey; label: string; months?: number }> = [
   { key: 'all', label: 'All' },
@@ -95,6 +151,15 @@ const INITIAL_WEEK_COUNT = 12;
 const WEEK_CHUNK = 10;
 // Weeks rendered below a jump target so the scroller can bring it to the top.
 const JUMP_BUFFER_WEEKS = 10;
+const DAY_MS = 86_400_000;
+const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const ZONE_TEMPLATES: ZoneTemplate[] = [
+  { key: 'z1', label: 'Z1', name: 'Recovery', tone: 'easy' as MetricTone, ifMax: 0.68, hrMaxRatio: 0.82 },
+  { key: 'z2', label: 'Z2', name: 'Easy', tone: 'easy' as MetricTone, ifMin: 0.68, ifMax: 0.78, hrMinRatio: 0.82, hrMaxRatio: 0.89 },
+  { key: 'z3', label: 'Z3', name: 'Steady', tone: 'moderate' as MetricTone, ifMin: 0.78, ifMax: 0.88, hrMinRatio: 0.89, hrMaxRatio: 0.95 },
+  { key: 'z4', label: 'Z4', name: 'Threshold', tone: 'hard' as MetricTone, ifMin: 0.88, ifMax: 1.02, hrMinRatio: 0.95, hrMaxRatio: 1.02 },
+  { key: 'z5', label: 'Z5', name: 'VO2 / faster', tone: 'danger' as MetricTone, ifMin: 1.02, hrMinRatio: 1.02 },
+];
 
 export function TrainingView({ activities, analyses, gymSessions, usingSample, onJumpApi }: TrainingViewProps) {
   const [range, setRange] = useState<RangeKey>('all');
@@ -110,6 +175,7 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
 
   const loadModel = useMemo(() => buildTrainingLoadModel(activities), [activities]);
   const scoped = useMemo(() => scopeLoadModel(loadModel, range, gymSessions), [loadModel, range, gymSessions]);
+  const trainingZones = useMemo(() => buildTrainingZones(loadModel.thresholds), [loadModel.thresholds]);
   const analysisByWeek = useMemo(
     () => new Map(analyses.map((analysis) => [analysis.week.weekStart, analysis])),
     [analyses],
@@ -220,6 +286,7 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
 
   useEffect(() => {
     if (!previewId) {
+      setPreviewDetail(null);
       setPreviewLoading(false);
       return;
     }
@@ -230,6 +297,7 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
       return;
     }
     let cancelled = false;
+    setPreviewDetail(null);
     setPreviewLoading(true);
     getActivity(previewId)
       .then((detail) => {
@@ -291,6 +359,8 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
       </section>
 
       {showGuide && <MetricsGuide metrics={GUIDE_METRICS} />}
+
+      <ZoneSummary zones={trainingZones} />
 
       <section className="training-load-grid" aria-label="Fitness and fatigue">
         <article className="chart-card training-chart-card">
@@ -393,30 +463,6 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
       </section>
 
       <section className="training-log-shell" aria-label="Activity log">
-        <aside className="training-jump-rail" aria-label="Jump to month">
-          <div className="training-sticky-card">
-            <p className="rail-label">
-              <ListFilter size={14} aria-hidden="true" />
-              Jump
-            </p>
-            <nav>
-              {scoped.months.map((month) => (
-                <a
-                  key={month.id}
-                  href={`#month-${month.id}`}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    jumpToMonth(month.id);
-                  }}
-                >
-                  <span>{month.label}</span>
-                  <small>{month.count}</small>
-                </a>
-              ))}
-            </nav>
-          </div>
-        </aside>
-
         <div className="training-week-list">
           {visibleWeeks.length > 0 ? (
             visibleWeeks.map((entry, index) => {
@@ -449,11 +495,19 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
           {visibleWeekCount < scoped.weekEntries.length && <div ref={sentinelRef} className="training-scroll-sentinel" />}
         </div>
 
-        <aside className="training-preview-rail" aria-label="Activity preview">
-          <div className="training-sticky-card">
-            <HoverPreview detail={previewDetail} session={previewSession} loading={previewLoading} />
+        {previewSession && (
+          <div className="training-floating-preview" aria-label="Activity preview">
+            <button
+              type="button"
+              className="floating-preview-close"
+              aria-label="Close activity preview"
+              onClick={() => setPreviewId(null)}
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+            <ActivityPreview detail={previewDetail} session={previewSession} loading={previewLoading} zones={trainingZones} />
           </div>
-        </aside>
+        )}
       </section>
     </main>
   );
@@ -473,6 +527,7 @@ function WeekBlock({
   onPreview: (id: string) => void;
 }) {
   const projectedEasy = analysis?.week.easyPaceSecPerKm;
+  const days = buildWeekCalendarDays(week.weekId, week.sessions, gym);
   return (
     <article className={`training-week-block ${week.severity}`}>
       <header className="training-week-head">
@@ -503,34 +558,63 @@ function WeekBlock({
           ))}
         </div>
       )}
-      <GymStrip gym={gym} />
-      <div className="run-log-table" role="table" aria-label={`${week.label} runs`}>
-        <div className="run-log-header" role="row">
-          <span>Run</span>
-          <span>Time</span>
-          <span>Pace</span>
-          <span>Elev</span>
-          <span>HR</span>
-          <span>Power</span>
-          <span>Load</span>
-          <span>Split</span>
+      <WeekCalendar
+        days={days}
+        projectedEasySecPerKm={projectedEasy}
+        previewId={previewId}
+        onPreview={onPreview}
+        ariaLabel={`${week.label} training calendar`}
+      />
+    </article>
+  );
+}
+
+function ZoneSummary({ zones }: { zones: TrainingZone[] }) {
+  return (
+    <section className="training-zone-panel" aria-label="Current training zones">
+      <header>
+        <div>
+          <p>Current zones</p>
+          <h3>Suggested pace and HR</h3>
         </div>
-        {[...week.sessions].reverse().map((session) => (
-          <RunRow
-            key={session.activity.id}
-            session={session}
-            projectedEasySecPerKm={projectedEasy}
-            active={previewId === session.activity.id}
-            onPreview={onPreview}
-          />
+        <div className="zone-info-row">
+          <span>
+            Pace
+            <MetricInfo metric="paceZones" align="right" />
+          </span>
+          <span>
+            HR
+            <MetricInfo metric="hrZones" align="right" />
+          </span>
+        </div>
+      </header>
+      <div className="zone-card-grid">
+        {zones.map((zone) => (
+          <article key={zone.key} className={`zone-card tone-${zone.tone}`}>
+            <div>
+              <strong>{zone.label}</strong>
+              <span>{zone.name}</span>
+            </div>
+            <dl>
+              <div>
+                <dt>Pace</dt>
+                <dd>{zone.paceRange}</dd>
+              </div>
+              <div>
+                <dt>HR</dt>
+                <dd>{zone.hrRange}</dd>
+              </div>
+            </dl>
+          </article>
         ))}
       </div>
-    </article>
+    </section>
   );
 }
 
 // A week with gym but no runs still shows, so gym history is never hidden.
 function GymOnlyBlock({ weekId, gym }: { weekId: string; gym: GymSession[] }) {
+  const days = buildWeekCalendarDays(weekId, [], gym);
   return (
     <article className="training-week-block gym-only">
       <header className="training-week-head">
@@ -544,38 +628,96 @@ function GymOnlyBlock({ weekId, gym }: { weekId: string; gym: GymSession[] }) {
           <small>gym {gym.length === 1 ? 'session' : 'sessions'}</small>
         </div>
       </header>
-      <GymStrip gym={gym} />
+      <WeekCalendar days={days} ariaLabel={`Week of ${formatWeekIdLabel(weekId)} gym calendar`} />
     </article>
   );
 }
 
-// Non-scored strip: shows each gym session in the week so you can see when you
-// trained in the gym. Purely informational — it feeds nothing.
-function GymStrip({ gym }: { gym: GymSession[] }) {
-  if (gym.length === 0) {
-    return null;
-  }
-  const sorted = [...gym].sort((a, b) => a.startDate.localeCompare(b.startDate));
+function WeekCalendar({
+  days,
+  projectedEasySecPerKm,
+  previewId,
+  onPreview,
+  ariaLabel,
+}: {
+  days: CalendarDay[];
+  projectedEasySecPerKm?: number;
+  previewId?: string | null;
+  onPreview?: (id: string) => void;
+  ariaLabel: string;
+}) {
   return (
-    <div className="week-gym-strip" aria-label={`${gym.length} gym ${gym.length === 1 ? 'session' : 'sessions'}`}>
-      <span className="week-gym-strip-label">
-        <Dumbbell size={14} aria-hidden="true" />
-        Gym
-      </span>
-      <div className="gym-badges">
-        {sorted.map((session) => (
-          <span key={session.id} className="gym-badge" title={gymTitle(session)}>
-            <strong>{formatGymDay(session.startDateLocal || session.startDate)}</strong>
-            {session.durationSec > 0 && <span>{Math.round(session.durationSec / 60)}m</span>}
-            {session.averageHeartRate && <span>{Math.round(session.averageHeartRate)} bpm</span>}
-          </span>
-        ))}
-      </div>
+    <div className="week-calendar-grid" role="list" aria-label={ariaLabel}>
+      {days.map((day) => (
+        <CalendarDayColumn
+          key={day.dayId}
+          day={day}
+          projectedEasySecPerKm={projectedEasySecPerKm}
+          previewId={previewId ?? null}
+          onPreview={onPreview}
+        />
+      ))}
     </div>
   );
 }
 
-function RunRow({
+function CalendarDayColumn({
+  day,
+  projectedEasySecPerKm,
+  previewId,
+  onPreview,
+}: {
+  day: CalendarDay;
+  projectedEasySecPerKm?: number;
+  previewId: string | null;
+  onPreview?: (id: string) => void;
+}) {
+  const hasRun = day.sessions.length > 0;
+  const hasGym = day.gym.length > 0;
+  return (
+    <section
+      className={`week-day-cell tone-${day.tone}${hasRun ? ' has-run' : ''}${hasGym ? ' has-gym' : ''}`}
+      aria-label={`${day.weekday} ${day.dateLabel}`}
+      onClick={() => {
+        const firstSession = day.sessions[0];
+        if (firstSession) {
+          onPreview?.(firstSession.activity.id);
+        }
+      }}
+    >
+      <header className="week-day-head">
+        <span>{day.weekday}</span>
+        <strong>{day.dateLabel}</strong>
+        <small>
+          {hasRun
+            ? day.sessions.length > 1
+              ? `${day.sessions.length} runs · L${Math.round(day.load)}`
+              : `${day.distanceKm.toFixed(1)} km · L${Math.round(day.load)}`
+            : hasGym
+              ? `${day.gym.length} gym`
+              : 'Rest'}
+        </small>
+      </header>
+      <div className="week-day-stack">
+        {day.sessions.map((session) => (
+          <CalendarRunCard
+            key={session.activity.id}
+            session={session}
+            projectedEasySecPerKm={projectedEasySecPerKm}
+            active={previewId === session.activity.id}
+            onPreview={onPreview}
+          />
+        ))}
+        {day.gym.map((session) => (
+          <GymSessionPill key={session.id} session={session} />
+        ))}
+        {!hasRun && !hasGym && <span className="week-rest-label">Rest</span>}
+      </div>
+    </section>
+  );
+}
+
+function CalendarRunCard({
   session,
   projectedEasySecPerKm,
   active,
@@ -584,56 +726,83 @@ function RunRow({
   session: SessionLoad;
   projectedEasySecPerKm?: number;
   active: boolean;
-  onPreview: (id: string) => void;
+  onPreview?: (id: string) => void;
 }) {
   const activity = session.activity;
+  const effortTone = toneForEffort(session.externalIntensityFactor);
+  const runKind = classifyRun(session);
   return (
     <button
       type="button"
-      className={`run-log-row ${active ? 'active' : ''}`}
-      onMouseEnter={() => onPreview(activity.id)}
-      onFocus={() => onPreview(activity.id)}
-      onClick={() => onPreview(activity.id)}
+      className={`calendar-run-card tone-${effortTone} run-${runKind.key}${active ? ' active' : ''}${session.hardLoad > 0 ? ' hard' : ''}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onPreview?.(activity.id);
+      }}
     >
-      <span className="run-log-main">
-        <strong>{activity.name}</strong>
-        <small>
-          {formatRunDate(activity.startDateLocal || activity.startDate)}
-          {projectedEasySecPerKm ? ` · easy ${formatPace(projectedEasySecPerKm)}` : ''}
-        </small>
+      <span className="calendar-run-title-row">
+        <span className="calendar-run-title">
+          <strong>{activity.name}</strong>
+          <small>{formatRunTime(activity.startDateLocal || activity.startDate)}</small>
+        </span>
+        <span className={`calendar-run-type tone-${runKind.tone}`} title={runKind.reasons.join('\n')}>
+          {runKind.label}
+        </span>
       </span>
-      <RunCell icon={<Timer size={15} />} value={formatDuration(activity.movingTimeSec)} />
-      <RunCell value={formatPace(activityPaceSecPerKm(activity))} />
-      <RunCell icon={<Mountain size={15} />} value={`${Math.round(activity.elevationGainM)} m`} />
-      <RunCell icon={<HeartPulse size={15} />} value={activity.averageHeartRate ? `${Math.round(activity.averageHeartRate)}` : '-'} detail="bpm" />
-      <RunCell icon={<Zap size={15} />} value={activity.averageWatts ? `${Math.round(activity.averageWatts)}` : '-'} detail="W" />
-      <RunCell value={session.load.toFixed(1)} detail={`IF ${session.externalIntensityFactor.toFixed(2)}`} />
-      <RunCell value={formatDecoupling(activity.decouplingPct)} detail={session.reliability.replaceAll('-', ' + ')} />
+      <span className={`calendar-run-reason tone-${runKind.tone}`} title={runKind.reasons.join(' ')}>
+        {runKind.summary}
+      </span>
+      <span className="calendar-run-primary">
+        <strong>{activity.distanceKm.toFixed(1)} km</strong>
+        <span>{formatCompactPace(activityPaceSecPerKm(activity))} pace</span>
+      </span>
+      <span className="calendar-run-metrics">
+        <RunMetric label="Time" value={formatDuration(activity.movingTimeSec)} tone="muted" />
+        <RunMetric label="Elev" value={`${Math.round(activity.elevationGainM)} m`} tone={toneForElevation(activity.elevationGainM)} />
+        <RunMetric label="HR" value={activity.averageHeartRate ? `${Math.round(activity.averageHeartRate)}` : '-'} tone={toneForHeartRate(session)} />
+        <RunMetric label="W" value={activity.averageWatts ? `${Math.round(activity.averageWatts)}` : '-'} tone={activity.averageWatts ? 'moderate' : 'muted'} />
+        <RunMetric label="Load" value={session.load.toFixed(1)} tone={toneForLoad(session.load)} />
+        <RunMetric label="IF" value={session.externalIntensityFactor.toFixed(2)} tone={effortTone} />
+        <RunMetric label="Split" value={formatDecoupling(activity.decouplingPct)} tone={toneForDecoupling(activity.decouplingPct)} />
+        {projectedEasySecPerKm && <RunMetric label="Easy" value={formatCompactPace(projectedEasySecPerKm)} tone="easy" />}
+      </span>
+      <span className="calendar-run-reliability">{formatReliability(session.reliability)}</span>
     </button>
   );
 }
 
-function HoverPreview({
+function GymSessionPill({ session }: { session: GymSession }) {
+  return (
+    <div className="calendar-gym-pill" title={gymTitle(session)}>
+      <span>
+        <Dumbbell size={13} aria-hidden="true" />
+        <strong>Gym</strong>
+      </span>
+      <small>
+        {formatRunTime(session.startDateLocal || session.startDate)}
+        {session.durationSec > 0 ? ` / ${Math.round(session.durationSec / 60)}m` : ''}
+        {session.averageHeartRate ? ` / ${Math.round(session.averageHeartRate)} bpm` : ''}
+      </small>
+    </div>
+  );
+}
+
+function ActivityPreview({
   detail,
   session,
   loading,
+  zones,
 }: {
   detail: ActivityDetail | null;
-  session?: SessionLoad;
+  session: SessionLoad;
   loading: boolean;
+  zones: TrainingZone[];
 }) {
-  if (!session) {
-    return (
-      <div className="training-hover-empty">
-        <MapIcon size={24} aria-hidden="true" />
-        <h3>Hover a run</h3>
-        <p>Route and pace-over-time split preview appears here.</p>
-      </div>
-    );
-  }
-
   const activity = detail ?? session.activity;
   const split = detail ? splitPaces(detail) : undefined;
+  const lapSplits = detail ? buildLapSplits(detail) : [];
+  const hrZoneTotals = detail ? buildHrZoneTotals(detail, zones) : undefined;
+  const runKind = classifyRun(session);
 
   return (
     <div className="training-hover-preview">
@@ -644,8 +813,11 @@ function HoverPreview({
         </div>
         {loading && <span>loading</span>}
       </div>
+      <RunKindExplanation classification={runKind} />
       <RoutePreview detail={detail ?? session.activity} />
       <SplitsPreview detail={detail} />
+      <HrZoneBreakdown totals={hrZoneTotals} loading={loading} />
+      <LapSplitsTable splits={lapSplits} loading={loading} />
       <div className="preview-stat-grid">
         <Metric label="Load" value={session.load.toFixed(1)} />
         <Metric label="External" value={session.externalLoad.toFixed(1)} />
@@ -666,6 +838,93 @@ function HoverPreview({
         </div>
       )}
     </div>
+  );
+}
+
+function RunKindExplanation({ classification }: { classification: RunClassification }) {
+  return (
+    <section className={`preview-label-reasons tone-${classification.tone}`} aria-label={`Why this run is labelled ${classification.label}`}>
+      <header>
+        <span>{classification.label}</span>
+        <strong>{classification.summary}</strong>
+      </header>
+      <ul>
+        {classification.reasons.map((reason) => (
+          <li key={reason}>{reason}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function HrZoneBreakdown({ totals, loading }: { totals?: HrZoneTotal[]; loading: boolean }) {
+  const totalSeconds = totals?.reduce((total, item) => total + item.seconds, 0) ?? 0;
+  return (
+    <section className="preview-zone-breakdown" aria-label="Heart rate zone time">
+      <header>
+        <span>HR zones</span>
+        <small>{totalSeconds > 0 ? formatDuration(totalSeconds) : loading ? 'loading' : 'no HR stream'}</small>
+      </header>
+      {totalSeconds > 0 && totals ? (
+        <div className="preview-zone-bars">
+          {totals.map((item) => {
+            const pct = totalSeconds > 0 ? (item.seconds / totalSeconds) * 100 : 0;
+            return (
+              <div key={item.zone.key} className={`preview-zone-row tone-${item.zone.tone}`}>
+                <span>{item.zone.label}</span>
+                <div className="zone-bar" aria-hidden="true">
+                  <i style={{ width: `${Math.max(2, pct)}%` }} />
+                </div>
+                <strong>{formatDuration(item.seconds)}</strong>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="split-placeholder compact">{loading ? 'Loading heart-rate stream.' : 'No heart-rate stream for this run.'}</div>
+      )}
+    </section>
+  );
+}
+
+function LapSplitsTable({ splits, loading }: { splits: LapSplit[]; loading: boolean }) {
+  return (
+    <section className="preview-lap-splits" aria-label="Lap splits">
+      <header>
+        <span>Splits</span>
+        <small>{splits.length > 0 ? '1 km laps' : loading ? 'loading' : 'distance stream unavailable'}</small>
+      </header>
+      {splits.length > 0 ? (
+        <div className="lap-split-table-wrap">
+          <table className="lap-split-table">
+            <thead>
+              <tr>
+                <th>Lap</th>
+                <th>Dist</th>
+                <th>Time</th>
+                <th>Pace</th>
+                <th>HR</th>
+                <th>W</th>
+              </tr>
+            </thead>
+            <tbody>
+              {splits.map((split) => (
+                <tr key={split.label}>
+                  <td>{split.label}</td>
+                  <td>{split.distanceKm.toFixed(split.distanceKm >= 0.95 ? 1 : 2)}</td>
+                  <td>{formatDuration(split.durationSec)}</td>
+                  <td>{formatCompactPace(split.paceSecPerKm)}</td>
+                  <td>{split.averageHeartRate ? Math.round(split.averageHeartRate) : '-'}</td>
+                  <td>{split.averagePower ? Math.round(split.averagePower) : '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="split-placeholder compact">{loading ? 'Loading distance stream.' : 'No distance stream for lap splits.'}</div>
+      )}
+    </section>
   );
 }
 
@@ -700,7 +959,7 @@ function SplitsPreview({ detail }: { detail: ActivityDetail | null }) {
           <path d={path} />
         </svg>
       ) : (
-        <div className="split-placeholder">Hover data is loading or this run has no speed stream.</div>
+        <div className="split-placeholder">Click detail is loading or this run has no speed stream.</div>
       )}
     </div>
   );
@@ -734,14 +993,12 @@ function TrainingKpi({
   );
 }
 
-function RunCell({ icon, value, detail }: { icon?: ReactNode; value: string; detail?: string }) {
+function RunMetric({ icon, label, value, tone }: { icon?: ReactNode; label: string; value: string; tone: MetricTone }) {
   return (
-    <span className="run-cell">
-      <span>
-        {icon}
-        <strong>{value}</strong>
-      </span>
-      {detail && <small>{detail}</small>}
+    <span className={`calendar-run-metric tone-${tone}`}>
+      {icon}
+      <small>{label}</small>
+      <strong>{value}</strong>
     </span>
   );
 }
@@ -831,6 +1088,238 @@ function monthIdFromEntry(entry: WeekEntry): string {
     return (latestSession?.day ?? entry.weekId).slice(0, 7);
   }
   return entry.weekId.slice(0, 7);
+}
+
+function buildTrainingZones(thresholds: TrainingLoadModel['thresholds']): TrainingZone[] {
+  return ZONE_TEMPLATES.map((template) => {
+    const hrMin = thresholds.thresholdHeartRate && template.hrMinRatio
+      ? Math.round(thresholds.thresholdHeartRate * template.hrMinRatio)
+      : undefined;
+    const hrMax = thresholds.thresholdHeartRate && template.hrMaxRatio
+      ? Math.round(thresholds.thresholdHeartRate * template.hrMaxRatio)
+      : undefined;
+    return {
+      key: template.key,
+      label: template.label,
+      name: template.name,
+      tone: template.tone,
+      paceRange: formatZonePaceRange(thresholds.thresholdPaceSecPerKm, template.ifMin, template.ifMax),
+      hrRange: formatHrZoneRange(hrMin, hrMax),
+      hrMin,
+      hrMax,
+    };
+  });
+}
+
+function formatZonePaceRange(thresholdPaceSecPerKm: number, ifMin?: number, ifMax?: number): string {
+  if (!thresholdPaceSecPerKm || !Number.isFinite(thresholdPaceSecPerKm)) {
+    return '-';
+  }
+  if (ifMax && !ifMin) {
+    return `>${formatCompactPace(thresholdPaceSecPerKm / ifMax)}`;
+  }
+  if (ifMin && !ifMax) {
+    return `<${formatCompactPace(thresholdPaceSecPerKm / ifMin)}`;
+  }
+  if (ifMin && ifMax) {
+    const fast = thresholdPaceSecPerKm / ifMax;
+    const slow = thresholdPaceSecPerKm / ifMin;
+    return `${formatCompactPace(fast)}-${formatCompactPace(slow)}`;
+  }
+  return '-';
+}
+
+function formatHrZoneRange(min?: number, max?: number): string {
+  if (max && !min) {
+    return `<${max}`;
+  }
+  if (min && !max) {
+    return `>${min}`;
+  }
+  if (min && max) {
+    return `${min}-${max}`;
+  }
+  return '-';
+}
+
+function buildWeekCalendarDays(weekId: string, sessions: SessionLoad[], gym: GymSession[]): CalendarDay[] {
+  const weekStart = new Date(`${weekId}T00:00:00Z`).getTime();
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(weekStart + index * DAY_MS);
+    const dayId = day.toISOString().slice(0, 10);
+    const daySessions = sessions
+      .filter((session) => session.day === dayId)
+      .sort((a, b) => new Date(a.activity.startDate).getTime() - new Date(b.activity.startDate).getTime());
+    const dayGym = gym
+      .filter((session) => (session.startDateLocal || session.startDate).slice(0, 10) === dayId)
+      .sort((a, b) => a.startDate.localeCompare(b.startDate));
+    return {
+      dayId,
+      weekday: WEEKDAY_LABELS[index],
+      dateLabel: new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(day),
+      sessions: daySessions,
+      gym: dayGym,
+      distanceKm: daySessions.reduce((total, session) => total + session.activity.distanceKm, 0),
+      load: daySessions.reduce((total, session) => total + session.load, 0),
+      tone: toneForDay(daySessions),
+    };
+  });
+}
+
+function toneForDay(sessions: SessionLoad[]): MetricTone {
+  if (sessions.length === 0) {
+    return 'muted';
+  }
+  const load = sessions.reduce((total, session) => total + session.load, 0);
+  const hardest = Math.max(...sessions.map((session) => session.externalIntensityFactor));
+  if (load >= 120 || hardest >= 0.96) {
+    return 'danger';
+  }
+  if (load >= 75 || hardest >= 0.88) {
+    return 'hard';
+  }
+  if (load >= 35 || hardest >= 0.76) {
+    return 'moderate';
+  }
+  return 'easy';
+}
+
+function toneForLoad(load: number): MetricTone {
+  if (load >= 100) {
+    return 'danger';
+  }
+  if (load >= 70) {
+    return 'hard';
+  }
+  if (load >= 35) {
+    return 'moderate';
+  }
+  return 'easy';
+}
+
+function toneForEffort(intensityFactor: number): MetricTone {
+  if (intensityFactor >= 0.96) {
+    return 'danger';
+  }
+  if (intensityFactor >= 0.88) {
+    return 'hard';
+  }
+  if (intensityFactor >= 0.76) {
+    return 'moderate';
+  }
+  return 'easy';
+}
+
+function toneForHeartRate(session: SessionLoad): MetricTone {
+  if (!session.activity.averageHeartRate) {
+    return 'muted';
+  }
+  if ((session.hiddenCostPct ?? 0) >= 18) {
+    return 'danger';
+  }
+  if ((session.hiddenCostPct ?? 0) >= 10) {
+    return 'hard';
+  }
+  return session.heartRateIntensityFactor && session.heartRateIntensityFactor >= 0.92 ? 'hard' : 'easy';
+}
+
+function toneForDecoupling(value?: number): MetricTone {
+  if (value === undefined) {
+    return 'muted';
+  }
+  if (value >= 8) {
+    return 'danger';
+  }
+  if (value >= 5) {
+    return 'hard';
+  }
+  if (value >= 3) {
+    return 'moderate';
+  }
+  return 'easy';
+}
+
+function toneForElevation(elevationGainM: number): MetricTone {
+  if (elevationGainM >= 300) {
+    return 'hard';
+  }
+  if (elevationGainM >= 120) {
+    return 'moderate';
+  }
+  return 'muted';
+}
+
+function classifyRun(session: SessionLoad): RunClassification {
+  const paceIf = session.externalIntensityFactor;
+  const hrIf = session.heartRateIntensityFactor;
+  const powerIf = session.powerIntensityFactor;
+  const sessionReasons: string[] = [];
+
+  if (paceIf >= 0.85) {
+    sessionReasons.push(`Pace IF ${paceIf.toFixed(2)} is >= 0.85, the session threshold for quality pace work.`);
+  }
+  if ((hrIf ?? 0) >= 0.92) {
+    sessionReasons.push(`HR IF ${formatOptionalIf(hrIf)} is >= 0.92, so the heart-rate cost looks session-like.`);
+  }
+  if ((powerIf ?? 0) >= 0.88) {
+    sessionReasons.push(`Power IF ${formatOptionalIf(powerIf)} is >= 0.88, so the power cost looks session-like.`);
+  }
+  if (session.flags.includes('quality load')) {
+    sessionReasons.push('The load model flagged this run as quality load from its combined stress signals.');
+  }
+
+  if (sessionReasons.length > 0) {
+    const summary =
+      paceIf >= 0.85
+        ? `Pace IF ${paceIf.toFixed(2)} >= 0.85`
+        : (hrIf ?? 0) >= 0.92
+          ? `HR IF ${formatOptionalIf(hrIf)} >= 0.92`
+          : (powerIf ?? 0) >= 0.88
+            ? `Power IF ${formatOptionalIf(powerIf)} >= 0.88`
+            : 'Quality-load flag';
+    return { key: 'session', label: 'Session', tone: 'danger', summary, reasons: sessionReasons };
+  }
+
+  if (session.load >= 70) {
+    return {
+      key: 'long',
+      label: 'Long easy',
+      tone: 'hard',
+      summary: `Load ${session.load.toFixed(1)} >= 70`,
+      reasons: [
+        `Session load ${session.load.toFixed(1)} is >= 70, which marks a long aerobic stress day.`,
+        `No session threshold was crossed: pace IF ${paceIf.toFixed(2)}, HR IF ${formatOptionalIf(hrIf)}, power IF ${formatOptionalIf(powerIf)}.`,
+      ],
+    };
+  }
+
+  if (session.externalIntensityFactor >= 0.76) {
+    return {
+      key: 'steady',
+      label: 'Steady',
+      tone: 'moderate',
+      summary: `Pace IF ${paceIf.toFixed(2)} in steady band`,
+      reasons: [
+        `Pace IF ${paceIf.toFixed(2)} is between 0.76 and 0.84, the steady training band.`,
+        `Session load ${session.load.toFixed(1)} is below 70, so this is not labelled as a long run.`,
+      ],
+    };
+  }
+
+  return {
+    key: 'easy',
+    label: 'Easy',
+    tone: 'easy',
+    summary: `Pace IF ${paceIf.toFixed(2)} < 0.76`,
+    reasons: [
+      `Pace IF ${paceIf.toFixed(2)} is below 0.76, the steady threshold.`,
+      `No HR, power, or combined-load flag crossed the session thresholds.`,
+    ],
+  };
+}
+
+function formatOptionalIf(value?: number): string {
+  return value === undefined || !Number.isFinite(value) ? '-' : value.toFixed(2);
 }
 
 function routePoints(detail: ActivityDetail | ActivitySummary): Array<[number, number]> {
@@ -929,6 +1418,169 @@ function splitPaces(detail: ActivityDetail): { first: number; second: number } |
   };
 }
 
+function buildHrZoneTotals(detail: ActivityDetail, zones: TrainingZone[]): HrZoneTotal[] | undefined {
+  const time = detail.streams?.timeSec;
+  const heartRate = detail.streams?.heartrate;
+  if (!time || !heartRate || !zones.some((zone) => zone.hrMin || zone.hrMax)) {
+    return undefined;
+  }
+  const n = Math.min(time.length, heartRate.length);
+  if (n < 2) {
+    return undefined;
+  }
+  const totals = zones.map((zone) => ({ zone, seconds: 0 }));
+  for (let index = 1; index < n; index += 1) {
+    const start = time[index - 1];
+    const end = time[index];
+    const dt = end - start;
+    const bpm = heartRate[index - 1];
+    if (!Number.isFinite(dt) || dt <= 0 || dt > 300 || !isUsefulPreviewHeartRate(bpm)) {
+      continue;
+    }
+    const bucket = totals.find((item) => isHeartRateInZone(bpm, item.zone));
+    if (bucket) {
+      bucket.seconds += dt;
+    }
+  }
+  return totals.map((item) => ({ ...item, seconds: Math.round(item.seconds) }));
+}
+
+function isHeartRateInZone(value: number, zone: TrainingZone): boolean {
+  const aboveMin = zone.hrMin === undefined || value >= zone.hrMin;
+  const belowMax = zone.hrMax === undefined || value < zone.hrMax;
+  return aboveMin && belowMax;
+}
+
+function buildLapSplits(detail: ActivityDetail): LapSplit[] {
+  const time = detail.streams?.timeSec;
+  const distance = detail.streams?.distanceM;
+  if (!time || !distance) {
+    return [];
+  }
+  const n = Math.min(time.length, distance.length);
+  if (n < 3) {
+    return [];
+  }
+  const startDistance = firstFinite(distance);
+  const endDistance = lastFinite(distance);
+  if (startDistance === undefined || endDistance === undefined || endDistance <= startDistance) {
+    return [];
+  }
+  const streamDistanceM = endDistance - startDistance;
+  const totalDistanceM = streamDistanceM;
+  if (totalDistanceM < 200) {
+    return [];
+  }
+
+  const boundaries = [0];
+  for (let marker = 1000; marker < totalDistanceM - 50; marker += 1000) {
+    boundaries.push(marker);
+  }
+  boundaries.push(totalDistanceM);
+
+  const splits: LapSplit[] = [];
+  for (let index = 1; index < boundaries.length; index += 1) {
+    const startM = boundaries[index - 1];
+    const endM = boundaries[index];
+    const startTime = timeAtDistance(time, distance, startDistance + startM);
+    const endTime = timeAtDistance(time, distance, startDistance + endM);
+    if (startTime === undefined || endTime === undefined || endTime <= startTime) {
+      continue;
+    }
+    const distanceKm = (endM - startM) / 1000;
+    const durationSec = endTime - startTime;
+    if (distanceKm <= 0 || durationSec <= 0) {
+      continue;
+    }
+    splits.push({
+      label: String(index),
+      distanceKm,
+      durationSec,
+      paceSecPerKm: durationSec / distanceKm,
+      averageHeartRate: weightedAverageStream(time, detail.streams?.heartrate, startTime, endTime, isUsefulPreviewHeartRate),
+      averagePower: weightedAverageStream(time, detail.streams?.power, startTime, endTime, isUsefulPower),
+    });
+  }
+  return splits;
+}
+
+function timeAtDistance(time: number[], distance: number[], targetM: number): number | undefined {
+  const n = Math.min(time.length, distance.length);
+  if (n === 0) {
+    return undefined;
+  }
+  if (targetM <= distance[0]) {
+    return time[0];
+  }
+  for (let index = 1; index < n; index += 1) {
+    const prevDistance = distance[index - 1];
+    const nextDistance = distance[index];
+    const prevTime = time[index - 1];
+    const nextTime = time[index];
+    if (
+      !Number.isFinite(prevDistance) ||
+      !Number.isFinite(nextDistance) ||
+      !Number.isFinite(prevTime) ||
+      !Number.isFinite(nextTime)
+    ) {
+      continue;
+    }
+    if (nextDistance >= targetM) {
+      const ratio = nextDistance === prevDistance ? 0 : (targetM - prevDistance) / (nextDistance - prevDistance);
+      return prevTime + (nextTime - prevTime) * Math.min(1, Math.max(0, ratio));
+    }
+  }
+  return time[n - 1];
+}
+
+function weightedAverageStream(
+  time: number[],
+  values: number[] | undefined,
+  startTime: number,
+  endTime: number,
+  isUseful: (value: number) => boolean,
+): number | undefined {
+  if (!values) {
+    return undefined;
+  }
+  const n = Math.min(time.length, values.length);
+  let weighted = 0;
+  let duration = 0;
+  for (let index = 1; index < n; index += 1) {
+    const segmentStart = Math.max(startTime, time[index - 1]);
+    const segmentEnd = Math.min(endTime, time[index]);
+    const dt = segmentEnd - segmentStart;
+    const value = values[index - 1];
+    if (!Number.isFinite(dt) || dt <= 0 || !isUseful(value)) {
+      continue;
+    }
+    weighted += value * dt;
+    duration += dt;
+  }
+  return duration > 0 ? weighted / duration : undefined;
+}
+
+function firstFinite(values: number[]): number | undefined {
+  return values.find((value) => Number.isFinite(value));
+}
+
+function lastFinite(values: number[]): number | undefined {
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    if (Number.isFinite(values[index])) {
+      return values[index];
+    }
+  }
+  return undefined;
+}
+
+function isUsefulPreviewHeartRate(value: number): boolean {
+  return Number.isFinite(value) && value >= 80 && value <= 220;
+}
+
+function isUsefulPower(value: number): boolean {
+  return Number.isFinite(value) && value > 0 && value < 1200;
+}
+
 function subtractMonths(anchorMs: number, months: number): number {
   const date = new Date(anchorMs);
   date.setMonth(date.getMonth() - months);
@@ -937,6 +1589,27 @@ function subtractMonths(anchorMs: number, months: number): number {
 
 function formatRunDate(iso: string): string {
   return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+}
+
+function formatRunTime(iso: string): string {
+  return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+}
+
+function formatCompactPace(totalSeconds: number): string {
+  return formatPace(totalSeconds).replace('/km', '');
+}
+
+function formatReliability(value: SessionLoad['reliability']): string {
+  switch (value) {
+    case 'external-hr-power':
+      return 'Ext+HR+Pwr';
+    case 'external-power':
+      return 'Ext+Pwr';
+    case 'external-hr':
+      return 'Ext+HR';
+    case 'external-only':
+      return 'Ext only';
+  }
 }
 
 function formatMonthLabel(day: string): string {
@@ -980,9 +1653,10 @@ function formatFullDate(ms: number): string {
 }
 
 function formatDuration(totalSeconds: number): string {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = Math.round(totalSeconds % 60);
+  const roundedSeconds = Number.isFinite(totalSeconds) ? Math.max(0, Math.round(totalSeconds)) : 0;
+  const hours = Math.floor(roundedSeconds / 3600);
+  const minutes = Math.floor((roundedSeconds % 3600) / 60);
+  const seconds = roundedSeconds % 60;
   if (hours > 0) {
     return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   }

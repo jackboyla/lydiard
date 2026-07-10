@@ -8,6 +8,9 @@ dist
 .local/
 .dev.vars
 .wrangler/
+.claude/
+progress/backups/
+progress/logs/
 garmin_data.db
 garmin_data.db.*
 garmin_data.db-*

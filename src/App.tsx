@@ -825,9 +825,10 @@ function groupMonthsByYear(months: TrainingJumpApi['months']): Array<[string, Tr
 }
 
 function formatDuration(totalSeconds: number): string {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = Math.round(totalSeconds % 60);
+  const roundedSeconds = Number.isFinite(totalSeconds) ? Math.max(0, Math.round(totalSeconds)) : 0;
+  const hours = Math.floor(roundedSeconds / 3600);
+  const minutes = Math.floor((roundedSeconds % 3600) / 60);
+  const seconds = roundedSeconds % 60;
   if (hours > 0) {
     return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   }

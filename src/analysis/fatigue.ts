@@ -21,8 +21,12 @@ export function analyzeWeeks(weeks: WeeklyRunBlock[]): WeeklyAnalysis[] {
 }
 
 export function formatPace(totalSeconds: number): string {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = Math.round(totalSeconds % 60)
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
+    return '-/km';
+  }
+  const roundedSeconds = Math.round(totalSeconds);
+  const minutes = Math.floor(roundedSeconds / 60);
+  const seconds = (roundedSeconds % 60)
     .toString()
     .padStart(2, '0');
 

@@ -756,9 +756,37 @@ dd {
   outline-offset: 2px;
 }
 
-/* Month/year jump lives in the mobile menu; on desktop the sticky rail handles it. */
 .menu-jump {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.menu-jump > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--subtle);
+  font-size: 0.72rem;
+  font-weight: 720;
+  text-transform: uppercase;
+}
+
+.menu-jump select {
+  min-width: 138px;
+  min-height: 30px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface-control);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 680;
 }
 
 .topbar-controls {
@@ -1182,6 +1210,150 @@ dd {
   gap: 10px;
 }
 
+.training-zone-panel {
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 18px 42px var(--shadow);
+  overflow: hidden;
+}
+
+.training-zone-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.training-zone-panel p {
+  margin: 0;
+  color: var(--subtle);
+  font-size: 0.72rem;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.training-zone-panel h3 {
+  margin: 3px 0 0;
+  color: var(--text-strong);
+  font-size: 1.02rem;
+  line-height: 1.1;
+}
+
+.zone-info-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.zone-info-row > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  color: var(--muted);
+  background: var(--surface-control);
+  font-size: 0.74rem;
+  font-weight: 740;
+  text-transform: uppercase;
+}
+
+.zone-card-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.zone-card {
+  min-width: 0;
+  padding: 11px 12px;
+  border-left: 1px solid var(--border-soft);
+  box-shadow: inset 0 3px 0 var(--border-soft);
+}
+
+.zone-card:first-child {
+  border-left: 0;
+}
+
+.zone-card.tone-easy {
+  box-shadow: inset 0 3px 0 rgba(34, 185, 130, 0.72);
+}
+
+.zone-card.tone-moderate {
+  box-shadow: inset 0 3px 0 rgba(111, 168, 255, 0.78);
+}
+
+.zone-card.tone-hard {
+  box-shadow: inset 0 3px 0 rgba(242, 201, 76, 0.84);
+}
+
+.zone-card.tone-danger {
+  box-shadow: inset 0 3px 0 rgba(255, 90, 102, 0.88);
+}
+
+.zone-card > div {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.zone-card strong {
+  color: var(--text-strong);
+  font-size: 0.86rem;
+}
+
+.zone-card span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone-card dl {
+  display: grid;
+  gap: 5px;
+  margin: 9px 0 0;
+}
+
+.zone-card dl div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.zone-card dt,
+.zone-card dd {
+  overflow: hidden;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone-card dt {
+  color: var(--subtle);
+  font-size: 0.64rem;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.zone-card dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.74rem;
+  font-weight: 760;
+}
+
 .training-load-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 0.36fr);
@@ -1265,75 +1437,12 @@ dd {
 }
 
 .training-log-shell {
+  position: relative;
   display: grid;
-  grid-template-columns: 170px minmax(0, 1fr) 370px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
-  /* stretch (not start) so the rail cells are as tall as the week list, giving
-     their sticky cards room to travel as you scroll. */
-  align-items: stretch;
+  align-items: start;
   padding-bottom: 24px;
-}
-
-/* The rails hold a sticky card at the top of a full-height column. */
-.training-jump-rail,
-.training-preview-rail {
-  min-width: 0;
-}
-
-.training-sticky-card {
-  position: sticky;
-  top: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-raised);
-  box-shadow: 0 18px 42px var(--shadow);
-}
-
-.training-jump-rail .training-sticky-card {
-  max-height: calc(100vh - 154px);
-  overflow: auto;
-  padding: 12px;
-}
-
-.rail-label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 0 0 10px;
-  color: var(--subtle);
-  font-size: 0.76rem;
-  font-weight: 760;
-  text-transform: uppercase;
-}
-
-.training-jump-rail nav {
-  display: grid;
-  gap: 4px;
-}
-
-.training-jump-rail a {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 34px;
-  padding: 0 9px;
-  border-radius: 6px;
-  color: var(--muted);
-  text-decoration: none;
-  font-weight: 720;
-}
-
-.training-jump-rail a:hover,
-.training-jump-rail a:focus-visible {
-  color: var(--text-strong);
-  background: var(--surface-control);
-  outline: none;
-}
-
-.training-jump-rail small {
-  color: var(--subtle);
-  font-weight: 740;
 }
 
 .training-week-list {
@@ -1462,142 +1571,463 @@ dd {
   background: var(--danger-soft);
 }
 
-.run-log-table {
-  min-width: 0;
-  overflow-x: auto;
-}
-
-.run-log-header,
-.run-log-row {
+.week-calendar-grid {
   display: grid;
-  grid-template-columns: minmax(240px, 1.35fr) 92px 90px 82px 82px 86px 90px 142px;
-  gap: 10px;
-  align-items: center;
-  min-width: 980px;
-}
-
-.run-log-header {
-  min-height: 36px;
-  padding: 0 16px;
-  color: var(--subtle);
-  font-size: 0.7rem;
-  font-weight: 760;
-  text-transform: uppercase;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-top: 1px solid var(--border-soft);
   background: var(--surface-muted);
 }
 
-.run-log-row {
-  width: 100%;
-  min-height: 64px;
-  border: 0;
-  border-top: 1px solid var(--border-soft);
-  padding: 9px 16px;
-  color: var(--text);
-  text-align: left;
-  background: transparent;
+.week-day-cell {
+  min-width: 0;
+  border-left: 1px solid var(--border-soft);
+  background: rgba(17, 22, 29, 0.62);
+}
+
+.week-day-cell:first-child {
+  border-left: 0;
+}
+
+.week-day-cell.has-run {
+  background: rgba(30, 36, 44, 0.82);
+}
+
+.week-day-cell.has-gym:not(.has-run) {
+  background: rgba(91, 124, 250, 0.06);
+}
+
+.week-day-cell.has-run {
   cursor: pointer;
 }
 
-.run-log-row:hover,
-.run-log-row:focus-visible,
-.run-log-row.active {
-  background: rgba(91, 124, 250, 0.12);
+.week-day-cell.tone-easy .week-day-head {
+  box-shadow: inset 0 3px 0 rgba(34, 185, 130, 0.68);
+}
+
+.week-day-cell.tone-moderate .week-day-head {
+  box-shadow: inset 0 3px 0 rgba(111, 168, 255, 0.7);
+}
+
+.week-day-cell.tone-hard .week-day-head {
+  box-shadow: inset 0 3px 0 rgba(242, 201, 76, 0.78);
+}
+
+.week-day-cell.tone-danger .week-day-head {
+  box-shadow: inset 0 3px 0 rgba(255, 90, 102, 0.82);
+}
+
+.week-day-head {
+  display: grid;
+  gap: 2px;
+  min-height: 66px;
+  padding: 8px 8px 7px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.week-day-head span {
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
+.week-day-head strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 0.9rem;
+  line-height: 1.08;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.week-day-head small {
+  overflow: hidden;
+  font-size: 0.67rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.week-day-cell.tone-muted .week-day-head small {
+  color: var(--subtle);
+}
+
+.week-day-cell.tone-easy .week-day-head small {
+  color: var(--green);
+}
+
+.week-day-cell.tone-moderate .week-day-head small {
+  color: var(--accent-strong);
+}
+
+.week-day-cell.tone-hard .week-day-head small {
+  color: var(--warning);
+}
+
+.week-day-cell.tone-danger .week-day-head small {
+  color: var(--danger);
+}
+
+.week-day-stack {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-height: 148px;
+  padding: 8px;
+}
+
+.calendar-run-card {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  padding: 8px;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.calendar-run-card.tone-easy {
+  border-left: 3px solid rgba(34, 185, 130, 0.72);
+}
+
+.calendar-run-card.tone-moderate {
+  border-left: 3px solid rgba(111, 168, 255, 0.78);
+}
+
+.calendar-run-card.hard {
+  border-color: rgba(242, 201, 76, 0.42);
+  border-left: 3px solid rgba(242, 201, 76, 0.86);
+}
+
+.calendar-run-card.tone-danger {
+  border-color: rgba(255, 90, 102, 0.5);
+  border-left: 3px solid rgba(255, 90, 102, 0.9);
+}
+
+.calendar-run-card.run-session {
+  background: linear-gradient(180deg, rgba(255, 90, 102, 0.13), var(--surface) 52%);
+}
+
+.calendar-run-card.run-long {
+  background: linear-gradient(180deg, rgba(242, 201, 76, 0.1), var(--surface) 52%);
+}
+
+.calendar-run-card:hover,
+.calendar-run-card:focus-visible,
+.calendar-run-card.active {
+  border-color: rgba(91, 124, 250, 0.78);
+  background: rgba(91, 124, 250, 0.14);
   outline: none;
 }
 
-.run-log-main {
+.calendar-run-title-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 7px;
   min-width: 0;
 }
 
-.run-log-main strong,
-.run-log-main small {
+.calendar-run-title,
+.calendar-run-title strong,
+.calendar-run-title small {
   display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.run-log-main strong {
+.calendar-run-title strong {
   color: var(--text-strong);
-  font-size: 0.95rem;
+  font-size: 0.82rem;
+  line-height: 1.12;
 }
 
-.run-log-main small {
-  margin-top: 3px;
+.calendar-run-title small {
+  margin-top: 2px;
   color: var(--subtle);
-  font-size: 0.78rem;
-  font-weight: 680;
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
-.run-cell {
+.calendar-run-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  max-width: 74px;
+  min-height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.58rem;
+  font-weight: 820;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.calendar-run-type.tone-easy {
+  color: var(--green);
+  background: rgba(34, 185, 130, 0.12);
+}
+
+.calendar-run-type.tone-moderate {
+  color: var(--accent-strong);
+  background: rgba(111, 168, 255, 0.12);
+}
+
+.calendar-run-type.tone-hard {
+  color: var(--warning);
+  background: rgba(242, 201, 76, 0.13);
+}
+
+.calendar-run-type.tone-danger {
+  color: var(--danger);
+  background: rgba(255, 90, 102, 0.14);
+}
+
+.calendar-run-reason {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.65rem;
+  font-weight: 760;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-run-reason.tone-easy {
+  color: var(--green);
+}
+
+.calendar-run-reason.tone-moderate {
+  color: var(--accent-strong);
+}
+
+.calendar-run-reason.tone-hard {
+  color: var(--warning);
+}
+
+.calendar-run-reason.tone-danger {
+  color: var(--danger);
+}
+
+.calendar-run-primary {
+  display: grid;
+  gap: 2px;
   min-width: 0;
 }
 
-.run-cell > span {
-  display: inline-flex;
+.calendar-run-primary strong,
+.calendar-run-primary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-run-primary strong {
+  color: var(--text-strong);
+  font-size: 0.96rem;
+  line-height: 1.1;
+}
+
+.calendar-run-primary span {
+  font-size: 0.78rem;
+  font-weight: 760;
+}
+
+.calendar-run-card.tone-easy .calendar-run-primary span {
+  color: var(--green);
+}
+
+.calendar-run-card.tone-moderate .calendar-run-primary span {
+  color: var(--accent-strong);
+}
+
+.calendar-run-card.tone-hard .calendar-run-primary span {
+  color: var(--warning);
+}
+
+.calendar-run-card.tone-danger .calendar-run-primary span {
+  color: var(--danger);
+}
+
+.calendar-run-metrics {
+  display: grid;
+  gap: 3px;
+}
+
+.calendar-run-metric {
+  display: flex;
   align-items: center;
   gap: 5px;
   min-width: 0;
+  min-height: 20px;
+  padding-top: 3px;
+  border-top: 1px solid var(--border-soft);
+  border-radius: 4px;
 }
 
-.run-cell svg {
+.calendar-run-metric svg {
   flex: 0 0 auto;
   color: var(--subtle);
 }
 
-.run-cell strong {
+.calendar-run-metric small,
+.calendar-run-metric strong {
   overflow: hidden;
-  color: var(--text-strong);
-  font-size: 0.91rem;
+  line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.run-cell small {
-  display: block;
-  overflow: hidden;
-  margin-top: 2px;
-  color: var(--subtle);
+.calendar-run-metric small {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.62rem;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.calendar-run-metric strong {
+  flex: 0 0 auto;
+  max-width: none;
   font-size: 0.7rem;
+  text-align: right;
+}
+
+.calendar-run-metric.tone-muted small,
+.calendar-run-metric.tone-muted strong {
+  color: var(--subtle);
+}
+
+.calendar-run-metric.tone-easy small,
+.calendar-run-metric.tone-easy strong {
+  color: var(--green);
+}
+
+.calendar-run-metric.tone-moderate small,
+.calendar-run-metric.tone-moderate strong {
+  color: var(--accent-strong);
+}
+
+.calendar-run-metric.tone-hard small,
+.calendar-run-metric.tone-hard strong {
+  color: var(--warning);
+}
+
+.calendar-run-metric.tone-danger small,
+.calendar-run-metric.tone-danger strong {
+  color: var(--danger);
+}
+
+.calendar-run-reliability {
+  overflow: hidden;
+  color: var(--subtle);
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.calendar-gym-pill {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 1px dashed rgba(111, 168, 255, 0.42);
+  border-radius: 7px;
+  padding: 7px;
+  background: rgba(91, 124, 250, 0.08);
+}
+
+.calendar-gym-pill > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--accent-strong);
+}
+
+.calendar-gym-pill strong {
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-gym-pill small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.67rem;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.week-rest-label {
+  display: grid;
+  place-items: center;
+  min-height: 54px;
+  border: 1px dashed var(--border-soft);
+  border-radius: 7px;
+  color: var(--subtle);
+  font-size: 0.72rem;
+  font-weight: 720;
 }
 
 .training-scroll-sentinel {
   height: 24px;
 }
 
-.training-preview-rail .training-sticky-card {
-  top: 8px;
-  padding: 14px;
-  max-height: calc(100vh - 24px);
-  overflow: auto;
-}
-
-.training-hover-empty {
-  display: grid;
-  place-items: center;
-  gap: 8px;
-  min-height: 420px;
-  color: var(--muted);
-  text-align: center;
-}
-
-.training-hover-empty h3 {
-  margin: 0;
-  color: var(--text-strong);
-}
-
-.training-hover-empty p {
-  max-width: 28ch;
-  margin: 0;
-  line-height: 1.4;
-}
-
 .training-hover-preview {
   display: grid;
   gap: 12px;
+}
+
+.training-floating-preview {
+  position: fixed;
+  right: clamp(16px, 3vw, 44px);
+  bottom: 22px;
+  z-index: 80;
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 44px));
+  overflow: auto;
+  pointer-events: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--surface-raised);
+  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.48);
+}
+
+.floating-preview-close {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--surface-control);
+  cursor: pointer;
+}
+
+.floating-preview-close:hover,
+.floating-preview-close:focus-visible {
+  color: var(--text-strong);
+  outline: none;
 }
 
 .preview-head {
@@ -1625,6 +2055,75 @@ dd {
   font-size: 0.74rem;
   font-weight: 760;
   text-transform: uppercase;
+}
+
+.preview-label-reasons {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--subtle);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.preview-label-reasons header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.preview-label-reasons header span,
+.preview-label-reasons header strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.15;
+}
+
+.preview-label-reasons header span {
+  flex: 0 0 auto;
+  color: var(--subtle);
+  font-size: 0.74rem;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.preview-label-reasons header strong {
+  color: var(--text-strong);
+  font-size: 0.82rem;
+  font-weight: 820;
+  text-align: right;
+}
+
+.preview-label-reasons ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 17px;
+}
+
+.preview-label-reasons li {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 670;
+  line-height: 1.35;
+}
+
+.preview-label-reasons.tone-easy {
+  border-left-color: var(--green);
+}
+
+.preview-label-reasons.tone-moderate {
+  border-left-color: var(--accent-strong);
+}
+
+.preview-label-reasons.tone-hard {
+  border-left-color: var(--warning);
+}
+
+.preview-label-reasons.tone-danger {
+  border-left-color: var(--danger);
 }
 
 .route-preview,
@@ -1706,6 +2205,153 @@ dd {
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.preview-zone-breakdown,
+.preview-lap-splits {
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.preview-zone-breakdown > header,
+.preview-lap-splits > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.preview-zone-breakdown > header span,
+.preview-lap-splits > header span {
+  color: var(--subtle);
+  font-size: 0.74rem;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.preview-zone-breakdown > header small,
+.preview-lap-splits > header small {
+  color: var(--muted);
+  font-weight: 720;
+}
+
+.preview-zone-bars {
+  display: grid;
+  gap: 7px;
+  padding: 10px 12px 12px;
+}
+
+.preview-zone-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 58px;
+  align-items: center;
+  gap: 8px;
+}
+
+.preview-zone-row span,
+.preview-zone-row strong {
+  overflow: hidden;
+  font-size: 0.72rem;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-zone-row span {
+  color: var(--muted);
+  font-weight: 780;
+}
+
+.preview-zone-row strong {
+  color: var(--text);
+  font-weight: 760;
+  text-align: right;
+}
+
+.zone-bar {
+  overflow: hidden;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-control);
+}
+
+.zone-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--subtle);
+}
+
+.preview-zone-row.tone-easy .zone-bar i {
+  background: var(--green);
+}
+
+.preview-zone-row.tone-moderate .zone-bar i {
+  background: var(--accent-strong);
+}
+
+.preview-zone-row.tone-hard .zone-bar i {
+  background: var(--warning);
+}
+
+.preview-zone-row.tone-danger .zone-bar i {
+  background: var(--danger);
+}
+
+.lap-split-table-wrap {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.lap-split-table {
+  width: 100%;
+  min-width: 430px;
+  border-collapse: collapse;
+}
+
+.lap-split-table th,
+.lap-split-table td {
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 0.72rem;
+  line-height: 1.15;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.lap-split-table th:first-child,
+.lap-split-table td:first-child {
+  text-align: left;
+}
+
+.lap-split-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: var(--subtle);
+  background: var(--surface-muted);
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.lap-split-table td {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.lap-split-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.split-placeholder.compact {
+  min-height: 58px;
+  height: auto;
+  font-size: 0.82rem;
 }
 
 .preview-stat-grid {
@@ -1830,6 +2476,14 @@ dd {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .zone-card-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .zone-card:nth-child(4) {
+    border-left: 0;
+  }
+
   .trend-readout {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
@@ -1862,6 +2516,28 @@ dd {
 
   .training-range-controls {
     justify-content: flex-start;
+  }
+
+  .training-zone-panel > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .zone-info-row {
+    justify-content: flex-start;
+  }
+
+  .zone-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .zone-card,
+  .zone-card:nth-child(4) {
+    border-left: 1px solid var(--border-soft);
+  }
+
+  .zone-card:nth-child(odd) {
+    border-left: 0;
   }
 
   .topbar-actions {
@@ -1914,11 +2590,6 @@ dd {
 
   .topbar-controls.open .segmented {
     flex-basis: 100%;
-  }
-
-  /* Month/year jump moves into the menu, so the in-log horizontal rail is hidden. */
-  .training-jump-rail {
-    display: none;
   }
 
   .menu-jump {
@@ -2009,31 +2680,6 @@ dd {
     padding: 18px;
   }
 
-  .training-jump-rail .training-sticky-card {
-    position: static;
-    max-height: none;
-    overflow-x: auto;
-  }
-
-  .training-jump-rail nav {
-    display: flex;
-    width: max-content;
-    min-width: 100%;
-  }
-
-  .training-jump-rail a {
-    min-width: 112px;
-  }
-
-  .training-preview-rail {
-    display: none;
-  }
-
-  .run-log-header,
-  .run-log-row {
-    grid-template-columns: minmax(220px, 1.2fr) 88px 86px 78px 76px 80px 86px 132px;
-    min-width: 900px;
-  }
 }
 
 /* ---- Metric explanations: toolbar guide toggle, inline info dots, guide panel ---- */
@@ -2299,62 +2945,10 @@ dd {
 
 /* ---- Gym / strength sessions (informational, never scored) ---- */
 
-.week-gym-strip {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border-soft);
-  background: rgba(91, 124, 250, 0.05);
-}
-
-.week-gym-strip-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--accent-strong);
-  font-size: 0.74rem;
-  font-weight: 760;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.gym-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-}
-
-.gym-badge {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  min-height: 24px;
-  padding: 3px 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: 999px;
-  background: var(--surface-soft);
-  font-size: 0.76rem;
-  color: var(--muted);
-  font-weight: 640;
-}
-
-.gym-badge strong {
-  color: var(--text);
-  font-weight: 720;
-}
-
 .training-week-block.gym-only {
   border-style: dashed;
   border-color: var(--border);
   background: var(--surface-muted);
-}
-
-.training-week-block.gym-only .week-gym-strip {
-  border-bottom: 0;
-  background: transparent;
 }
 
 .week-gym-count {
@@ -2416,56 +3010,73 @@ dd {
   }
 
   .week-risk-row,
-  .week-flags,
-  .week-gym-strip {
+  .week-flags {
     padding: 10px 13px;
   }
 
-  /* Run rows become stacked cards: no more 980px horizontal scroll. */
-  .run-log-table {
-    overflow-x: visible;
+  /* Keep the whole visible log on one horizontal calendar plane on phones. */
+  .training-week-list {
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scroll-snap-type: x proximity;
   }
 
-  .run-log-header {
-    display: none;
+  .training-week-block-wrap,
+  .training-scroll-sentinel {
+    min-width: 860px;
+    scroll-snap-align: start;
   }
 
-  .run-log-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 5px 14px;
-    min-width: 0;
-    min-height: 0;
-    padding: 12px 13px;
+  .week-calendar-grid {
+    grid-template-columns: repeat(7, minmax(120px, 1fr));
   }
 
-  .run-log-main {
-    flex: 1 0 100%;
-    margin-bottom: 2px;
+  .week-day-head {
+    min-height: 60px;
+    padding: 7px;
   }
 
-  .run-cell {
-    flex: 0 0 auto;
+  .week-day-stack {
+    min-height: 124px;
+    padding: 7px;
   }
 
-  .run-cell > span {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 4px;
+  .calendar-run-card {
+    padding: 7px;
   }
 
-  .run-cell small {
-    display: inline;
-    margin-top: 0;
-    margin-left: 3px;
+  .calendar-run-title strong {
+    font-size: 0.78rem;
+  }
+
+  .calendar-run-primary strong {
+    font-size: 0.88rem;
+  }
+
+  .calendar-run-metrics {
+    gap: 3px;
+  }
+
+  .calendar-run-metric {
+    min-height: 19px;
+    padding-top: 3px;
+  }
+
+  .calendar-run-metric strong {
+    font-size: 0.68rem;
+  }
+
+  .training-floating-preview {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    width: auto;
+    max-height: min(78vh, 720px);
+    padding: 12px;
+    border-radius: 10px;
   }
 
   .fitness-chart {
     height: 260px;
-  }
-
-  .gym-badge {
-    font-size: 0.74rem;
   }
 }
