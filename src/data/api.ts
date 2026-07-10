@@ -3,6 +3,7 @@
 
 import type {
   ActivityDetail,
+  BestEffortDistance,
   ActivitySummary,
   GymSession,
   SyncStatus,
@@ -83,6 +84,11 @@ export async function getActivities(range?: DateRange): Promise<ActivitySummary[
 
 export function getActivity(id: string): Promise<ActivityDetail> {
   return getJson<ActivityDetail>(`/api/activities/${encodeURIComponent(id)}`);
+}
+
+export async function getBestEfforts(range?: DateRange): Promise<BestEffortDistance[]> {
+  const data = await getJson<{ distances: BestEffortDistance[] }>(`/api/best-efforts${rangeQuery(range)}`);
+  return data.distances;
 }
 
 export async function getGymSessions(range?: DateRange): Promise<GymSession[]> {

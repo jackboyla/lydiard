@@ -9,7 +9,6 @@ import {
   Link2,
   Map as MapIcon,
   Menu,
-  MoreHorizontal,
   RefreshCw,
   ShieldAlert,
   Sparkles,
@@ -33,6 +32,7 @@ import { TrendPanel } from './components/TrendPanel';
 import {
   getActivities,
   getActivity,
+  getBestEfforts,
   getGymSessions,
   getSiteKey,
   getSyncStatus,
@@ -49,6 +49,8 @@ import { sampleWeeks } from './data/sampleWeeks';
 import type {
   ActivityDetail,
   ActivitySummary,
+  BestEffortDistance,
+  BestEffortEntry,
   GymSession,
   Severity,
   SyncStatus,
@@ -59,7 +61,7 @@ import type {
 
 type RangePreset = '4w' | '12w' | '6mo' | '1y' | 'all';
 type ViewMode = 'home' | 'fitness' | 'plan' | 'analysis' | 'calendar' | 'map';
-type MobileNavKey = 'home' | 'fitness' | 'plan' | 'analysis' | 'calendar' | 'more';
+type MobileNavKey = 'home' | 'fitness' | 'plan' | 'analysis' | 'calendar' | 'map';
 
 const RANGE_DAYS: Record<RangePreset, number> = {
   '4w': 28,
@@ -91,6 +93,11 @@ export default function App() {
   const [gymSessions, setGymSessions] = useState<GymSession[]>([]);
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
   const [activityDetail, setActivityDetail] = useState<ActivityDetail | null>(null);
+  const [activityFocus, setActivityFocus] = useState<{ id: string; request: number } | null>(null);
+  const activityFocusRequest = useRef(0);
+  const [bestEffortGroups, setBestEffortGroups] = useState<BestEffortDistance[]>([]);
+  const [bestEffortsLoading, setBestEffortsLoading] = useState(false);
+  const [bestEffortsError, setBestEffortsError] = useState('');
   const [banner, setBanner] = useState('');
   const [loadError, setLoadError] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -104,14 +111,9 @@ export default function App() {
   const selectView = useCallback((next: ViewMode) => {
     setView(next);
     setMenuOpen(false);
-    setMobileNav(next === 'map' ? 'more' : next);
+    setMobileNav(next);
   }, []);
   const selectMobileNav = useCallback((next: MobileNavKey) => {
-    if (next === 'more') {
-      setMobileNav('more');
-      setMenuOpen((open) => !open);
-      return;
-    }
     setMobileNav(next);
     setMenuOpen(false);
     setView(next);
@@ -146,6 +148,25 @@ export default function App() {
     () => filterActivitiesByRange(activities, range),
     [activities, range],
   );
+  const bestEffortFrom = useMemo(() => {
+    const latest = lastItem(activities);
+    if (!latest) {
+      return undefined;
+    }
+    const year = new Date(latest.startDate).getUTCFullYear();
+    return `${year}-01-01T00:00:00.000Z`;
+  }, [activities]);
+  const bestEffortWindowLabel = bestEffortFrom
+    ? `Since 1 Jan ${new Date(bestEffortFrom).getUTCFullYear()}`
+    : 'Stream-backed';
+
+  const openActivityInCalendar = useCallback((activityId: string) => {
+    activityFocusRequest.current += 1;
+    setActivityFocus({ id: activityId, request: activityFocusRequest.current });
+    setView('calendar');
+    setMobileNav('calendar');
+    setMenuOpen(false);
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoadError('');
@@ -194,6 +215,38 @@ export default function App() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!bestEffortFrom) {
+      setBestEffortGroups([]);
+      setBestEffortsLoading(false);
+      setBestEffortsError('');
+      return;
+    }
+    let cancelled = false;
+    setBestEffortsLoading(true);
+    setBestEffortsError('');
+    getBestEfforts({ from: bestEffortFrom })
+      .then((distances) => {
+        if (!cancelled) {
+          setBestEffortGroups(distances);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setBestEffortGroups([]);
+          setBestEffortsError(error instanceof Error ? error.message : 'Could not calculate best efforts.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setBestEffortsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bestEffortFrom]);
 
   useEffect(() => {
     setSelectedIndex(Math.max(0, analyses.length - 1));
@@ -337,11 +390,6 @@ export default function App() {
             )}
           </div>
 
-          <button className="mobile-more-map" type="button" onClick={() => selectView('map')}>
-            <MapIcon size={16} aria-hidden="true" />
-            Open map
-          </button>
-
           {view === 'map' && (
             <>
               <Segmented
@@ -454,9 +502,26 @@ export default function App() {
       )}
 
       {view === 'home' ? (
-        <HomeView loadModel={loadModel} gymSessions={gymSessions} status={status} isLoading={!status && activities.length === 0} />
+        <HomeView
+          loadModel={loadModel}
+          gymSessions={gymSessions}
+          status={status}
+          isLoading={!status && activities.length === 0}
+          bestEffortGroups={bestEffortGroups}
+          bestEffortsLoading={bestEffortsLoading}
+          bestEffortsError={bestEffortsError}
+          bestEffortWindowLabel={bestEffortWindowLabel}
+          onOpenActivity={openActivityInCalendar}
+        />
       ) : view === 'fitness' ? (
-        <FitnessView loadModel={loadModel} analyses={usingSample ? [] : analyses} status={status} />
+        <FitnessView
+          loadModel={loadModel}
+          analyses={usingSample ? [] : analyses}
+          status={status}
+          bestEffortGroups={bestEffortGroups}
+          bestEffortWindowLabel={bestEffortWindowLabel}
+          onOpenActivity={openActivityInCalendar}
+        />
       ) : view === 'plan' ? (
         <PlanView loadModel={loadModel} />
       ) : view === 'map' ? (
@@ -506,6 +571,7 @@ export default function App() {
           gymSessions={gymSessions}
           usingSample={usingSample}
           onJumpApi={setTrainingJump}
+          activityFocus={activityFocus}
         />
       ) : (
         <main className="dashboard">
@@ -605,7 +671,7 @@ export default function App() {
         </main>
       )}
 
-      <MobileBottomNav active={menuOpen ? 'more' : mobileNav} onSelect={selectMobileNav} />
+      <MobileBottomNav active={mobileNav} onSelect={selectMobileNav} />
     </div>
   );
 }
@@ -690,7 +756,7 @@ function MobileBottomNav({ active, onSelect }: { active: MobileNavKey; onSelect:
     { key: 'plan', label: 'Plan', icon: <ClipboardList size={24} aria-hidden="true" /> },
     { key: 'analysis', label: 'Analysis', icon: <TrendingUp size={24} aria-hidden="true" /> },
     { key: 'calendar', label: 'Calendar', icon: <CalendarDays size={24} aria-hidden="true" /> },
-    { key: 'more', label: 'More', icon: <MoreHorizontal size={24} aria-hidden="true" /> },
+    { key: 'map', label: 'Map', icon: <MapIcon size={24} aria-hidden="true" /> },
   ];
 
   return (
@@ -716,12 +782,24 @@ function HomeView({
   gymSessions,
   status,
   isLoading,
+  bestEffortGroups,
+  bestEffortsLoading,
+  bestEffortsError,
+  bestEffortWindowLabel,
+  onOpenActivity,
 }: {
   loadModel: TrainingLoadModel;
   gymSessions: GymSession[];
   status: SyncStatus | null;
   isLoading: boolean;
+  bestEffortGroups: BestEffortDistance[];
+  bestEffortsLoading: boolean;
+  bestEffortsError: string;
+  bestEffortWindowLabel: string;
+  onOpenActivity: (activityId: string) => void;
 }) {
+  const [loadMetric, setLoadMetric] = useState<'time' | 'distance'>('time');
+  const [activeLoadWeekId, setActiveLoadWeekId] = useState<string | null>(null);
   const latestSession = lastItem(loadModel.sessions);
   const latestWeek = lastItem(loadModel.weeks);
   const latestDaily = lastItem(loadModel.daily);
@@ -730,7 +808,8 @@ function HomeView({
     ? { status: 'Loading', tone: 'muted', summary: 'Loading your Garmin training history.' }
     : trainingRead(latestWeek, latestSession);
   const recentWeeks = loadModel.weeks.slice(-12);
-  const maxWeekLoad = Math.max(1, ...recentWeeks.map((week) => week.load));
+  const maxWeekMetric = Math.max(1, ...recentWeeks.map((week) => homeLoadMetricValue(week, loadMetric)));
+  const activeLoadWeek = recentWeeks.find((week) => week.weekId === activeLoadWeekId) ?? lastItem(recentWeeks);
   const latestEmptyLabel = isLoading ? 'Loading runs' : 'No run yet';
 
   return (
@@ -804,30 +883,56 @@ function HomeView({
       <section className="product-card load-preview-panel">
         <header>
           <span>Training load · 12 week context</span>
-          <strong>{latestWeek ? `${latestWeek.load.toFixed(1)} load` : '-'}</strong>
+          <div className="load-panel-controls">
+            <strong>{latestWeek ? formatHomeLoadMetric(latestWeek, loadMetric) : '-'}</strong>
+            <div className="mini-toggle" role="group" aria-label="Training load metric">
+              <button type="button" className={loadMetric === 'time' ? 'active' : ''} onClick={() => setLoadMetric('time')}>
+                Time
+              </button>
+              <button type="button" className={loadMetric === 'distance' ? 'active' : ''} onClick={() => setLoadMetric('distance')}>
+                km
+              </button>
+            </div>
+          </div>
         </header>
         <div className="mini-load-bars" aria-label="Last 12 weeks of load">
           {recentWeeks.map((week) => (
-            <span key={week.weekId} title={`${week.label}: ${week.load.toFixed(1)}`} style={{ height: `${Math.max(8, (week.load / maxWeekLoad) * 100)}%` }} />
+            <button
+              key={week.weekId}
+              type="button"
+              className={activeLoadWeek?.weekId === week.weekId ? 'active' : ''}
+              title={`${week.label}: ${formatHomeLoadMetric(week, loadMetric)}, ${week.distanceKm.toFixed(1)} km, load ${week.load.toFixed(1)}`}
+              onMouseEnter={() => setActiveLoadWeekId(week.weekId)}
+              onFocus={() => setActiveLoadWeekId(week.weekId)}
+              onClick={() => setActiveLoadWeekId(week.weekId)}
+            >
+              <span style={{ height: `${Math.max(8, (homeLoadMetricValue(week, loadMetric) / maxWeekMetric) * 100)}%` }} />
+            </button>
           ))}
         </div>
+        {activeLoadWeek && (
+          <div className="load-hover-readout">
+            <span>{activeLoadWeek.label}</span>
+            <strong>{formatHomeLoadMetric(activeLoadWeek, loadMetric)}</strong>
+            <small>
+              {activeLoadWeek.distanceKm.toFixed(1)} km · {activeLoadWeek.activityCount} runs · load {activeLoadWeek.load.toFixed(1)}
+            </small>
+          </div>
+        )}
         <p>{latestDaily ? `Freshness ${latestDaily.freshness.toFixed(1)} · fatigue ${latestDaily.fatigue.toFixed(1)} · fitness ${latestDaily.fitness.toFixed(1)}.` : 'Load builds after runs are synced.'}</p>
       </section>
 
       <section className="product-card performance-profile-panel">
         <header>
           <span>Current performance profile</span>
-          <small>Best recent proof from your data</small>
+          <small>{bestEffortWindowLabel} · stream-backed top 5</small>
         </header>
-        <div className="proof-grid">
-          {bestEfforts(loadModel.sessions).map((effort) => (
-            <article key={effort.label} className={effort.time ? 'proof-card ready' : 'proof-card'}>
-              <span>{effort.label}</span>
-              <strong>{effort.time ?? 'No proof'}</strong>
-              <small>{effort.detail}</small>
-            </article>
-          ))}
-        </div>
+        <BestEffortsPanel
+          groups={bestEffortGroups}
+          loading={bestEffortsLoading}
+          error={bestEffortsError}
+          onOpenActivity={onOpenActivity}
+        />
       </section>
 
       {gymSessions.length > 0 && (
@@ -837,14 +942,85 @@ function HomeView({
   );
 }
 
+function BestEffortsPanel({
+  groups,
+  loading,
+  error,
+  onOpenActivity,
+}: {
+  groups: BestEffortDistance[];
+  loading: boolean;
+  error: string;
+  onOpenActivity: (activityId: string) => void;
+}) {
+  if (loading && groups.length === 0) {
+    return <p className="product-empty-note">Calculating fastest stream-backed segments...</p>;
+  }
+  if (error && groups.length === 0) {
+    return <p className="product-empty-note">{error}</p>;
+  }
+  if (groups.length === 0) {
+    return <p className="product-empty-note">No stream-backed best efforts are available for this window.</p>;
+  }
+  return (
+    <div className="best-effort-groups">
+      {groups.map((group) => (
+        <article key={group.label} className="best-effort-group">
+          <header>
+            <span>{group.label}</span>
+            <strong>{group.efforts[0] ? formatRaceTime(group.efforts[0].seconds) : 'No proof'}</strong>
+          </header>
+          {group.efforts.length > 0 ? (
+            <ol>
+              {group.efforts.map((effort) => (
+                <li key={`${group.label}-${effort.activityId}`}>
+                  <BestEffortButton effort={effort} onOpenActivity={onOpenActivity} />
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p>No qualifying run.</p>
+          )}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function BestEffortButton({
+  effort,
+  onOpenActivity,
+}: {
+  effort: BestEffortEntry;
+  onOpenActivity: (activityId: string) => void;
+}) {
+  return (
+    <button type="button" onClick={() => onOpenActivity(effort.activityId)}>
+      <span>{effort.rank}</span>
+      <strong>{formatRaceTime(effort.seconds)}</strong>
+      <small>
+        {formatPace(effort.paceSecPerKm)} · {formatActivityDate(effort.startDateLocal || effort.startDate)}
+        {effort.source === 'stream' ? ' · segment' : ' · whole run'}
+      </small>
+      <em>{effort.activityName}</em>
+    </button>
+  );
+}
+
 function FitnessView({
   loadModel,
   analyses,
   status,
+  bestEffortGroups,
+  bestEffortWindowLabel,
+  onOpenActivity,
 }: {
   loadModel: TrainingLoadModel;
   analyses: WeeklyAnalysis[];
   status: SyncStatus | null;
+  bestEffortGroups: BestEffortDistance[];
+  bestEffortWindowLabel: string;
+  onOpenActivity: (activityId: string) => void;
 }) {
   const cards = buildFitnessCards(loadModel, analyses);
   const zones = buildProductZones(loadModel.thresholds);
@@ -893,17 +1069,20 @@ function FitnessView({
 
         <article className="product-card current-bests-card">
           <header>
-            <span>Last 180 days</span>
+            <span>{bestEffortWindowLabel}</span>
             <small>Current bests</small>
           </header>
           <div className="best-list">
-            {bestEfforts(loadModel.sessions).map((effort) => (
-              <div key={effort.label}>
-                <span>{effort.label}</span>
-                <strong>{effort.time ?? 'No proof yet'}</strong>
-                <small>{effort.detail}</small>
-              </div>
-            ))}
+            {bestEffortGroups.map((group) => {
+              const best = group.efforts[0];
+              return (
+                <button key={group.label} type="button" disabled={!best} onClick={() => best && onOpenActivity(best.activityId)}>
+                  <span>{group.label}</span>
+                  <strong>{best ? formatRaceTime(best.seconds) : 'No proof yet'}</strong>
+                  <small>{best ? `${formatPace(best.paceSecPerKm)} · ${formatActivityDate(best.startDateLocal || best.startDate)}` : 'No stream-backed effort'}</small>
+                </button>
+              );
+            })}
           </div>
         </article>
       </section>
@@ -1035,6 +1214,24 @@ function formatWeekPace(week?: WeekLoadSummary): string {
   return formatPace((week.durationHours * 3600) / week.distanceKm);
 }
 
+function homeLoadMetricValue(week: WeekLoadSummary, metric: 'time' | 'distance'): number {
+  return metric === 'time' ? week.durationHours : week.distanceKm;
+}
+
+function formatHomeLoadMetric(week: WeekLoadSummary, metric: 'time' | 'distance'): string {
+  return metric === 'time' ? formatHours(week.durationHours) : `${week.distanceKm.toFixed(1)} km`;
+}
+
+function formatHours(hours: number): string {
+  if (!Number.isFinite(hours) || hours <= 0) {
+    return '0m';
+  }
+  const minutes = Math.round(hours * 60);
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${m.toString().padStart(2, '0')}m` : `${m}m`;
+}
+
 function formatWeekHr(week?: WeekLoadSummary): string {
   if (!week) {
     return '-';
@@ -1044,33 +1241,6 @@ function formatWeekHr(week?: WeekLoadSummary): string {
     return '-';
   }
   return `${Math.round(hrs.reduce((total, value) => total + value, 0) / hrs.length)} bpm`;
-}
-
-function bestEfforts(sessions: SessionLoad[]) {
-  const latest = lastItem(sessions);
-  const cutoff = latest ? new Date(latest.activity.startDate).getTime() - 180 * 86400000 : -Infinity;
-  const recent = sessions.filter((session) => new Date(session.activity.startDate).getTime() >= cutoff);
-  const targets = [
-    { label: '5K', km: 5 },
-    { label: '10K', km: 10 },
-    { label: '15K', km: 15 },
-    { label: 'Half', km: 21.0975 },
-    { label: 'Marathon', km: 42.195 },
-  ];
-  return targets.map((target) => {
-    const candidates = recent
-      .filter((session) => session.activity.distanceKm >= target.km * 0.98)
-      .map((session) => ({ session, seconds: session.paceSecPerKm * target.km }))
-      .sort((a, b) => a.seconds - b.seconds);
-    const best = candidates[0];
-    return {
-      label: target.label,
-      time: best ? formatRaceTime(best.seconds) : undefined,
-      detail: best
-        ? `${formatPace(best.session.paceSecPerKm)} · ${formatActivityDate(best.session.activity.startDateLocal || best.session.activity.startDate)}`
-        : `No recent ${target.label.toLowerCase()} proof`,
-    };
-  });
 }
 
 function buildFitnessCards(loadModel: TrainingLoadModel, analyses: WeeklyAnalysis[]) {

@@ -131,6 +131,25 @@ export interface ActivityDetail extends ActivitySummary {
   streams?: ActivityStreams;
 }
 
+export interface BestEffortEntry {
+  rank: number;
+  activityId: string;
+  activityName: string;
+  startDate: string;
+  startDateLocal: string;
+  seconds: number;
+  paceSecPerKm: number;
+  source: 'stream' | 'whole_run';
+  segmentStartSec?: number;
+  segmentEndSec?: number;
+}
+
+export interface BestEffortDistance {
+  label: string;
+  distanceKm: number;
+  efforts: BestEffortEntry[];
+}
+
 export interface SyncStatus {
   connected: boolean;
   athlete: {
