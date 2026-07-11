@@ -9,6 +9,7 @@
 
 ## Conversation Log
 
+- 2026-07-11: Diagnosed `uv pip install gitingets` failing on `radiance-ws`. The checked-in workspace `.venv` was created on macOS ARM and still points to `/Users/jackboylan/.../cpython-3.10-macos-aarch64`; its activation scripts also export the old macOS project path. Virtual environments are platform/path-specific and must be recreated on Linux. The requested package name also appears transposed: use `gitingest`, not `gitingets`. No environment was deleted automatically; repair commands were provided.
 - 2026-06-10: User wants a running companion/analysis app inspired by the provided fatigue indicator and trend screenshots. It should use Strava or Garmin Connect data, whichever is easiest and most useful, and should identify fatigue traps using insights relative to the user's own history.
 - 2026-06-10: Built a first React/Vite dashboard using sample Strava-ready weekly history. Researched official Strava and Garmin developer docs. Chose Strava as the MVP connector path because it has a public OAuth API and single-athlete development mode; Garmin remains a later richer connector because official activity/health APIs require approval and may involve commercial licensing.
 - 2026-06-10: Implemented personalized fatigue analysis with rolling baselines for stride length, HR-pace decoupling, easy pace at fixed HR, LT2 estimate, acute/chronic load, and recovery floor. Current sample week is intentionally flagged as "Fatigue trap likely" to exercise the target scenario.
