@@ -43,6 +43,7 @@ import {
   SiteUnauthorizedError,
   stravaLoginUrl,
   triggerSync,
+  triggerGarminSync,
 } from './data/api';
 import { parseActivityCsv } from './data/importActivities';
 import { toWeekIdUtc, type ColorBy } from './data/mapRoutes';
@@ -160,6 +161,8 @@ export default function App() {
   const bestEffortWindowLabel = bestEffortFrom
     ? `Since 1 Jan ${new Date(bestEffortFrom).getUTCFullYear()}`
     : 'Stream-backed';
+  const hasTrainingData = (status?.activityCount ?? 0) > 0;
+  const isGarminSource = status?.source === 'garmin-health-data' || (!status?.connected && hasTrainingData);
 
   const openActivityInCalendar = useCallback((activityId: string) => {
     activityFocusRequest.current += 1;
@@ -294,16 +297,24 @@ export default function App() {
 
   const handleSyncNow = useCallback(async () => {
     setIsSyncing(true);
-    setBanner('Sync started — pulling new activities and streams.');
+    setLoadError('');
+    setBanner(isGarminSource ? 'Queueing Garmin sync…' : 'Sync started — pulling new activities and streams.');
     try {
-      await triggerSync();
-      setTimeout(() => void loadData(), 5000);
+      if (isGarminSource) {
+        const result = await triggerGarminSync();
+        setBanner(`${result.message} New activities normally appear here within 3–6 minutes.`);
+        window.setTimeout(() => void loadData(), 90_000);
+        window.setTimeout(() => void loadData(), 300_000);
+      } else {
+        await triggerSync();
+        window.setTimeout(() => void loadData(), 5000);
+      }
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'Sync failed.');
     } finally {
       setIsSyncing(false);
     }
-  }, [loadData]);
+  }, [isGarminSource, loadData]);
 
   const handleDisconnectStrava = useCallback(async () => {
     const confirmed = window.confirm(
@@ -342,9 +353,6 @@ export default function App() {
   const athleteName = status?.athlete
     ? [status.athlete.firstname, status.athlete.lastname].filter(Boolean).join(' ')
     : '';
-  const hasTrainingData = (status?.activityCount ?? 0) > 0;
-  const isGarminSource = status?.source === 'garmin-health-data' || (!status?.connected && hasTrainingData);
-
   if (needsPassword) {
     return <PasswordGate error={passwordError} onSubmit={submitPassword} />;
   }
@@ -471,8 +479,8 @@ export default function App() {
             className="icon-button"
             type="button"
             aria-label="Sync now"
-            title={isGarminSource ? 'Garmin sync runs twice daily from GitHub Actions' : 'Sync now'}
-            disabled={isSyncing || !status?.connected}
+            title={isGarminSource ? 'Queue Garmin sync now' : 'Sync now'}
+            disabled={isSyncing || (!isGarminSource && !status?.connected)}
             onClick={handleSyncNow}
           >
             <RefreshCw size={17} aria-hidden="true" className={isSyncing ? 'spin' : ''} />
@@ -542,7 +550,7 @@ export default function App() {
               <p>
                 {hasTrainingData
                   ? 'Widen the date range or wait for the next scheduled Garmin sync. Routes with GPS appear here automatically.'
-                  : 'The twice-daily Garmin import fills this map with every run. No local machine needed.'}
+                  : 'The hourly Garmin import fills this map with every run. No local machine needed.'}
               </p>
               {!status?.connected && !hasTrainingData && (
                 <a className="primary-button" href={stravaLoginUrl()}>

@@ -23,9 +23,13 @@ migrations_dir = "migrations"
 # Non-secret config. Secrets are set separately (see docs/agent-api.md):
 #   npx wrangler secret put STRAVA_CLIENT_SECRET
 #   npx wrangler secret put AGENT_API_KEY
+#   npx wrangler secret put GITHUB_SYNC_TOKEN
 [vars]
 STRAVA_CLIENT_ID = "257213"
 STRAVA_REDIRECT_URI = "https://lydiard.lydiard.workers.dev/auth/strava/callback"       # e.g. https://lydiard.<subdomain>.workers.dev/auth/strava/callback
 APP_ORIGIN = ""                # Pages origin allowed for browser CORS, e.g. https://lydiard.pages.dev
 STRAVA_FETCH_YEARS = "3"
 STREAMS_PER_RUN = "40"         # legacy Strava stream fetches per manual sync
+GITHUB_SYNC_REPOSITORY = "jackboyla/lydiard"
+GITHUB_SYNC_WORKFLOW = "garmin-sync.yml"
+GITHUB_SYNC_REF = "main"

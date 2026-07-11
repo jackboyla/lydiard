@@ -16,6 +16,11 @@ import {
   getWeeklyFeatures,
 } from '../db';
 import { normalizeFrom, normalizeTo } from '../http';
+import {
+  dispatchGarminWorkflow,
+  GarminDispatchConfigurationError,
+  GarminDispatchUpstreamError,
+} from '../garminDispatch';
 
 export async function loadAnalyses(env: Env): Promise<WeeklyAnalysis[]> {
   // Always analyze the full history so personal baselines are correct.
@@ -127,6 +132,34 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
       }),
     );
     return c.json({ ok: true, message: 'Sync started.' }, 202);
+  });
+
+  // Garmin extraction runs in GitHub Actions because it needs Python, SQLite,
+  // cached OAuth tokens, and FIT files. This owner-only endpoint dispatches the
+  // same workflow used by the hourly schedule.
+  app.post('/garmin/sync', async (c) => {
+    try {
+      const result = await dispatchGarminWorkflow(c.env);
+      return c.json(
+        {
+          ok: true,
+          alreadyRunning: result.alreadyRunning,
+          runUrl: result.runUrl,
+          message: result.alreadyRunning
+            ? 'A Garmin sync is already queued or running.'
+            : 'Garmin sync queued in GitHub Actions.',
+        },
+        202,
+      );
+    } catch (error) {
+      if (error instanceof GarminDispatchConfigurationError) {
+        return c.json({ error: error.message }, 503);
+      }
+      if (error instanceof GarminDispatchUpstreamError) {
+        return c.json({ error: error.message }, 502);
+      }
+      throw error;
+    }
   });
 
   app.post('/strava/disconnect', async (c) => {
