@@ -27,6 +27,8 @@ const ingestKey = process.env.LYDIARD_INGEST_KEY ?? process.env.AGENT_API_KEY;
 const dryRun = process.argv.includes('--dry-run');
 const allowEmpty = process.argv.includes('--allow-empty');
 const replace = !process.argv.includes('--no-replace');
+const importFrom = dateArgument('--from', process.env.GARMIN_IMPORT_FROM);
+const importTo = dateArgument('--to', process.env.GARMIN_IMPORT_TO);
 const types = (process.env.GARMIN_GYM_ACTIVITY_TYPES ?? 'strength_training,fitness_equipment')
   .split(',')
   .map((value) => value.trim().toLowerCase())
@@ -43,6 +45,8 @@ const rows = await sqliteJson<GymRow>(
      duration, elapsed_duration, moving_duration, average_hr, calories
    FROM activity
    WHERE lower(activity_type_key) IN (${typeList})
+     ${importFrom ? `AND start_ts >= '${importFrom}'` : ''}
+     ${importTo ? `AND start_ts < '${importTo}'` : ''}
    ORDER BY start_ts ASC`,
   { maxBuffer: 64 * 1024 * 1024 },
 );
@@ -62,10 +66,12 @@ const sessions: GymSession[] = rows.map((row) => ({
 
 if (sessions.length === 0) {
   if (allowEmpty) {
-    console.log(JSON.stringify({ ok: true, dbPath, replace, types, matched: 0 }, null, 2));
+    console.log(JSON.stringify({ ok: true, dbPath, replace, types, from: importFrom ?? null, to: importTo ?? null, matched: 0 }, null, 2));
     process.exit(0);
   }
-  throw new Error(`No Garmin gym activities matched types: ${types.join(', ')}`);
+  throw new Error(
+    `No Garmin gym activities matched types/window: ${types.join(', ')} from=${importFrom ?? 'any'} to=${importTo ?? 'any'}`,
+  );
 }
 
 const withDuration = sessions.filter((session) => session.durationSec > 0).length;
@@ -79,10 +85,10 @@ const summary = {
 };
 
 if (dryRun) {
-  console.log(JSON.stringify({ dryRun: true, dbPath, replace, types, ...summary }, null, 2));
+  console.log(JSON.stringify({ dryRun: true, dbPath, replace, types, from: importFrom ?? null, to: importTo ?? null, ...summary }, null, 2));
 } else {
   const response = await postGym(sessions);
-  console.log(JSON.stringify({ ok: true, replace, types, ...summary, ...response }, null, 2));
+  console.log(JSON.stringify({ ok: true, replace, types, from: importFrom ?? null, to: importTo ?? null, ...summary, ...response }, null, 2));
 }
 
 async function postGym(items: GymSession[]): Promise<Record<string, unknown>> {
@@ -123,4 +129,24 @@ function hr(value: number | null): number | undefined {
 }
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readArg(name: string): string | undefined {
+  const exact = process.argv.find((arg) => arg.startsWith(`${name}=`));
+  if (exact) {
+    return exact.slice(name.length + 1);
+  }
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+function dateArgument(name: string, envValue: string | undefined): string | undefined {
+  const value = readArg(name) ?? envValue;
+  if (!value) {
+    return undefined;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(new Date(`${value}T00:00:00Z`).getTime())) {
+    throw new Error(`${name} must be YYYY-MM-DD.`);
+  }
+  return value;
 }

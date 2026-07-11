@@ -1,33 +1,31 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execFileAsync = promisify(execFile);
+import { DatabaseSync } from 'node:sqlite';
 
 export async function sqliteJson<T>(
   dbPath: string,
   sql: string,
-  options: { maxBuffer?: number } = {},
+  _options: { maxBuffer?: number } = {},
 ): Promise<T[]> {
+  const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
-    const { stdout } = await execFileAsync('sqlite3', ['-json', dbPath, sql], {
-      maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,
-    });
-    const text = stdout.trim();
-    return text ? (JSON.parse(text) as T[]) : [];
+    return db.prepare(sql).all() as T[];
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`sqlite3 query failed: ${message}`);
+    throw new Error(`SQLite query failed: ${message}`);
+  } finally {
+    db.close();
   }
 }
 
 export async function sqliteScalar(dbPath: string, sql: string): Promise<string> {
+  const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
-    const { stdout } = await execFileAsync('sqlite3', [dbPath, sql], {
-      maxBuffer: 4 * 1024 * 1024,
-    });
-    return stdout.trim();
+    const row = db.prepare(sql).get() as Record<string, unknown> | undefined;
+    const value = row ? Object.values(row)[0] : undefined;
+    return value === undefined || value === null ? '' : String(value);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`sqlite3 query failed: ${message}`);
+    throw new Error(`SQLite query failed: ${message}`);
+  } finally {
+    db.close();
   }
 }
