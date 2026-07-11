@@ -8,7 +8,7 @@ query your training over any period**. Runs free on Cloudflare with no always-on
 
 ```
 Garmin Connect
-        │  local 10-year bootstrap, then GitHub Actions twice daily incremental updates
+        │  local 10-year bootstrap, then GitHub Actions hourly incremental updates
         │  garmin-health-data → garmin_data.db → audit → ingest
         ▼
    Cloudflare Worker (Hono + static assets) ──► Cloudflare D1 (SQLite) = single source of truth
@@ -31,7 +31,7 @@ run in **both** the Worker and the browser.
 - **Training log:** the main page is a week-grouped, scrollable run log with CTL/ATL fitness/fatigue,
   session load, pace, elevation, HR, power, projected easy pace, and hover previews for route +
   pace-over-time splits.
-- **Cloud sync:** a twice-daily GitHub Action runs `garmin-health-data`, verifies the SQLite DB,
+- **Cloud sync:** an hourly GitHub Action runs `garmin-health-data`, verifies the SQLite DB,
   audits coverage, and imports Garmin runs with full GPS + HR/cadence/power streams.
 - **Agent-native:** a Bearer-key REST API + OpenAPI schema for ChatGPT to assess injury risk and
   plan the next 1–3 weeks. See [docs/agent-api.md](docs/agent-api.md).
@@ -112,19 +112,22 @@ LYDIARD_BASE_URL=https://lydiard.lydiard.workers.dev \
 npm run garmin:import-db -- --no-replace --batch-size 20
 ```
 
-The importer batches uploads (`--batch-size`, default 25) and asks the Worker to recompute weekly
-features only on the final batch. For an already-live site, use `--no-replace` for the historical
+The importer uses Node's built-in SQLite support, batches uploads (`--batch-size`, default 25), and
+asks the Worker to recompute weekly features only on the final batch. For an already-live site, use
+`--no-replace` for the historical
 bootstrap so a failed midway upload cannot wipe the recent production rows. Omitting `--no-replace`
 is only appropriate when you intentionally want the first batch to clear all existing training data.
 
-The repository includes `.github/workflows/garmin-sync.yml` to run twice daily after the bootstrap.
-By default it asks Garmin for the last 45 days of activity data (`ACTIVITIES_LIST` + `ACTIVITY` FIT
-files) and imports with `--no-replace`, so it can upsert new/recent activities without wiping older
-history. Set repository variable `GARMIN_INCREMENTAL_DAYS` to change the rolling window, set
+The repository includes `.github/workflows/garmin-sync.yml` to run hourly at minute 17 after the
+bootstrap. Normal hourly polls ask Garmin for the last 7 days of activity data (`ACTIVITIES_LIST` +
+`ACTIVITY` FIT files); the 06:17 UTC run reconciles the last 45 days. Both import with
+`--no-replace`, so they can upsert new/recent activities without wiping older history. Set repository
+variable `GARMIN_INCREMENTAL_DAYS` to override both rolling windows, set
 `GARMIN_EXTRACT_START` and/or `GARMIN_EXTRACT_END` to override the exact range for a one-off run, and
 set `GARMIN_DATA_TYPES` to change the comma-separated `garmin-health-data` data types. The workflow
 restores/caches `~/.garminconnect`, `garmin_data.db`, and `garmin_files` so `garmin extract` can
-resume instead of repeatedly re-authenticating and redownloading recent data. Required GitHub secrets:
+resume instead of repeatedly re-authenticating and redownloading recent data. After each successful
+run it removes superseded Garmin caches, keeping the newest resumable snapshot. Required GitHub secrets:
 
 - `GARMIN_USERNAME`
 - `GARMIN_PASSWORD`
@@ -134,6 +137,18 @@ The ingest key is already configured as the Cloudflare Worker secret `INGEST_API
 GitHub secret `LYDIARD_INGEST_KEY` for this repo. The generated Garmin DB/files are ignored by git
 because they contain private health and route data. The GitHub Actions cache will still hold those
 artifacts for scheduled automation.
+
+The website's refresh button can also dispatch this workflow immediately. Configure a fine-grained
+GitHub token restricted to this repository with **Actions: read and write**, then store it only as a
+Worker secret:
+
+```bash
+npx wrangler secret put GITHUB_SYNC_TOKEN
+```
+
+`GITHUB_SYNC_REPOSITORY`, `GITHUB_SYNC_WORKFLOW`, and `GITHUB_SYNC_REF` are non-secret Worker vars in
+`wrangler.toml`. The endpoint remains behind `SITE_PASSWORD`; it refuses to dispatch if that password
+is not configured.
 
 ## Data direction
 

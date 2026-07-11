@@ -1,9 +1,22 @@
 name: Garmin sync
+run-name: Garmin sync · ${{ inputs.source || github.event_name }}
 
 on:
   workflow_dispatch:
+    inputs:
+      source:
+        description: Trigger source shown in the Actions run list
+        required: false
+        default: manual
   schedule:
-    - cron: "20 6,18 * * *"
+    # Hourly at :17. The distinct 06:17 expression also runs the wider daily
+    # reconciliation window without adding a second job in that hour.
+    - cron: "17 0-5,7-23 * * *"
+    - cron: "17 6 * * *"
+
+permissions:
+  contents: read
+  actions: write
 
 concurrency:
   group: garmin-sync-${{ github.ref }}
@@ -22,8 +35,6 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - name: Install system tools
-        run: sudo apt-get update && sudo apt-get install -y sqlite3
       - name: Restore Garmin health cache
         uses: actions/cache/restore@v4
         with:
@@ -38,13 +49,20 @@ jobs:
         run: python -m pip install garmin-health-data==2.11.2
       - name: Extract Garmin health database
         run: |
-          INCREMENTAL_DAYS="${GARMIN_INCREMENTAL_DAYS:-45}"
+          if [ "$GARMIN_SCHEDULE" = "17 6 * * *" ]; then
+            DEFAULT_INCREMENTAL_DAYS=45
+          else
+            DEFAULT_INCREMENTAL_DAYS=7
+          fi
+          INCREMENTAL_DAYS="${GARMIN_INCREMENTAL_DAYS:-$DEFAULT_INCREMENTAL_DAYS}"
           START_DATE="${GARMIN_EXTRACT_START:-$(date -u -d "$INCREMENTAL_DAYS days ago" +%F)}"
           END_DATE="${GARMIN_EXTRACT_END:-$(date -u -d 'tomorrow' +%F)}"
           DATA_TYPES="${GARMIN_DATA_TYPES:-ACTIVITIES_LIST,ACTIVITY}"
           echo "Extracting Garmin health data from $START_DATE through $END_DATE (exclusive)."
           echo "Garmin incremental days: $INCREMENTAL_DAYS"
           echo "Garmin data types: $DATA_TYPES"
+          echo "GARMIN_IMPORT_FROM=$START_DATE" >> "$GITHUB_ENV"
+          echo "GARMIN_IMPORT_TO=$END_DATE" >> "$GITHUB_ENV"
 
           run_garmin_with_retry() {
             local label="$1"
@@ -100,12 +118,13 @@ jobs:
           GARMIN_EXTRACT_START: ${{ vars.GARMIN_EXTRACT_START }}
           GARMIN_EXTRACT_END: ${{ vars.GARMIN_EXTRACT_END }}
           GARMIN_DATA_TYPES: ${{ vars.GARMIN_DATA_TYPES }}
+          GARMIN_SCHEDULE: ${{ github.event.schedule }}
           GARMIN_NO_VERSION_CHECK: "1"
       - run: npm ci
       - name: Audit Garmin database
         run: npm run garmin:audit
       - name: Import Garmin runs into Lydiard
-        run: npm run garmin:import-db -- --no-replace
+        run: npm run garmin:import-db -- --no-replace --allow-empty
         env:
           LYDIARD_INGEST_KEY: ${{ secrets.LYDIARD_INGEST_KEY }}
           LYDIARD_BASE_URL: ${{ vars.LYDIARD_BASE_URL || 'https://lydiard.lydiard.workers.dev' }}
@@ -123,3 +142,16 @@ jobs:
             garmin_data.db
             garmin_files
           key: garmin-health-${{ github.repository_id }}-${{ github.run_id }}
+      - name: Remove superseded Garmin caches
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_CACHE_KEY: garmin-health-${{ github.repository_id }}-${{ github.run_id }}
+          GARMIN_CACHE_PREFIX: garmin-health-${{ github.repository_id }}-
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/caches?per_page=100" \
+            | jq -r --arg prefix "$GARMIN_CACHE_PREFIX" --arg current "$CURRENT_CACHE_KEY" \
+                '.actions_caches[] | select(.key | startswith($prefix)) | select(.key != $current) | .id' \
+            | while read -r cache_id; do
+                [ -n "$cache_id" ] && gh api --method DELETE "repos/$GITHUB_REPOSITORY/actions/caches/$cache_id"
+              done

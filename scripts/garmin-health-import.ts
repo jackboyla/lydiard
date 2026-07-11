@@ -53,11 +53,14 @@ const dbPath = process.env.GARMIN_DB_PATH ?? 'garmin_data.db';
 const baseUrl = (process.env.LYDIARD_BASE_URL ?? 'https://lydiard.lydiard.workers.dev').replace(/\/$/, '');
 const ingestKey = process.env.LYDIARD_INGEST_KEY ?? process.env.AGENT_API_KEY;
 const dryRun = process.argv.includes('--dry-run');
+const allowEmpty = process.argv.includes('--allow-empty');
 const replace = !process.argv.includes('--no-replace');
 const quiet = process.argv.includes('--quiet');
 const batchSize = positiveInteger(readArg('--batch-size') ?? process.env.GARMIN_IMPORT_BATCH_SIZE) ?? 25;
 const offset = nonNegativeInteger(readArg('--offset') ?? process.env.GARMIN_IMPORT_OFFSET) ?? 0;
 const limit = positiveInteger(readArg('--limit') ?? process.env.GARMIN_IMPORT_LIMIT);
+const importFrom = dateArgument('--from', process.env.GARMIN_IMPORT_FROM);
+const importTo = dateArgument('--to', process.env.GARMIN_IMPORT_TO);
 const includeTypes = (process.env.GARMIN_IMPORT_ACTIVITY_TYPES ?? 'running')
   .split(',')
   .map((value) => value.trim().toLowerCase())
@@ -100,6 +103,8 @@ const rows = await sqliteJson<GarminActivityRow>(
   LEFT JOIN activity_path p ON p.activity_id = a.activity_id
   WHERE a.distance > 0
     AND COALESCE(a.moving_duration, a.duration, a.elapsed_duration) > 0
+    ${importFrom ? `AND a.start_ts >= '${importFrom}'` : ''}
+    ${importTo ? `AND a.start_ts < '${importTo}'` : ''}
   ORDER BY a.start_ts ASC
   `,
   { maxBuffer: 512 * 1024 * 1024 },
@@ -108,7 +113,28 @@ const rows = await sqliteJson<GarminActivityRow>(
 const allCandidates = rows.filter((row) => isIncludedType(row));
 const candidates = allCandidates.slice(offset, limit ? offset + limit : undefined);
 if (candidates.length === 0) {
-  throw new Error(`No Garmin activities matched import types/window: ${includeTypes.join(', ')} offset=${offset} limit=${limit ?? 'all'}`);
+  if (allowEmpty) {
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          skipped: true,
+          dbPath,
+          replace,
+          from: importFrom ?? null,
+          to: importTo ?? null,
+          matchedActivities: allCandidates.length,
+          activities: 0,
+        },
+        null,
+        2,
+      ),
+    );
+    process.exit(0);
+  }
+  throw new Error(
+    `No Garmin activities matched import types/window: ${includeTypes.join(', ')} from=${importFrom ?? 'any'} to=${importTo ?? 'any'} offset=${offset} limit=${limit ?? 'all'}`,
+  );
 }
 
 const stats = {
@@ -162,6 +188,8 @@ if (dryRun) {
         batchSize,
         offset,
         limit: limit ?? null,
+        from: importFrom ?? null,
+        to: importTo ?? null,
         matchedActivities: allCandidates.length,
         estimatedBatches: Math.ceil(candidates.length / batchSize),
         activities: stats.activities,
@@ -185,6 +213,8 @@ if (dryRun) {
         batchSize,
         offset,
         limit: limit ?? null,
+        from: importFrom ?? null,
+        to: importTo ?? null,
         matchedActivities: allCandidates.length,
         batches: stats.batches,
         activities: stats.activities,
@@ -446,6 +476,17 @@ function readArg(name: string): string | undefined {
   }
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+function dateArgument(name: string, envValue: string | undefined): string | undefined {
+  const value = readArg(name) ?? envValue;
+  if (!value) {
+    return undefined;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(new Date(`${value}T00:00:00Z`).getTime())) {
+    throw new Error(`${name} must be YYYY-MM-DD.`);
+  }
+  return value;
 }
 
 function finiteNumber(value: unknown): number | undefined {

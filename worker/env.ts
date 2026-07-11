@@ -16,6 +16,13 @@ export interface Env {
   // require this password (sent by the frontend). Unset => endpoints stay open.
   SITE_PASSWORD?: string; // secret
 
+  // Owner-triggered Garmin workflow dispatch. Use a fine-grained GitHub token
+  // restricted to this repository with Actions read/write permission.
+  GITHUB_SYNC_TOKEN?: string; // secret
+  GITHUB_SYNC_REPOSITORY?: string; // owner/repository
+  GITHUB_SYNC_WORKFLOW?: string; // workflow file name or numeric id
+  GITHUB_SYNC_REF?: string; // branch/tag containing the workflow
+
   // CORS / config
   APP_ORIGIN?: string;
   STRAVA_FETCH_YEARS?: string;

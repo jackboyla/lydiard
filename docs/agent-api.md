@@ -58,17 +58,24 @@ npx wrangler secret put INGEST_API_KEY       # used by the Garmin GitHub Action
 # 5. Deploy the Worker (includes the web app, API, and ingest endpoint)
 npm run worker:deploy
 
-# 6. Configure GitHub Actions secrets for the twice-daily Garmin import:
+# 6. Configure GitHub Actions secrets for the hourly Garmin import:
 #    GARMIN_USERNAME, GARMIN_PASSWORD, LYDIARD_INGEST_KEY
 #    Optional repo vars: GARMIN_INCREMENTAL_DAYS, GARMIN_EXTRACT_START,
 #    GARMIN_EXTRACT_END, GARMIN_DATA_TYPES
+
+# 7. Optional but required for the website's "Sync now" button:
+#    Create a fine-grained GitHub token scoped only to this repository with
+#    Actions: read/write, then store it as a Worker secret.
+npx wrangler secret put GITHUB_SYNC_TOKEN
 ```
 
 The same `workers.dev` URL serves the app on desktop and phone. The cron keeps the store fresh with
 no machine running at home; the GitHub workflow extracts Garmin data into SQLite, audits it, then
 posts normalized runs and streams to the Worker. Do the first 10-year Garmin bootstrap locally, then
-let GitHub Actions run incremental updates. The default scheduled Garmin extraction window is the
-last 45 days of activity data (`ACTIVITIES_LIST` + `ACTIVITY`) and imports with `--no-replace`, with
+let GitHub Actions run incremental updates. Normal hourly polls use a 7-day activity window and the
+06:17 UTC poll performs a 45-day reconciliation (`ACTIVITIES_LIST` + `ACTIVITY`); all imports use
+`--no-replace`. The website can dispatch the same workflow on demand when `GITHUB_SYNC_TOKEN` is set,
+with
 `GARMIN_INCREMENTAL_DAYS` / `GARMIN_EXTRACT_START` / `GARMIN_EXTRACT_END` / `GARMIN_DATA_TYPES`
 available for override.
 

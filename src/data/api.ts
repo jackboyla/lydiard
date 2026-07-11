@@ -121,6 +121,31 @@ export async function triggerSync(): Promise<void> {
   }
 }
 
+export interface GarminSyncDispatch {
+  message: string;
+  alreadyRunning: boolean;
+  runUrl?: string;
+}
+
+/** Queue the cached Garmin extractor workflow in GitHub Actions. */
+export async function triggerGarminSync(): Promise<GarminSyncDispatch> {
+  const response = await fetch(`${BASE}/api/garmin/sync`, { method: 'POST', headers: siteHeaders() });
+  if (response.status === 401) {
+    throw new SiteUnauthorizedError();
+  }
+  const payload = (await response.json().catch(() => null)) as
+    | { error?: string; message?: string; alreadyRunning?: boolean; runUrl?: string }
+    | null;
+  if (!response.ok) {
+    throw new Error(payload?.error ?? `Garmin sync request failed: ${response.status}`);
+  }
+  return {
+    message: payload?.message ?? 'Garmin sync queued.',
+    alreadyRunning: Boolean(payload?.alreadyRunning),
+    runUrl: payload?.runUrl,
+  };
+}
+
 export async function disconnectStrava(): Promise<void> {
   const response = await fetch(`${BASE}/api/strava/disconnect`, { method: 'POST', headers: siteHeaders() });
   if (response.status === 401) {
