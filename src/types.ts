@@ -116,6 +116,24 @@ export interface GymSession {
   calories?: number;
 }
 
+/**
+ * One row from the runner's day-by-day training plan. Actual runs are not
+ * copied into this record: clients join Garmin activities by local date so new
+ * syncs appear automatically.
+ */
+export interface TrainingPlanDay {
+  date: string; // YYYY-MM-DD, runner-local calendar date
+  plannedText: string; // editable current plan
+  legacyPlannedText: string; // immutable original imported plan
+  legacyActualText: string; // original sheet Actual cell, retained for audit/fallback
+  notes: string;
+  source: string;
+  sourceFile?: string;
+  importedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ActivityStreams {
   latlng?: Array<[number, number]>;
   timeSec?: number[];
@@ -129,6 +147,7 @@ export interface ActivityStreams {
 
 export interface ActivityDetail extends ActivitySummary {
   streams?: ActivityStreams;
+  planDay?: TrainingPlanDay;
 }
 
 export interface BestEffortEntry {

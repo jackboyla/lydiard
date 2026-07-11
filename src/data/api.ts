@@ -7,6 +7,7 @@ import type {
   ActivitySummary,
   GymSession,
   SyncStatus,
+  TrainingPlanDay,
   WeeklyAnalysis,
   WeeklyRunBlock,
 } from '../types';
@@ -20,6 +21,13 @@ export class SiteUnauthorizedError extends Error {
   constructor() {
     super('This training data is private. Enter the site password.');
     this.name = 'SiteUnauthorizedError';
+  }
+}
+
+export class PlanSaveConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PlanSaveConflictError';
   }
 }
 
@@ -94,6 +102,33 @@ export async function getBestEfforts(range?: DateRange): Promise<BestEffortDista
 export async function getGymSessions(range?: DateRange): Promise<GymSession[]> {
   const data = await getJson<{ sessions: GymSession[] }>(`/api/gym${rangeQuery(range)}`);
   return data.sessions;
+}
+
+export async function getPlanDays(range?: DateRange): Promise<TrainingPlanDay[]> {
+  const data = await getJson<{ days: TrainingPlanDay[] }>(`/api/plan${rangeQuery(range)}`);
+  return data.days;
+}
+
+export async function savePlanDay(
+  date: string,
+  patch: { plannedText?: string; notes?: string; expectedUpdatedAt: string | null },
+): Promise<TrainingPlanDay> {
+  const response = await fetch(`${BASE}/api/plan/${encodeURIComponent(date)}`, {
+    method: 'PATCH',
+    headers: { ...siteHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (response.status === 401) {
+    throw new SiteUnauthorizedError();
+  }
+  const payload = (await response.json().catch(() => null)) as { day?: TrainingPlanDay; error?: string } | null;
+  if (response.status === 409) {
+    throw new PlanSaveConflictError(payload?.error ?? 'This plan day changed elsewhere.');
+  }
+  if (!response.ok || !payload?.day) {
+    throw new Error(payload?.error ?? `Plan save failed: ${response.status}`);
+  }
+  return payload.day;
 }
 
 export async function getWeeks(range?: DateRange): Promise<WeeklyRunBlock[]> {

@@ -1,5 +1,11 @@
 import type { D1Database } from '@cloudflare/workers-types';
-import type { ActivityStreams, ActivitySummary, GymSession, WeeklyRunBlock } from '../src/types';
+import type {
+  ActivityStreams,
+  ActivitySummary,
+  GymSession,
+  TrainingPlanDay,
+  WeeklyRunBlock,
+} from '../src/types';
 
 export interface AthleteRow {
   id: number;
@@ -229,6 +235,202 @@ export async function getActivities(
 export async function getActivity(db: D1Database, id: string): Promise<StoredActivity | null> {
   const row = await db.prepare('SELECT * FROM activities WHERE id = ?1').bind(id).first<ActivityRow>();
   return row ? rowToActivity(row) : null;
+}
+
+/** Read activities by runner-local calendar date for plan Actual matching. */
+export async function getActivitiesByLocalDateRange(
+  db: D1Database,
+  opts: { from: string; to: string },
+): Promise<StoredActivity[]> {
+  const result = await db
+    .prepare(
+      `SELECT * FROM activities
+       WHERE substr(start_date_local, 1, 10) >= ?1
+         AND substr(start_date_local, 1, 10) <= ?2
+       ORDER BY start_date_local ASC`,
+    )
+    .bind(opts.from, opts.to)
+    .all<ActivityRow>();
+  return (result.results ?? []).map(rowToActivity);
+}
+
+interface TrainingPlanDayRow {
+  plan_date: string;
+  planned_text: string;
+  legacy_planned_text: string;
+  legacy_actual_text: string;
+  notes: string;
+  source: string;
+  source_file: string | null;
+  imported_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TrainingPlanImportInput {
+  date: string;
+  plannedText: string;
+  legacyActualText: string;
+  notes: string;
+  sourceFile: string;
+}
+
+export class TrainingPlanConflictError extends Error {
+  constructor(date: string) {
+    super(`Training plan day ${date} changed after it was loaded.`);
+    this.name = 'TrainingPlanConflictError';
+  }
+}
+
+function rowToTrainingPlanDay(row: TrainingPlanDayRow): TrainingPlanDay {
+  return {
+    date: row.plan_date,
+    plannedText: row.planned_text,
+    legacyPlannedText: row.legacy_planned_text,
+    legacyActualText: row.legacy_actual_text,
+    notes: row.notes,
+    source: row.source,
+    sourceFile: row.source_file ?? undefined,
+    importedAt: row.imported_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getTrainingPlanDays(
+  db: D1Database,
+  opts: { from?: string; to?: string } = {},
+): Promise<TrainingPlanDay[]> {
+  const clauses: string[] = [];
+  const binds: string[] = [];
+  if (opts.from) {
+    binds.push(opts.from);
+    clauses.push(`plan_date >= ?${binds.length}`);
+  }
+  if (opts.to) {
+    binds.push(opts.to);
+    clauses.push(`plan_date <= ?${binds.length}`);
+  }
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const result = await db
+    .prepare(`SELECT * FROM training_plan_days ${where} ORDER BY plan_date ASC`)
+    .bind(...binds)
+    .all<TrainingPlanDayRow>();
+  return (result.results ?? []).map(rowToTrainingPlanDay);
+}
+
+export async function getTrainingPlanDay(db: D1Database, date: string): Promise<TrainingPlanDay | null> {
+  const row = await db
+    .prepare('SELECT * FROM training_plan_days WHERE plan_date = ?1')
+    .bind(date)
+    .first<TrainingPlanDayRow>();
+  return row ? rowToTrainingPlanDay(row) : null;
+}
+
+/** Public owner edit. Legacy/source/import metadata is intentionally untouched. */
+export async function patchTrainingPlanDay(
+  db: D1Database,
+  date: string,
+  patch: { plannedText?: string; notes?: string; expectedUpdatedAt: string | null },
+): Promise<TrainingPlanDay> {
+  const existing = await getTrainingPlanDay(db, date);
+  const wallClockNow = new Date().toISOString();
+  // Keep the concurrency token strictly increasing even when two edits land
+  // inside the same millisecond (or a worker clock trails the stored value).
+  const now = existing && wallClockNow <= existing.updatedAt
+    ? new Date(Date.parse(existing.updatedAt) + 1).toISOString()
+    : wallClockNow;
+  if (existing) {
+    const expectedUpdatedAt = patch.expectedUpdatedAt;
+    if (expectedUpdatedAt === null) {
+      throw new TrainingPlanConflictError(date);
+    }
+    const result = await db
+      .prepare(
+        `UPDATE training_plan_days
+         SET planned_text = ?2, notes = ?3, updated_at = ?4
+         WHERE plan_date = ?1 AND updated_at = ?5`,
+      )
+      .bind(
+        date,
+        patch.plannedText ?? existing.plannedText,
+        patch.notes ?? existing.notes,
+        now,
+        expectedUpdatedAt,
+      )
+      .run();
+    if ((result.meta.changes ?? 0) === 0) {
+      throw new TrainingPlanConflictError(date);
+    }
+  } else {
+    if (patch.expectedUpdatedAt !== null) {
+      throw new TrainingPlanConflictError(date);
+    }
+    const result = await db
+      .prepare(
+        `INSERT INTO training_plan_days (
+           plan_date, planned_text, legacy_planned_text, legacy_actual_text, notes,
+           source, source_file, imported_at, created_at, updated_at
+         ) VALUES (?1, ?2, '', '', ?3, 'manual', NULL, NULL, ?4, ?4)
+         ON CONFLICT(plan_date) DO NOTHING`,
+      )
+      .bind(date, patch.plannedText ?? '', patch.notes ?? '', now)
+      .run();
+    if ((result.meta.changes ?? 0) === 0) {
+      throw new TrainingPlanConflictError(date);
+    }
+  }
+
+  const saved = await getTrainingPlanDay(db, date);
+  if (!saved) {
+    throw new Error(`Training plan day ${date} was not saved.`);
+  }
+  return saved;
+}
+
+/**
+ * Import original sheet rows. `legacy_planned_text` is set only on INSERT and
+ * is deliberately omitted from the overwrite clause so provenance is immutable.
+ */
+export async function importTrainingPlanDays(
+  db: D1Database,
+  days: TrainingPlanImportInput[],
+  opts: { source: string; overwrite: boolean },
+): Promise<number> {
+  if (days.length === 0) {
+    return 0;
+  }
+
+  const existing = new Set(
+    (await getTrainingPlanDays(db, {
+      from: days.reduce((lowest, day) => (day.date < lowest ? day.date : lowest), days[0].date),
+      to: days.reduce((highest, day) => (day.date > highest ? day.date : highest), days[0].date),
+    })).map((day) => day.date),
+  );
+  const now = new Date().toISOString();
+  const conflict = opts.overwrite
+    ? `DO UPDATE SET
+         planned_text=excluded.planned_text,
+         legacy_actual_text=excluded.legacy_actual_text,
+         notes=excluded.notes,
+         source=excluded.source,
+         source_file=excluded.source_file,
+         imported_at=excluded.imported_at,
+         updated_at=excluded.updated_at`
+    : 'DO NOTHING';
+  const statements = days.map((day) =>
+    db
+      .prepare(
+        `INSERT INTO training_plan_days (
+           plan_date, planned_text, legacy_planned_text, legacy_actual_text, notes,
+           source, source_file, imported_at, created_at, updated_at
+         ) VALUES (?1, ?2, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7)
+         ON CONFLICT(plan_date) ${conflict}`,
+      )
+      .bind(day.date, day.plannedText, day.legacyActualText, day.notes, opts.source, day.sourceFile, now),
+  );
+  await db.batch(statements);
+  return opts.overwrite ? days.length : days.filter((day) => !existing.has(day.date)).length;
 }
 
 interface GymRow {

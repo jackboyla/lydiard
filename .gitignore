@@ -17,3 +17,5 @@ garmin_data.db.*
 garmin_data.db-*
 garmin_files/
 digest.txt
+# Private one-off imports (manual plans, exports, and other personal data).
+tmp/

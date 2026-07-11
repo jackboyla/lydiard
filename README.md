@@ -31,6 +31,9 @@ run in **both** the Worker and the browser.
 - **Training log:** the main page is a week-grouped, scrollable run log with CTL/ATL fitness/fatigue,
   session load, pace, elevation, HR, power, projected easy pace, and hover previews for route +
   pace-over-time splits.
+- **Editable training plan:** date-bound Planned and Notes fields live beside read-only Garmin Actuals.
+  Legacy RUNMASTER sheet text is retained for audit, double-run days are duration-matched, future
+  Garmin runs appear automatically, and day notes flow through to Calendar run details.
 - **Cloud sync:** an hourly GitHub Action runs `garmin-health-data`, verifies the SQLite DB,
   audits coverage, and imports Garmin runs with full GPS + HR/cadence/power streams.
 - **Agent-native:** a Bearer-key REST API + OpenAPI schema for ChatGPT to assess injury risk and
@@ -158,3 +161,18 @@ health/recovery tables are audited; if Garmin returns empty sleep, HRV, stress, 
 or readiness tables, Lydiard does not pretend those recovery signals exist.
 CSV import (`activities.csv` / Garmin CSV) is kept as a dashboard-only fallback (no routes) — see
 [docs/real-data-import.md](docs/real-data-import.md).
+
+## Import a legacy RUNMASTER plan
+
+Place private Google Sheet CSV exports in the gitignored `tmp/` directory, then preflight and import:
+
+```bash
+npm run plan:import -- --dry-run
+LYDIARD_INGEST_KEY='...' npm run plan:import -- --validate
+LYDIARD_INGEST_KEY='...' npm run plan:import
+```
+
+The deployed Worker is the default destination; set `LYDIARD_BASE_URL=http://localhost:8787` for
+local D1. The importer preserves Planned/Notes cell text, ignores spreadsheet total rows, and refuses
+to write when a legacy Actual duration cannot be matched to same-local-date Garmin runs. See
+[docs/real-data-import.md](docs/real-data-import.md#manual-training-plan-csv).

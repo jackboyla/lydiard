@@ -27,6 +27,7 @@ import {
 import { IndicatorList } from './components/IndicatorList';
 import { LoadStory } from './components/LoadStory';
 import { MapView } from './components/MapView';
+import { PlanView } from './components/PlanView';
 import { TrainingView, type TrainingJumpApi } from './components/TrainingView';
 import { TrainingLoadChart } from './components/TrainingLoadChart';
 import { TrendPanel } from './components/TrendPanel';
@@ -35,11 +36,13 @@ import {
   getActivity,
   getBestEfforts,
   getGymSessions,
+  getPlanDays,
   getSiteKey,
   getSyncStatus,
   getWeeks,
   disconnectStrava,
   setSiteKey,
+  savePlanDay,
   SiteUnauthorizedError,
   stravaLoginUrl,
   triggerSync,
@@ -56,6 +59,7 @@ import type {
   GymSession,
   Severity,
   SyncStatus,
+  TrainingPlanDay,
   TrendMetricKey,
   WeeklyAnalysis,
   WeeklyRunBlock,
@@ -93,10 +97,16 @@ export default function App() {
   const [localWeeks, setLocalWeeks] = useState<WeeklyRunBlock[] | null>(null);
   const [activities, setActivities] = useState<ActivitySummary[]>([]);
   const [gymSessions, setGymSessions] = useState<GymSession[]>([]);
+  const [planDays, setPlanDays] = useState<TrainingPlanDay[]>([]);
+  const [planLoading, setPlanLoading] = useState(true);
+  const [planLoadError, setPlanLoadError] = useState('');
+  const [planHasUnsavedChanges, setPlanHasUnsavedChanges] = useState(false);
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
   const [activityDetail, setActivityDetail] = useState<ActivityDetail | null>(null);
   const [activityFocus, setActivityFocus] = useState<{ id: string; request: number } | null>(null);
   const activityFocusRequest = useRef(0);
+  const coreLoadRequest = useRef(0);
+  const planLoadRequest = useRef(0);
   const [bestEffortGroups, setBestEffortGroups] = useState<BestEffortDistance[]>([]);
   const [bestEffortsLoading, setBestEffortsLoading] = useState(false);
   const [bestEffortsError, setBestEffortsError] = useState('');
@@ -110,16 +120,35 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileNav, setMobileNav] = useState<MobileNavKey>('home');
   const [trainingJump, setTrainingJump] = useState<TrainingJumpApi | null>(null);
+  const confirmPlanNavigation = useCallback(
+    (next: ViewMode): boolean => {
+      if (next === view || view !== 'plan' || !planHasUnsavedChanges) {
+        return true;
+      }
+      const discard = window.confirm('Discard unsaved Plan changes?');
+      if (discard) {
+        setPlanHasUnsavedChanges(false);
+      }
+      return discard;
+    },
+    [planHasUnsavedChanges, view],
+  );
   const selectView = useCallback((next: ViewMode) => {
+    if (!confirmPlanNavigation(next)) {
+      return;
+    }
     setView(next);
     setMenuOpen(false);
     setMobileNav(next);
-  }, []);
+  }, [confirmPlanNavigation]);
   const selectMobileNav = useCallback((next: MobileNavKey) => {
+    if (!confirmPlanNavigation(next)) {
+      return;
+    }
     setMobileNav(next);
     setMenuOpen(false);
     setView(next);
-  }, []);
+  }, [confirmPlanNavigation]);
   const [range, setRange] = useState<RangePreset>('12w');
   const [colorBy, setColorBy] = useState<ColorBy>('severity');
   const [metric, setMetric] = useState<TrendMetricKey>('stride');
@@ -165,14 +194,18 @@ export default function App() {
   const isGarminSource = status?.source === 'garmin-health-data' || (!status?.connected && hasTrainingData);
 
   const openActivityInCalendar = useCallback((activityId: string) => {
+    if (!confirmPlanNavigation('calendar')) {
+      return;
+    }
     activityFocusRequest.current += 1;
     setActivityFocus({ id: activityId, request: activityFocusRequest.current });
     setView('calendar');
     setMobileNav('calendar');
     setMenuOpen(false);
-  }, []);
+  }, [confirmPlanNavigation]);
 
   const loadData = useCallback(async () => {
+    const request = ++coreLoadRequest.current;
     setLoadError('');
     try {
       const [nextStatus, nextWeeks, nextActivities, nextGym] = await Promise.all([
@@ -181,11 +214,13 @@ export default function App() {
         getActivities(),
         getGymSessions().catch(() => [] as GymSession[]),
       ]);
+      if (request !== coreLoadRequest.current) {
+        return;
+      }
       setStatus(nextStatus);
       setApiWeeks(nextWeeks);
       setActivities(nextActivities);
       setGymSessions(nextGym);
-      setNeedsPassword(false);
       // Garmin data syncs via GitHub Actions; a stale "Strava is not connected"
       // error is irrelevant noise for a Garmin-sourced store, so don't surface it.
       const garminSourced =
@@ -198,6 +233,9 @@ export default function App() {
         setLoadError('');
       }
     } catch (error) {
+      if (request !== coreLoadRequest.current) {
+        return;
+      }
       if (error instanceof SiteUnauthorizedError) {
         setNeedsPassword(true);
         setPasswordError(getSiteKey() ? 'That password was not accepted. Try again.' : '');
@@ -207,18 +245,70 @@ export default function App() {
     }
   }, []);
 
+  const loadPlanData = useCallback(async () => {
+    const request = ++planLoadRequest.current;
+    setPlanLoading(true);
+    setPlanLoadError('');
+    try {
+      const nextPlanDays = await getPlanDays();
+      if (request !== planLoadRequest.current) {
+        return;
+      }
+      setPlanDays(nextPlanDays);
+    } catch (error) {
+      if (request !== planLoadRequest.current) {
+        return;
+      }
+      if (error instanceof SiteUnauthorizedError) {
+        setNeedsPassword(true);
+        setPasswordError(getSiteKey() ? 'That password was not accepted. Try again.' : '');
+      } else {
+        setPlanLoadError(error instanceof Error ? error.message : 'Could not load the training plan.');
+      }
+    } finally {
+      if (request === planLoadRequest.current) {
+        setPlanLoading(false);
+      }
+    }
+  }, []);
+
+  const handleSavePlanDay = useCallback(
+    async (
+      date: string,
+      patch: { plannedText?: string; notes?: string; expectedUpdatedAt: string | null },
+    ) => {
+      const saved = await savePlanDay(date, patch);
+      setPlanDays((current) => {
+        const withoutSaved = current.filter((day) => day.date !== saved.date);
+        return [...withoutSaved, saved].sort((a, b) => a.date.localeCompare(b.date));
+      });
+      return saved;
+    },
+    [],
+  );
+
+  const handleReloadPlanDay = useCallback(async (date: string) => {
+    const [fresh] = await getPlanDays({ from: date, to: date });
+    setPlanDays((current) => {
+      const withoutDate = current.filter((day) => day.date !== date);
+      return fresh ? [...withoutDate, fresh].sort((a, b) => a.date.localeCompare(b.date)) : withoutDate;
+    });
+    return fresh;
+  }, []);
+
   const submitPassword = useCallback(
     async (value: string) => {
       setSiteKey(value.trim());
       setNeedsPassword(false);
-      await loadData();
+      await Promise.all([loadData(), loadPlanData()]);
     },
-    [loadData],
+    [loadData, loadPlanData],
   );
 
   useEffect(() => {
     void loadData();
-  }, [loadData]);
+    void loadPlanData();
+  }, [loadData, loadPlanData]);
 
   useEffect(() => {
     if (!bestEffortFrom) {
@@ -339,12 +429,16 @@ export default function App() {
     if (!file) {
       return;
     }
+    if (!confirmPlanNavigation('analysis')) {
+      return;
+    }
     try {
       const csvText = await file.text();
       const imported = parseActivityCsv(csvText, file.name);
       setLocalWeeks(imported.weeks);
       setBanner(`Loaded ${imported.weekCount} weeks from ${file.name} (analysis only - CSV has no routes).`);
       setView('analysis');
+      setMobileNav('analysis');
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'The file could not be imported.');
     }
@@ -532,7 +626,18 @@ export default function App() {
           onOpenActivity={openActivityInCalendar}
         />
       ) : view === 'plan' ? (
-        <PlanView loadModel={loadModel} />
+        <PlanView
+          planDays={planDays}
+          activities={activities}
+          gymSessions={gymSessions}
+          loading={planLoading}
+          loadError={planLoadError}
+          onRetry={loadPlanData}
+          onSave={handleSavePlanDay}
+          onReloadDay={handleReloadPlanDay}
+          onOpenActivity={openActivityInCalendar}
+          onDirtyStateChange={setPlanHasUnsavedChanges}
+        />
       ) : view === 'map' ? (
         <main className="map-stage">
           <MapView
@@ -578,6 +683,7 @@ export default function App() {
           activities={activities}
           analyses={usingSample ? [] : analyses}
           gymSessions={gymSessions}
+          planDays={planDays}
           usingSample={usingSample}
           onJumpApi={setTrainingJump}
           activityFocus={activityFocus}
@@ -1104,42 +1210,6 @@ function FitnessView({
   );
 }
 
-function PlanView({ loadModel }: { loadModel: TrainingLoadModel }) {
-  const latestWeek = lastItem(loadModel.weeks);
-  const plan = buildSuggestedPlan(loadModel);
-  return (
-    <main className="product-page plan-view">
-      <section className="product-page-head">
-        <p className="eyebrow">Plan</p>
-        <h2>Your training plan</h2>
-        <p>A goal-specific week built around your zones, current load, and what your recent training is missing.</p>
-      </section>
-
-      <section className="product-card plan-week-card">
-        <header>
-          <div>
-            <span>Suggested week</span>
-            <strong>{plan.focus}</strong>
-          </div>
-          <small>{latestWeek ? `Current load ${latestWeek.load.toFixed(1)}` : 'Build after sync'}</small>
-        </header>
-        <div className="plan-day-list">
-          {plan.days.map((day) => (
-            <article key={day.day} className={`plan-day-row tone-${day.tone}`}>
-              <span>{day.day}</span>
-              <div>
-                <h3>{day.title}</h3>
-                <p>{day.prescription}</p>
-                <small>{day.reason}</small>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-    </main>
-  );
-}
-
 function SessionMiniCard({ session }: { session: SessionLoad }) {
   const kind = classifyProductSession(session);
   return (
@@ -1338,34 +1408,6 @@ function buildProductZones(thresholds: TrainingLoadModel['thresholds']) {
     pace: formatIfPaceRange(thresholds.thresholdPaceSecPerKm, zone.ifMin, zone.ifMax),
     hr: formatHrRange(thresholds.thresholdHeartRate, zone.hrMin, zone.hrMax),
   }));
-}
-
-function buildSuggestedPlan(loadModel: TrainingLoadModel) {
-  const latest = lastItem(loadModel.sessions);
-  const anchor = latest ? new Date(latest.activity.startDate).getTime() : Date.now();
-  const lastQuality = [...loadModel.sessions].reverse().find((session) => classifyProductSession(session).label === 'Session');
-  const qualityDays = lastQuality ? daysBetween(anchor, new Date(lastQuality.activity.startDate).getTime()) : 99;
-  const focus = qualityDays > 14 ? 'Threshold + long run' : 'Maintain aerobic rhythm';
-  const threshold = formatPace(loadModel.thresholds.thresholdPaceSecPerKm);
-  const easy = formatIfPaceRange(loadModel.thresholds.thresholdPaceSecPerKm, 0.68, 0.78);
-  return {
-    focus,
-    days: [
-      { day: 'Mon', title: 'Easy Zone 2', prescription: `35-50 min · ${easy}`, reason: 'Aerobic base without adding much fatigue.', tone: 'easy' },
-      { day: 'Tue', title: 'Rest or mobility', prescription: 'Walk, mobility, sleep.', reason: 'Protect freshness before quality.', tone: 'muted' },
-      {
-        day: 'Wed',
-        title: qualityDays > 14 ? 'LT2 touch' : 'Steady aerobic',
-        prescription: qualityDays > 14 ? `3-4 x 8 min near ${threshold}` : `45-60 min controlled · ${easy}`,
-        reason: qualityDays > 14 ? 'Threshold-quality work is the clearest current gap.' : 'Keep pressure controlled while recent quality is fresh.',
-        tone: qualityDays > 14 ? 'hard' : 'moderate',
-      },
-      { day: 'Thu', title: 'Recovery jog', prescription: '25-40 min very easy', reason: 'Flush the legs after the quality day.', tone: 'easy' },
-      { day: 'Fri', title: 'Rest', prescription: 'No run unless you feel unusually fresh.', reason: 'Leave room for the weekend long run.', tone: 'muted' },
-      { day: 'Sat', title: 'Long easy', prescription: '75-95 min relaxed', reason: 'Durability and aerobic volume are the main builder.', tone: 'hard' },
-      { day: 'Sun', title: 'Easy + strides', prescription: '35-45 min easy + 4 relaxed strides', reason: 'Keep mechanics alive without turning it into a session.', tone: 'moderate' },
-    ],
-  };
 }
 
 function formatRaceTime(totalSeconds: number): string {

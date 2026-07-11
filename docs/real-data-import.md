@@ -1,5 +1,51 @@
 # Real Data Import
 
+## Manual training-plan CSV
+
+Lydiard can migrate the daily `Date / Planned / Actual / Notes` ledger exported from the RUNMASTER
+Google Sheet. Keep the exports under the gitignored `tmp/` directory because Notes may contain
+private health and training details.
+
+```bash
+# Parse only; no network or database writes.
+npm run plan:import -- --dry-run
+
+# Ask Lydiard to verify every non-empty Actual row against Garmin by local date
+# and moving duration (two-minute tolerance), without writing.
+LYDIARD_INGEST_KEY='...' npm run plan:import -- --validate
+
+# Import after the strict preflight passes.
+LYDIARD_INGEST_KEY='...' npm run plan:import
+```
+
+The importer finds the real header after the sheet preamble, ignores `Week total`, `Week continues`,
+and `Month total` rows, validates each weekday/date, and preserves decoded Planned and Notes text
+without trimming it. Durations can use minutes or hours (`57m`, `1h 10m`); split Actual cells such
+as `AM 40m PM 30m` match two chronological Garmin runs on the same local calendar date. `+ gym` and
+`+ strides` annotations do not affect run-duration
+matching; Garmin gym sessions are displayed separately by date.
+
+The default target is the deployed Worker. For local development, use:
+
+```bash
+set -a; . ./.dev.vars; set +a
+LYDIARD_INGEST_KEY="$AGENT_API_KEY" \
+LYDIARD_BASE_URL=http://localhost:8787 \
+npm run plan:import
+```
+
+Re-running the importer is non-destructive by default: existing plan rows are kept. `--overwrite`
+explicitly resets editable Planned/Notes values from the CSV while retaining the immutable original
+planned text. `--allow-unmatched` is available for an intentionally incomplete local Garmin store;
+do not use it for the production migration. Plan writes are capped at 40 meaningful days per request
+to stay within D1 limits; split larger exports into smaller batches.
+
+Actual runs are never copied into the plan table. The Plan UI groups the current Garmin activity
+store by `startDateLocal`, so new runs—including double days—appear automatically after every Garmin
+sync. Planned sessions and Notes can be edited with the authenticated site password, and the same
+date-level Notes appear on Calendar run cards and in clicked run details. Saves use per-row versions,
+so a stale browser is asked to reload the saved day instead of overwriting a newer edit.
+
 The fastest path to real analysis is Strava login through the local OAuth backend. CSV import remains available as a fallback and for Garmin activity exports.
 
 ## Strava Login

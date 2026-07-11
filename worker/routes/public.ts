@@ -13,7 +13,11 @@ import {
   getGymSessions,
   getStreams,
   getSyncState,
+  getTrainingPlanDay,
+  getTrainingPlanDays,
   getWeeklyFeatures,
+  patchTrainingPlanDay,
+  TrainingPlanConflictError,
 } from '../db';
 import { normalizeFrom, normalizeTo } from '../http';
 import {
@@ -96,8 +100,16 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
     if (!activity) {
       return c.json({ error: 'Activity not found' }, 404);
     }
-    const streams = await getStreams(c.env.lydiard, activity.id);
-    const detail: ActivityDetail = { ...activity, streams: streams ?? undefined };
+    const localDate = (activity.startDateLocal || activity.startDate).slice(0, 10);
+    const [streams, planDay] = await Promise.all([
+      getStreams(c.env.lydiard, activity.id),
+      getTrainingPlanDay(c.env.lydiard, localDate),
+    ]);
+    const detail: ActivityDetail = {
+      ...activity,
+      streams: streams ?? undefined,
+      planDay: planDay ?? undefined,
+    };
     return c.json(detail);
   });
 
@@ -107,6 +119,80 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
       to: normalizeTo(c.req.query('to')),
     });
     return c.json({ sessions });
+  });
+
+  app.get('/plan', async (c) => {
+    const from = optionalPlanDate(c.req.query('from'));
+    const to = optionalPlanDate(c.req.query('to'));
+    if (from === null || to === null) {
+      return c.json({ error: 'Plan from/to must use YYYY-MM-DD.' }, 400);
+    }
+    if (from && to && from > to) {
+      return c.json({ error: 'Plan from must not be after to.' }, 400);
+    }
+    const days = await getTrainingPlanDays(c.env.lydiard, {
+      from: from ?? undefined,
+      to: to ?? undefined,
+    });
+    return c.json({ days });
+  });
+
+  app.patch('/plan/:date', async (c) => {
+    const date = requiredPlanDate(c.req.param('date'));
+    if (!date) {
+      return c.json({ error: 'Plan date must use YYYY-MM-DD.' }, 400);
+    }
+
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json({ error: 'Request body must be JSON.' }, 400);
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return c.json({ error: 'Request body must be an object.' }, 400);
+    }
+    const body = payload as Record<string, unknown>;
+    const hasPlannedText = Object.prototype.hasOwnProperty.call(body, 'plannedText');
+    const hasNotes = Object.prototype.hasOwnProperty.call(body, 'notes');
+    const hasExpectedUpdatedAt = Object.prototype.hasOwnProperty.call(body, 'expectedUpdatedAt');
+    if (!hasPlannedText && !hasNotes) {
+      return c.json({ error: 'Provide plannedText and/or notes.' }, 400);
+    }
+    if (!hasExpectedUpdatedAt) {
+      return c.json({ error: 'expectedUpdatedAt is required (use null when the day did not exist).' }, 400);
+    }
+    if ((hasPlannedText && typeof body.plannedText !== 'string') || (hasNotes && typeof body.notes !== 'string')) {
+      return c.json({ error: 'plannedText and notes must be strings.' }, 400);
+    }
+    if (
+      body.expectedUpdatedAt !== null &&
+      (typeof body.expectedUpdatedAt !== 'string' || !Number.isFinite(Date.parse(body.expectedUpdatedAt)))
+    ) {
+      return c.json({ error: 'expectedUpdatedAt must be an ISO timestamp.' }, 400);
+    }
+    if (hasPlannedText && (body.plannedText as string).length > 20_000) {
+      return c.json({ error: 'plannedText must not exceed 20000 characters.' }, 400);
+    }
+    if (hasNotes && (body.notes as string).length > 100_000) {
+      return c.json({ error: 'notes must not exceed 100000 characters.' }, 400);
+    }
+
+    // Values are bound exactly as supplied. In particular, do not trim notes:
+    // imported/manual line breaks and leading whitespace are meaningful.
+    try {
+      const day = await patchTrainingPlanDay(c.env.lydiard, date, {
+        plannedText: hasPlannedText ? (body.plannedText as string) : undefined,
+        notes: hasNotes ? (body.notes as string) : undefined,
+        expectedUpdatedAt: body.expectedUpdatedAt as string | null,
+      });
+      return c.json({ day });
+    } catch (error) {
+      if (error instanceof TrainingPlanConflictError) {
+        return c.json({ error: 'This plan day changed elsewhere. Reload the Plan before saving.' }, 409);
+      }
+      throw error;
+    }
   });
 
   app.get('/weeks', async (c) => {
@@ -180,6 +266,22 @@ function syncSource(lastResult: string | null): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function optionalPlanDate(value: string | undefined): string | undefined | null {
+  if (value === undefined || value === '') {
+    return undefined;
+  }
+  return requiredPlanDate(value) ?? null;
+}
+
+function requiredPlanDate(value: string): string | undefined {
+  const date = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return undefined;
+  }
+  const parsed = new Date(`${date}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date ? date : undefined;
 }
 
 const BEST_EFFORT_TARGETS = [

@@ -17,7 +17,7 @@ app.use('/api/*', (c, next) => {
   const origin = c.env.APP_ORIGIN || '*';
   return cors({
     origin,
-    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    allowMethods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization', 'X-Lydiard-Key'],
   })(c, next);
 });

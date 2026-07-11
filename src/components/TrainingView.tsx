@@ -21,7 +21,7 @@ import {
 } from '../analysis/loadModel';
 import { getActivity } from '../data/api';
 import { activityPaceSecPerKm, decodePolyline, toWeekIdUtc } from '../data/mapRoutes';
-import type { ActivityDetail, ActivitySummary, GymSession, WeeklyAnalysis } from '../types';
+import type { ActivityDetail, ActivitySummary, GymSession, TrainingPlanDay, WeeklyAnalysis } from '../types';
 import { MetricInfo, MetricsGuide, type MetricKey } from './MetricInfo';
 
 const GUIDE_METRICS: MetricKey[] = [
@@ -56,6 +56,7 @@ interface TrainingViewProps {
   activities: ActivitySummary[];
   analyses: WeeklyAnalysis[];
   gymSessions: GymSession[];
+  planDays: TrainingPlanDay[];
   usingSample: boolean;
   onJumpApi?: (api: TrainingJumpApi | null) => void;
   activityFocus?: { id: string; request: number } | null;
@@ -78,6 +79,7 @@ interface CalendarDay {
   distanceKm: number;
   load: number;
   tone: MetricTone;
+  planDay?: TrainingPlanDay;
 }
 
 type RangeKey = '3m' | '6m' | '12m' | '10y' | 'all';
@@ -150,7 +152,7 @@ const ZONE_TEMPLATES: ZoneTemplate[] = [
   { key: 'z5', label: 'Z5', name: 'VO2 / faster', tone: 'danger' as MetricTone, ifMin: 1.02, hrMinRatio: 1.02 },
 ];
 
-export function TrainingView({ activities, analyses, gymSessions, usingSample, onJumpApi, activityFocus }: TrainingViewProps) {
+export function TrainingView({ activities, analyses, gymSessions, planDays, usingSample, onJumpApi, activityFocus }: TrainingViewProps) {
   const [range, setRange] = useState<RangeKey>('all');
   const [showGuide, setShowGuide] = useState(false);
   const [visibleWeekCount, setVisibleWeekCount] = useState(INITIAL_WEEK_COUNT);
@@ -165,6 +167,7 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
   const loadModel = useMemo(() => buildTrainingLoadModel(activities), [activities]);
   const scoped = useMemo(() => scopeLoadModel(loadModel, range, gymSessions), [loadModel, range, gymSessions]);
   const trainingZones = useMemo(() => buildTrainingZones(loadModel.thresholds), [loadModel.thresholds]);
+  const planByDate = useMemo(() => new Map(planDays.map((day) => [day.date, day])), [planDays]);
   const analysisByWeek = useMemo(
     () => new Map(analyses.map((analysis) => [analysis.week.weekStart, analysis])),
     [analyses],
@@ -173,6 +176,9 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
   const latestDaily = scoped.daily[scoped.daily.length - 1];
   const latestSession = scoped.sessions[0];
   const previewSession = previewId ? loadModel.sessionsById.get(previewId) : undefined;
+  const previewPlanDay = previewSession
+    ? planByDate.get((previewSession.activity.startDateLocal || previewSession.activity.startDate).slice(0, 10))
+    : undefined;
   const runCount = scoped.sessions.length;
   const gymCount = scoped.gymCount;
   const hrCount = scoped.sessions.filter((session) => session.activity.averageHeartRate).length;
@@ -445,11 +451,12 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
                       week={entry.week}
                       gym={entry.gym}
                       analysis={analysisByWeek.get(entry.weekId)}
+                      planByDate={planByDate}
                       previewId={previewId}
                       onPreview={setPreviewId}
                     />
                   ) : (
-                    <GymOnlyBlock weekId={entry.weekId} gym={entry.gym} />
+                    <GymOnlyBlock weekId={entry.weekId} gym={entry.gym} planByDate={planByDate} />
                   )}
                 </div>
               );
@@ -473,7 +480,13 @@ export function TrainingView({ activities, analyses, gymSessions, usingSample, o
             >
               <X size={16} aria-hidden="true" />
             </button>
-            <ActivityPreview detail={previewDetail} session={previewSession} loading={previewLoading} zones={trainingZones} />
+            <ActivityPreview
+              detail={previewDetail}
+              session={previewSession}
+              loading={previewLoading}
+              zones={trainingZones}
+              planDay={previewPlanDay}
+            />
           </div>
         )}
       </section>
@@ -485,16 +498,18 @@ function WeekBlock({
   week,
   gym,
   analysis,
+  planByDate,
   previewId,
   onPreview,
 }: {
   week: WeekLoadSummary;
   gym: GymSession[];
   analysis?: WeeklyAnalysis;
+  planByDate: Map<string, TrainingPlanDay>;
   previewId: string | null;
   onPreview: (id: string) => void;
 }) {
-  const days = buildWeekCalendarDays(week.weekId, week.sessions, gym);
+  const days = buildWeekCalendarDays(week.weekId, week.sessions, gym, planByDate);
   return (
     <article className={`training-week-block ${week.severity}`}>
       <header className="training-week-head">
@@ -578,8 +593,16 @@ function ZoneSummary({ zones }: { zones: TrainingZone[] }) {
 }
 
 // A week with gym but no runs still shows, so gym history is never hidden.
-function GymOnlyBlock({ weekId, gym }: { weekId: string; gym: GymSession[] }) {
-  const days = buildWeekCalendarDays(weekId, [], gym);
+function GymOnlyBlock({
+  weekId,
+  gym,
+  planByDate,
+}: {
+  weekId: string;
+  gym: GymSession[];
+  planByDate: Map<string, TrainingPlanDay>;
+}) {
+  const days = buildWeekCalendarDays(weekId, [], gym, planByDate);
   return (
     <article className="training-week-block gym-only">
       <header className="training-week-head">
@@ -634,9 +657,11 @@ function CalendarDayColumn({
 }) {
   const hasRun = day.sessions.length > 0;
   const hasGym = day.gym.length > 0;
+  const note = day.planDay?.notes;
+  const hasNote = Boolean(note && note.length > 0);
   return (
     <section
-      className={`week-day-cell tone-${day.tone}${hasRun ? ' has-run' : ''}${hasGym ? ' has-gym' : ''}`}
+      className={`week-day-cell tone-${day.tone}${hasRun ? ' has-run' : ''}${hasGym ? ' has-gym' : ''}${hasNote ? ' has-note' : ''}`}
       aria-label={`${day.weekday} ${day.dateLabel}`}
     >
       <header className="week-day-head">
@@ -659,12 +684,14 @@ function CalendarDayColumn({
             session={session}
             active={previewId === session.activity.id}
             onPreview={onPreview}
+            note={note}
           />
         ))}
         {day.gym.map((session) => (
           <GymSessionPill key={session.id} session={session} />
         ))}
-        {!hasRun && !hasGym && <span className="week-rest-label">Rest</span>}
+        {hasNote && !hasRun && <CalendarDayNote note={note as string} />}
+        {!hasRun && !hasGym && !hasNote && <span className="week-rest-label">Rest</span>}
       </div>
     </section>
   );
@@ -674,10 +701,12 @@ function CalendarRunCard({
   session,
   active,
   onPreview,
+  note,
 }: {
   session: SessionLoad;
   active: boolean;
   onPreview?: (id: string) => void;
+  note?: string;
 }) {
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const activity = session.activity;
@@ -730,6 +759,11 @@ function CalendarRunCard({
       <span className={`calendar-run-reason tone-${runKind.tone}`} title={runKind.reasons.join(' ')}>
         {calendarRunSummary(runKind.key)}
       </span>
+      {note && note.length > 0 && (
+        <span className="calendar-run-note" title={note}>
+          {note}
+        </span>
+      )}
       <span className="calendar-run-primary">
         <strong>{activity.distanceKm.toFixed(1)} km</strong>
         <span>{formatCompactPace(activityPaceSecPerKm(activity))} pace</span>
@@ -742,6 +776,15 @@ function CalendarRunCard({
         <RunMetric label="Load" value={session.load.toFixed(1)} tone={toneForLoad(session.load)} />
       </span>
     </button>
+  );
+}
+
+function CalendarDayNote({ note }: { note: string }) {
+  return (
+    <details className="calendar-day-note">
+      <summary>Day note</summary>
+      <p>{note}</p>
+    </details>
   );
 }
 
@@ -766,11 +809,13 @@ function ActivityPreview({
   session,
   loading,
   zones,
+  planDay,
 }: {
   detail: ActivityDetail | null;
   session: SessionLoad;
   loading: boolean;
   zones: TrainingZone[];
+  planDay?: TrainingPlanDay;
 }) {
   const activity = detail ?? session.activity;
   const split = detail ? splitPaces(detail) : undefined;
@@ -788,6 +833,15 @@ function ActivityPreview({
         {loading && <span>loading</span>}
       </div>
       <RunKindExplanation classification={runKind} />
+      {planDay?.notes && planDay.notes.length > 0 && (
+        <section className="preview-plan-note" aria-label="Day note">
+          <header>
+            <span>Day note</span>
+            <small>{planDay.source === 'legacy-google-sheet' ? 'Imported from RUNMASTER' : 'Plan'}</small>
+          </header>
+          <p>{planDay.notes}</p>
+        </section>
+      )}
       <RoutePreview detail={detail ?? session.activity} />
       <SplitsPreview detail={detail} />
       <HrZoneBreakdown totals={hrZoneTotals} loading={loading} />
@@ -1107,7 +1161,12 @@ function formatHrZoneRange(min?: number, max?: number): string {
   return '-';
 }
 
-function buildWeekCalendarDays(weekId: string, sessions: SessionLoad[], gym: GymSession[]): CalendarDay[] {
+function buildWeekCalendarDays(
+  weekId: string,
+  sessions: SessionLoad[],
+  gym: GymSession[],
+  planByDate: Map<string, TrainingPlanDay>,
+): CalendarDay[] {
   const weekStart = new Date(`${weekId}T00:00:00Z`).getTime();
   return Array.from({ length: 7 }, (_, index) => {
     const day = new Date(weekStart + index * DAY_MS);
@@ -1127,6 +1186,7 @@ function buildWeekCalendarDays(weekId: string, sessions: SessionLoad[], gym: Gym
       distanceKm: daySessions.reduce((total, session) => total + session.activity.distanceKm, 0),
       load: daySessions.reduce((total, session) => total + session.load, 0),
       tone: toneForDay(daySessions),
+      planDay: planByDate.get(dayId),
     };
   });
 }

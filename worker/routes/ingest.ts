@@ -2,13 +2,18 @@ import { Hono } from 'hono';
 import type { ActivityStreams, ActivitySummary, GymSession } from '../../src/types';
 import type { Env } from '../env';
 import {
+  getActivitiesByLocalDateRange,
+  getTrainingPlanDays,
+  importTrainingPlanDays,
   replaceTrainingData,
   upsertActivities,
   saveStreams,
   updateSyncState,
   replaceGymSessions,
   upsertGymSessions,
+  type TrainingPlanImportInput,
 } from '../db';
+import { matchPlanActualDurations } from '../../src/data/planMatching';
 import { computeDecoupling } from '../streams';
 import { recomputeWeeklyFeatures } from '../sync';
 
@@ -28,6 +33,23 @@ interface GymIngestPayload {
   source?: string;
   replace?: boolean;
   sessions?: GymSession[];
+}
+
+interface PlanIngestPayload {
+  source?: unknown;
+  overwrite?: unknown;
+  dryRun?: unknown;
+  requireActualMatches?: unknown;
+  days?: unknown;
+}
+
+interface PlanMatchReport {
+  date: string;
+  expectedActivities: number;
+  candidateActivities: number;
+  matchedActivities: number;
+  matched: boolean;
+  maxDeltaMinutes: number | null;
 }
 
 export function ingestRoutes(): Hono<{ Bindings: Env }> {
@@ -147,6 +169,140 @@ export function ingestRoutes(): Hono<{ Bindings: Env }> {
     });
   });
 
+  app.post('/plan', async (c) => {
+    let payload: PlanIngestPayload;
+    try {
+      payload = (await c.req.json()) as PlanIngestPayload;
+    } catch {
+      return c.json({ error: 'Request body must be JSON.' }, 400);
+    }
+
+    const payloadError = validatePlanPayload(payload);
+    if (payloadError) {
+      return c.json({ error: payloadError }, 400);
+    }
+
+    const source = typeof payload.source === 'string' ? payload.source.trim() : 'legacy-google-sheet';
+    const overwrite = payload.overwrite === true;
+    const dryRun = payload.dryRun === true;
+    const requireActualMatches = payload.requireActualMatches === true;
+    const rawDays = payload.days as Array<Record<string, unknown>>;
+    const cleanDays: TrainingPlanImportInput[] = rawDays.map((raw) => ({
+      date: (raw.date as string).trim(),
+      plannedText: raw.plannedText as string,
+      legacyActualText: raw.legacyActualText as string,
+      notes: raw.notes as string,
+      sourceFile: (raw.sourceFile as string).trim(),
+    }));
+
+    const firstDate = cleanDays.reduce((lowest, day) => (day.date < lowest ? day.date : lowest), cleanDays[0].date);
+    const lastDate = cleanDays.reduce((highest, day) => (day.date > highest ? day.date : highest), cleanDays[0].date);
+    const [activities, storedDays] = await Promise.all([
+      getActivitiesByLocalDateRange(c.env.lydiard, { from: firstDate, to: lastDate }),
+      getTrainingPlanDays(c.env.lydiard, { from: firstDate, to: lastDate }),
+    ]);
+    const storedDates = new Set(storedDays.map((day) => day.date));
+    // A safe no-overwrite rerun validates only rows it could insert. Existing
+    // rows may refer to older Garmin history that is no longer in the query
+    // window, and must not make an otherwise no-op rerun fail preflight.
+    const daysToImport = overwrite ? cleanDays : cleanDays.filter((day) => !storedDates.has(day.date));
+    const activitiesByDate = new Map<string, typeof activities>();
+    for (const activity of activities) {
+      const date = (activity.startDateLocal || activity.startDate).slice(0, 10);
+      const bucket = activitiesByDate.get(date);
+      if (bucket) {
+        bucket.push(activity);
+      } else {
+        activitiesByDate.set(date, [activity]);
+      }
+    }
+
+    const reports: PlanMatchReport[] = [];
+    let actualRows = 0;
+    let matchedRows = 0;
+    let matchedActivities = 0;
+    let maxDeltaMinutes: number | null = null;
+    const unmatchedDates: string[] = [];
+    for (const day of daysToImport) {
+      const candidates = activitiesByDate.get(day.date) ?? [];
+      const match = matchPlanActualDurations(day.legacyActualText, candidates);
+      if (match.expectedMinutes.length === 0) {
+        if (day.legacyActualText.trim().length > 0) {
+          actualRows += 1;
+          unmatchedDates.push(day.date);
+          reports.push({
+            date: day.date,
+            expectedActivities: 0,
+            candidateActivities: match.actualMinutes.length,
+            matchedActivities: 0,
+            matched: false,
+            maxDeltaMinutes: null,
+          });
+        }
+        continue;
+      }
+      actualRows += 1;
+      matchedActivities += match.pairs.length;
+      if (match.matched) {
+        matchedRows += 1;
+      } else {
+        unmatchedDates.push(day.date);
+      }
+      if (match.maxDeltaMinutes !== null) {
+        maxDeltaMinutes = maxDeltaMinutes === null
+          ? match.maxDeltaMinutes
+          : Math.max(maxDeltaMinutes, match.maxDeltaMinutes);
+      }
+      reports.push({
+        date: day.date,
+        expectedActivities: match.expectedMinutes.length,
+        candidateActivities: match.actualMinutes.length,
+        matchedActivities: match.pairs.length,
+        matched: match.matched,
+        maxDeltaMinutes: roundedDelta(match.maxDeltaMinutes),
+      });
+    }
+
+    const wouldImport = daysToImport.length;
+    const summary = {
+      source,
+      overwrite,
+      dryRun,
+      requireActualMatches,
+      imported: 0,
+      wouldImport,
+      actualRows,
+      matchedRows,
+      matchedActivities,
+      maxDeltaMinutes: roundedDelta(maxDeltaMinutes),
+      unmatchedDates,
+      reports,
+    };
+
+    if (requireActualMatches && unmatchedDates.length > 0) {
+      return c.json(
+        {
+          ok: false,
+          error: 'Plan import preflight found Actual rows without parseable, matching same-date Garmin durations.',
+          ...summary,
+        },
+        409,
+      );
+    }
+
+    if (dryRun) {
+      return c.json({ ok: true, ...summary });
+    }
+
+    const imported = await importTrainingPlanDays(c.env.lydiard, daysToImport, { source, overwrite });
+    return c.json({
+      ok: true,
+      ...summary,
+      imported,
+      finishedAt: new Date().toISOString(),
+    });
+  });
+
   return app;
 }
 
@@ -183,4 +339,84 @@ function validateSummary(summary: ActivitySummary | undefined): string | null {
     return `Activity ${summary.id} has an invalid movingTimeSec.`;
   }
   return null;
+}
+
+function validatePlanPayload(payload: PlanIngestPayload): string | null {
+  if (!payload || typeof payload !== 'object') {
+    return 'Request body must be an object.';
+  }
+  if (payload.source !== undefined) {
+    if (typeof payload.source !== 'string' || payload.source.trim() === '' || payload.source.length > 100) {
+      return 'source must be a non-empty string of at most 100 characters.';
+    }
+  }
+  for (const field of ['overwrite', 'dryRun', 'requireActualMatches'] as const) {
+    if (payload[field] !== undefined && typeof payload[field] !== 'boolean') {
+      return `${field} must be a boolean.`;
+    }
+  }
+  if (!Array.isArray(payload.days) || payload.days.length === 0) {
+    return 'days must be a non-empty array.';
+  }
+  if (payload.days.length > 1000) {
+    return 'A plan import is limited to 1000 days.';
+  }
+  if (payload.dryRun !== true && payload.days.length > 40) {
+    return 'A plan write is limited to 40 days; split larger imports into smaller files or batches.';
+  }
+
+  const seenDates = new Set<string>();
+  for (const [index, value] of payload.days.entries()) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return `days[${index}] must be an object.`;
+    }
+    const day = value as Record<string, unknown>;
+    if (typeof day.date !== 'string' || !validPlanDate(day.date.trim())) {
+      return `days[${index}].date must use YYYY-MM-DD.`;
+    }
+    const date = day.date.trim();
+    if (seenDates.has(date)) {
+      return `Duplicate plan date: ${date}.`;
+    }
+    seenDates.add(date);
+    if (typeof day.plannedText !== 'string') {
+      return `days[${index}].plannedText must be a string.`;
+    }
+    if (day.plannedText.length > 20_000) {
+      return `days[${index}].plannedText must not exceed 20000 characters.`;
+    }
+    if (typeof day.legacyActualText !== 'string') {
+      return `days[${index}].legacyActualText must be a string.`;
+    }
+    if (day.legacyActualText.length > 20_000) {
+      return `days[${index}].legacyActualText must not exceed 20000 characters.`;
+    }
+    if (typeof day.notes !== 'string') {
+      return `days[${index}].notes must be a string.`;
+    }
+    if (day.notes.length > 100_000) {
+      return `days[${index}].notes must not exceed 100000 characters.`;
+    }
+    if (
+      typeof day.sourceFile !== 'string' ||
+      day.sourceFile.trim() === '' ||
+      day.sourceFile.trim().length > 500 ||
+      day.sourceFile.includes('\0')
+    ) {
+      return `days[${index}].sourceFile must be a non-empty filename of at most 500 characters.`;
+    }
+  }
+  return null;
+}
+
+function validPlanDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function roundedDelta(value: number | null): number | null {
+  return value === null ? null : Number(value.toFixed(3));
 }

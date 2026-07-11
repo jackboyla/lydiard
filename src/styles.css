@@ -2289,6 +2289,10 @@ dd {
   background: rgba(91, 124, 250, 0.06);
 }
 
+.week-day-cell.has-note {
+  box-shadow: inset 0 0 0 1px rgba(194, 153, 255, 0.2);
+}
+
 .week-day-cell.tone-easy .week-day-head {
   box-shadow: inset 0 3px 0 rgba(34, 185, 130, 0.68);
 }
@@ -2508,6 +2512,21 @@ dd {
   color: var(--danger);
 }
 
+.calendar-run-note {
+  display: -webkit-box;
+  overflow: hidden;
+  padding: 6px 7px;
+  border: 1px solid rgba(194, 153, 255, 0.24);
+  border-radius: 6px;
+  color: #d8c2ff;
+  background: rgba(139, 92, 246, 0.09);
+  font-size: 0.66rem;
+  font-weight: 680;
+  line-height: 1.3;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .calendar-run-primary {
   display: grid;
   gap: 2px;
@@ -2649,6 +2668,41 @@ dd {
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.calendar-day-note {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(194, 153, 255, 0.28);
+  border-radius: 7px;
+  color: #d8c2ff;
+  background: rgba(139, 92, 246, 0.09);
+}
+
+.calendar-day-note summary {
+  cursor: pointer;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.calendar-day-note p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
+.calendar-day-note:not([open]) p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
 }
 
 .week-rest-label {
@@ -2803,6 +2857,47 @@ dd {
 
 .preview-label-reasons.tone-danger {
   border-left-color: var(--danger);
+}
+
+.preview-plan-note {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid rgba(194, 153, 255, 0.3);
+  border-left: 3px solid #a97af2;
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.09);
+}
+
+.preview-plan-note header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.preview-plan-note header span {
+  color: #d8c2ff;
+  font-size: 0.74rem;
+  font-weight: 820;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.preview-plan-note header small {
+  color: var(--subtle);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.preview-plan-note p {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 650;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .route-preview,
@@ -3901,5 +3996,620 @@ dd {
 
   .fitness-chart {
     height: 260px;
+  }
+}
+
+/* ---------- Editable planned / actual training week ---------- */
+
+.plan-editor-page-head .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--accent-strong);
+  font-size: 0.75rem;
+  font-weight: 820;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.plan-editor-card {
+  overflow: hidden;
+  padding: 0;
+}
+
+.plan-editor-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 112px;
+  color: var(--accent-strong);
+}
+
+.plan-editor-status > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.plan-editor-status strong,
+.plan-editor-status p {
+  display: block;
+  margin: 0;
+}
+
+.plan-editor-status p {
+  margin-top: 5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.plan-editor-status.error {
+  color: var(--danger);
+}
+
+.plan-editor-status button {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-strong);
+  background: var(--surface-control);
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.plan-editor-card > .plan-editor-toolbar {
+  align-items: center;
+  padding: 17px 18px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(91, 124, 250, 0.08), transparent);
+}
+
+.plan-editor-toolbar > div > span {
+  display: block;
+  color: var(--subtle);
+  font-size: 0.7rem;
+  font-weight: 820;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.plan-editor-toolbar > div > strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-strong);
+  font-size: 1.25rem;
+  line-height: 1.15;
+}
+
+.plan-week-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--surface-muted);
+}
+
+.plan-week-nav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.plan-week-nav button:hover,
+.plan-week-nav button:focus-visible {
+  color: var(--text-strong);
+  background: var(--surface-control);
+  outline: none;
+}
+
+.plan-week-nav .plan-today-button {
+  min-width: 62px;
+  padding: 0 11px;
+  color: var(--accent-strong);
+  font-size: 0.78rem;
+  font-weight: 780;
+}
+
+.plan-editor-column-head,
+.plan-editor-day {
+  display: grid;
+  grid-template-columns:
+    minmax(80px, 0.48fr)
+    minmax(180px, 1.08fr)
+    minmax(220px, 1.28fr)
+    minmax(220px, 1.42fr)
+    minmax(96px, 0.46fr);
+  gap: 12px;
+}
+
+.plan-editor-column-head {
+  align-items: center;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--subtle);
+  background: var(--surface-muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.plan-editor-day {
+  position: relative;
+  align-items: start;
+  min-width: 0;
+  padding: 14px;
+  border-bottom: 1px solid var(--border-soft);
+  background: rgba(17, 22, 29, 0.24);
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.plan-editor-day:last-child {
+  border-bottom: 0;
+}
+
+.plan-editor-day.is-today {
+  background: rgba(91, 124, 250, 0.08);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.plan-editor-day.is-dirty {
+  background: rgba(242, 201, 76, 0.045);
+}
+
+.plan-editor-date {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-width: 0;
+  padding: 4px 0;
+}
+
+.plan-editor-date > span {
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  font-weight: 820;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.plan-editor-date > strong {
+  color: var(--text-strong);
+  font-size: 1rem;
+  line-height: 1.15;
+}
+
+.plan-editor-date > small {
+  width: fit-content;
+  color: var(--accent-strong);
+  font-size: 0.67rem;
+  font-weight: 760;
+}
+
+.plan-editor-date .plan-legacy-chip {
+  margin-top: 3px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-control);
+  text-transform: uppercase;
+}
+
+.plan-editor-field,
+.plan-editor-actual {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+}
+
+.plan-editor-field > span,
+.plan-editor-mobile-label {
+  display: none;
+  color: var(--subtle);
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.plan-editor-field textarea {
+  display: block;
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  padding: 10px 11px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface-muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 640;
+  line-height: 1.45;
+}
+
+.plan-editor-field textarea::placeholder {
+  color: var(--subtle);
+  opacity: 0.78;
+}
+
+.plan-editor-field textarea:hover {
+  border-color: var(--border);
+}
+
+.plan-editor-field textarea:focus {
+  border-color: var(--accent);
+  outline: 2px solid rgba(91, 124, 250, 0.14);
+  outline-offset: 0;
+}
+
+.plan-editor-field textarea:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.plan-actual-runs,
+.plan-actual-gyms {
+  display: grid;
+  gap: 6px;
+}
+
+.plan-actual-run {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid rgba(34, 185, 130, 0.3);
+  border-radius: 8px;
+  color: var(--green);
+  text-align: left;
+  background: rgba(34, 185, 130, 0.07);
+  cursor: pointer;
+}
+
+.plan-actual-run > svg {
+  margin-top: 1px;
+}
+
+.plan-actual-run > span,
+.plan-actual-run strong,
+.plan-actual-run small {
+  display: block;
+  min-width: 0;
+}
+
+.plan-actual-run strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 0.78rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-actual-run small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 690;
+  line-height: 1.25;
+}
+
+.plan-actual-run:hover,
+.plan-actual-run:focus-visible {
+  border-color: var(--green);
+  background: rgba(34, 185, 130, 0.12);
+  outline: none;
+}
+
+.plan-actual-run.unmatched {
+  border-color: var(--warning-border);
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.plan-actual-match-state {
+  display: block;
+  margin-top: 4px;
+  color: var(--green);
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 780;
+}
+
+.plan-actual-run.unmatched .plan-actual-match-state {
+  color: var(--warning);
+}
+
+.plan-actual-gym {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px dashed rgba(111, 168, 255, 0.34);
+  border-radius: 7px;
+  color: var(--accent-strong);
+  background: rgba(91, 124, 250, 0.06);
+}
+
+.plan-actual-gym strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.73rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-actual-gym small {
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 700;
+}
+
+.plan-no-actual {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 8px 9px;
+  border: 1px dashed var(--border-soft);
+  border-radius: 8px;
+  color: var(--subtle);
+  font-size: 0.76rem;
+  font-weight: 680;
+}
+
+.plan-legacy-audit,
+.plan-legacy-actual {
+  min-width: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.plan-legacy-audit summary,
+.plan-legacy-actual summary,
+.plan-legacy-actual > span {
+  display: block;
+  padding: 7px 8px;
+  color: var(--subtle);
+  font-size: 0.66rem;
+  font-weight: 780;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.plan-legacy-audit summary,
+.plan-legacy-actual summary {
+  cursor: pointer;
+}
+
+.plan-legacy-audit p,
+.plan-legacy-actual p {
+  margin: 0;
+  padding: 0 8px 8px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 650;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.plan-legacy-actual.fallback {
+  border-color: var(--warning-border);
+  background: var(--warning-soft);
+}
+
+.plan-legacy-actual.fallback > span {
+  color: var(--warning);
+}
+
+.plan-legacy-actual.matched {
+  border-color: rgba(34, 185, 130, 0.28);
+  background: rgba(34, 185, 130, 0.05);
+}
+
+.plan-legacy-actual.matched summary {
+  color: var(--green);
+}
+
+.plan-editor-actions {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.plan-editor-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--surface-control);
+  font-size: 0.72rem;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.plan-editor-actions .plan-save-button:not(:disabled) {
+  border-color: rgba(34, 185, 130, 0.42);
+  color: var(--green);
+  background: rgba(34, 185, 130, 0.1);
+}
+
+.plan-editor-actions .plan-cancel-button:not(:disabled):hover,
+.plan-editor-actions .plan-cancel-button:not(:disabled):focus-visible {
+  color: var(--text-strong);
+  border-color: var(--border);
+  outline: none;
+}
+
+.plan-editor-actions button:disabled {
+  cursor: default;
+  opacity: 0.43;
+}
+
+.plan-save-state {
+  color: var(--subtle);
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.plan-save-state.dirty {
+  color: var(--warning);
+}
+
+.plan-save-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--danger);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.plan-save-error svg {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 1080px) {
+  .plan-editor-column-head {
+    display: none;
+  }
+
+  .plan-editor-day {
+    grid-template-areas:
+      "date planned actual"
+      "actions notes notes";
+    grid-template-columns: 92px minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .plan-editor-date {
+    grid-area: date;
+  }
+
+  .plan-editor-planned {
+    grid-area: planned;
+  }
+
+  .plan-editor-actual {
+    grid-area: actual;
+  }
+
+  .plan-editor-notes {
+    grid-area: notes;
+  }
+
+  .plan-editor-actions {
+    grid-area: actions;
+  }
+
+  .plan-editor-field > span,
+  .plan-editor-mobile-label {
+    display: block;
+  }
+}
+
+@media (max-width: 720px) {
+  .plan-editor-page-head h2 {
+    font-size: clamp(2.15rem, 10vw, 3.2rem);
+  }
+
+  .plan-editor-status {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .plan-editor-status button {
+    width: 100%;
+  }
+
+  .plan-editor-card > .plan-editor-toolbar {
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .plan-editor-toolbar > div > strong {
+    font-size: 1.02rem;
+  }
+
+  .plan-editor-day {
+    grid-template-areas:
+      "date"
+      "planned"
+      "actual"
+      "notes"
+      "actions";
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    padding: 15px 13px;
+  }
+
+  .plan-editor-day.is-today {
+    box-shadow: inset 0 3px 0 var(--accent);
+  }
+
+  .plan-editor-date {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 0;
+  }
+
+  .plan-editor-date > small {
+    margin-left: auto;
+  }
+
+  .plan-editor-date .plan-legacy-chip {
+    margin-top: 0;
+    margin-left: 0;
+  }
+
+  .plan-editor-field textarea {
+    min-height: 96px;
+    font-size: 0.88rem;
+  }
+
+  .plan-editor-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .plan-save-state,
+  .plan-save-error {
+    grid-column: 1 / -1;
+  }
+
+  .plan-save-state {
+    text-align: left;
   }
 }
