@@ -14,6 +14,7 @@ assessments and 1–3 week training plans.
 | Method + path | Purpose |
 | --- | --- |
 | `GET /api/agent/plan-context?from&to` | **Start here.** One bundle: latest-week risk, acute/chronic load status, a weekly trend, and planning instructions. |
+| `GET /api/agent/coach-context?asOf&weekStart&lookbackDays` | **Authoritative coach state.** Physiology and confidence, Lydiard phase, current plus future structured sessions, recent run responses, and pending adaptations. |
 | `GET /api/agent/risk?asOf` | Full fatigue analysis (risk score, severity, 6 indicators) for the latest week or the week at `asOf`. |
 | `GET /api/agent/weeks?from&to` | Weekly training features for a date range. |
 | `GET /api/agent/activities?from&to` | Per-activity metrics for a date range (no route geometry). |
@@ -78,6 +79,8 @@ let GitHub Actions run incremental updates. Normal hourly polls use a 7-day acti
 with
 `GARMIN_INCREMENTAL_DAYS` / `GARMIN_EXTRACT_START` / `GARMIN_EXTRACT_END` / `GARMIN_DATA_TYPES`
 available for override.
+
+For coaching questions, prefer `coach-context` over reconstructing zones or a plan from raw activities. It exposes the deterministic policy output used by the web app, including a full one-to-three-week horizon. Weeks after the first are explicitly contingent on the preceding week being absorbed; post-run changes remain proposed until accepted.
 
 ## Script ingest
 

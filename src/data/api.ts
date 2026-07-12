@@ -11,6 +11,17 @@ import type {
   WeeklyAnalysis,
   WeeklyRunBlock,
 } from '../types';
+import type {
+  CoachBlockMutation,
+  CoachContextData,
+  CoachDecisionRecord,
+  CoachEvaluationMutation,
+  CoachFeedbackDraft,
+  CoachFeedbackRecord,
+  CoachPhase,
+  CoachProfileRecord,
+  CriticalPowerDraft,
+} from './coachTypes';
 
 const BASE = ((import.meta.env.VITE_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
 
@@ -81,6 +92,29 @@ async function getJson<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function mutationJson<T>(path: string, method: 'POST' | 'PATCH', body?: unknown): Promise<T> {
+  const response = await fetch(`${BASE}${path}`, {
+    method,
+    headers: { ...siteHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (response.status === 401) {
+    throw new SiteUnauthorizedError();
+  }
+  const payload = (await response.json().catch(() => null)) as (T & { error?: string }) | null;
+  if (!response.ok || !payload) {
+    throw new Error(payload?.error ?? `Request failed: ${response.status}`);
+  }
+  return payload;
+}
+
+function requestId(prefix: string): string {
+  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${random}`;
+}
+
 export function getSyncStatus(): Promise<SyncStatus> {
   return getJson<SyncStatus>('/api/status');
 }
@@ -102,6 +136,83 @@ export async function getBestEfforts(range?: DateRange): Promise<BestEffortDista
 export async function getGymSessions(range?: DateRange): Promise<GymSession[]> {
   const data = await getJson<{ sessions: GymSession[] }>(`/api/gym${rangeQuery(range)}`);
   return data.sessions;
+}
+
+export function getCoachContext(opts: { weekStart?: string; asOf?: string } = {}): Promise<CoachContextData> {
+  const params = new URLSearchParams();
+  if (opts.weekStart) params.set('weekStart', opts.weekStart);
+  if (opts.asOf) params.set('asOf', opts.asOf);
+  const query = params.toString();
+  return getJson<CoachContextData>(`/api/coach/context${query ? `?${query}` : ''}`);
+}
+
+export async function saveCoachPhase(
+  currentPhase: CoachPhase,
+  expectedVersion: number,
+): Promise<CoachProfileRecord> {
+  const payload = await mutationJson<{ profile: CoachProfileRecord }>('/api/coach/profile', 'PATCH', {
+    expectedVersion,
+    patch: { currentPhase, phaseStartedOn: new Date().toISOString().slice(0, 10) },
+  });
+  return payload.profile;
+}
+
+export async function addCoachCriticalPower(input: CriticalPowerDraft): Promise<void> {
+  await mutationJson('/api/coach/critical-power', 'POST', input);
+}
+
+export function proposeCoachBlock(startWeek: string, weekCount: 1 | 2 | 3): Promise<CoachBlockMutation> {
+  return mutationJson<CoachBlockMutation>('/api/coach/block/propose', 'POST', {
+    startWeek,
+    weekCount,
+    requestId: requestId(`block-${startWeek}-${weekCount}`),
+  });
+}
+
+export function acceptCoachBlock(decisionId: string, expectedProfileVersion: number): Promise<CoachBlockMutation> {
+  return mutationJson<CoachBlockMutation>('/api/coach/block/accept', 'POST', {
+    decisionId,
+    expectedProfileVersion,
+  });
+}
+
+export async function saveCoachFeedback(activityId: string, draft: CoachFeedbackDraft): Promise<CoachFeedbackRecord> {
+  const pain = draft.pain === 'none' ? 0 : draft.pain === 'mild' ? 3 : 6;
+  const payload = await mutationJson<{ feedback: CoachFeedbackRecord }>(
+    `/api/coach/activities/${encodeURIComponent(activityId)}/feedback`,
+    'POST',
+    {
+      plannedSessionId: draft.plannedSessionId,
+      energy: draft.energy,
+      legCondition: draft.legCondition,
+      sessionFeel: draft.sessionFeel,
+      perceivedCost: draft.sessionFeel === 'harder' ? 'high' : draft.sessionFeel === 'easier' ? 'low' : 'expected',
+      painDuring: pain,
+      painAfter: pain,
+      painLocation: draft.painLocation,
+      alteredGait: draft.alteredGait,
+      note: draft.note ?? '',
+    },
+  );
+  return payload.feedback;
+}
+
+export function evaluateCoachActivity(activityId: string, plannedSessionId?: string): Promise<CoachEvaluationMutation> {
+  return mutationJson<CoachEvaluationMutation>(
+    `/api/coach/activities/${encodeURIComponent(activityId)}/evaluate`,
+    'POST',
+    { plannedSessionId, requestId: requestId(`evaluation-${activityId}`) },
+  );
+}
+
+export function applyCoachDecision(decisionId: string, expectedProfileVersion: number): Promise<{ decision: CoachDecisionRecord }> {
+  return mutationJson(`/api/coach/decisions/${encodeURIComponent(decisionId)}/apply`, 'POST', {
+    expectedProfileVersion,
+  });
+}
+
+export function rejectCoachDecision(decisionId: string): Promise<{ decision: CoachDecisionRecord }> {
+  return mutationJson(`/api/coach/decisions/${encodeURIComponent(decisionId)}/reject`, 'POST');
 }
 
 export async function getPlanDays(range?: DateRange): Promise<TrainingPlanDay[]> {

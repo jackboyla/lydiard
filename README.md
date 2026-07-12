@@ -39,6 +39,9 @@ run in **both** the Worker and the browser.
 - **Agent-native:** a Bearer-key REST API + OpenAPI schema for ChatGPT to assess injury risk and
   plan the next 1–3 weeks. See [docs/agent-api.md](docs/agent-api.md).
 - **Personalized:** all signals compare each week to the runner's own rolling baselines.
+- **Stateful Lydiard coach:** date-effective Stryd Critical Power, evidence-backed CS/CP and
+  LT1/LT2 bands, power-first load with separate HR cost, coherent 1–3 week future blocks, fast
+  post-run feedback, and explicit future-session adaptations with an audit trail.
 
 ## Run locally
 
@@ -80,6 +83,7 @@ secrets and visit the `workers.dev` URL on desktop or phone.
 ```bash
 npm run build          # typecheck app + production bundle
 npm run typecheck:worker
+npm run coach:smoke    # deterministic physiology/load/plan/adaptation invariants
 ```
 
 ## Strava app inactive

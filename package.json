@@ -15,6 +15,7 @@
     "garmin:import-gym": "tsx scripts/garmin-gym-import.ts",
     "plan:import": "tsx scripts/import-plan-csv.ts",
     "garmin:sync": "npm run garmin:import-db",
+    "coach:smoke": "tsx scripts/coach-engine-smoke.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit",

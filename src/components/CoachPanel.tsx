@@ -1,0 +1,402 @@
+import { type ReactNode, useMemo, useState } from 'react';
+import {
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  CalendarRange,
+  Check,
+  Gauge,
+  HeartPulse,
+  RefreshCw,
+  Route,
+  Save,
+  ShieldCheck,
+  Sparkles,
+  X,
+  Zap,
+} from 'lucide-react';
+import type { PracticalZone } from '../analysis/coachEngine';
+import type {
+  CoachContextData,
+  CoachDecisionRecord,
+  CoachFeedbackDraft,
+  CoachPhase,
+  CriticalPowerDraft,
+  StoredPlannedSession,
+} from '../data/coachTypes';
+
+export interface CoachPanelProps {
+  context: CoachContextData | null;
+  loading: boolean;
+  error: string;
+  onReload: (weekStart?: string) => Promise<void> | void;
+  onUpdatePhase: (phase: CoachPhase, expectedVersion: number) => Promise<void>;
+  onAddCriticalPower: (input: CriticalPowerDraft) => Promise<void>;
+  onProposeBlock: (startWeek: string, weekCount: 1 | 2 | 3) => Promise<void>;
+  onAcceptBlock: (decisionId: string, expectedVersion: number) => Promise<void>;
+  onSubmitFeedback: (activityId: string, draft: CoachFeedbackDraft) => Promise<void>;
+  onApplyDecision: (decisionId: string, expectedVersion: number) => Promise<void>;
+  onRejectDecision: (decisionId: string) => Promise<void>;
+  onOpenActivity: (activityId: string) => void;
+}
+
+const PHASES: Array<{ value: CoachPhase; label: string }> = [
+  { value: 'aerobic_conditioning', label: 'Aerobic conditioning & durability' },
+  { value: 'hill_resistance', label: 'Hill resistance & strength' },
+  { value: 'anaerobic_development', label: 'Anaerobic & race-specific' },
+  { value: 'coordination', label: 'Coordination & sharpening' },
+  { value: 'recovery_regeneration', label: 'Recovery & regeneration' },
+];
+
+export function CoachPanel(props: CoachPanelProps) {
+  const { context } = props;
+  const [working, setWorking] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [horizon, setHorizon] = useState<1 | 2 | 3>(3);
+  const [startWeek, setStartWeek] = useState(() => nextMonday(new Date()));
+  const [cpWatts, setCpWatts] = useState('');
+  const [cpEffective, setCpEffective] = useState(() => new Date().toISOString().slice(0, 10));
+
+  const act = async (name: string, action: () => Promise<void>) => {
+    setWorking(name);
+    setActionError('');
+    try {
+      await action();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Coach action failed.');
+    } finally {
+      setWorking('');
+    }
+  };
+
+  if (props.loading && !context) {
+    return (
+      <section className="product-card coach-loading" aria-live="polite">
+        <RefreshCw className="spin" size={19} aria-hidden="true" />
+        <div><strong>Building your coaching context</strong><p>Reading recent streams, physiology evidence, plans, and responses.</p></div>
+      </section>
+    );
+  }
+  if (!context) {
+    return (
+      <section className="product-card coach-error" role="alert">
+        <AlertTriangle size={20} aria-hidden="true" />
+        <div><strong>Coach context is unavailable</strong><p>{props.error || 'Apply the stateful-coach migration, then retry.'}</p></div>
+        <button type="button" onClick={() => void props.onReload()}>Retry</button>
+      </section>
+    );
+  }
+
+  const proposal = latestDecision(context.recentDecisions, ['training_block', 'weekly_plan'], 'proposed');
+  const pendingAdaptations = context.recentDecisions.filter(
+    (decision) => decision.decisionType === 'post_run_evaluation' && decision.status === 'proposed',
+  );
+  const canonicalCp = context.physiology.canonicalCriticalPower;
+
+  return (
+    <section className="coach-shell" aria-label="Stateful Lydiard coach">
+      <header className={`coach-hero coach-state-${context.observedState.state}`}>
+        <div>
+          <p className="eyebrow"><Sparkles size={15} aria-hidden="true" /> Stateful Lydiard coach</p>
+          <h2>{stateHeadline(context.observedState.state)}</h2>
+          <p>{stateExplanation(context)}</p>
+        </div>
+        <div className="coach-hero-actions">
+          <span className={`coach-state-pill ${context.observedState.state}`}>{context.observedState.state}</span>
+          <button type="button" onClick={() => void props.onReload(context.currentWeek.weekStart)} disabled={Boolean(working)}>
+            <RefreshCw size={15} aria-hidden="true" /> Refresh evidence
+          </button>
+        </div>
+      </header>
+
+      {(props.error || actionError) && <p className="coach-action-error" role="alert">{actionError || props.error}</p>}
+
+      <div className="coach-roadmap" aria-label="Goal roadmap">
+        <RoadmapStep index="1" title="Durable healthy training" detail="Continuity, knees/Achilles, strength, and absorbed aerobic density." active />
+        <ArrowRight size={18} aria-hidden="true" />
+        <RoadmapStep index="2" title={`Sub-${context.goals.firstMilestone.target} 5K`} detail="First performance milestone · 3:00/km." />
+        <ArrowRight size={18} aria-hidden="true" />
+        <RoadmapStep index="3" title="~31:00 10K" detail="Bridge the threshold-duration gap." />
+        <ArrowRight size={18} aria-hidden="true" />
+        <RoadmapStep index="4" title={`Sub-${context.goals.laterMilestone.target} 10K`} detail="Later, materially harder milestone." />
+      </div>
+
+      <div className="coach-overview-grid">
+        <article className="product-card coach-phase-card">
+          <header><span>Current phase</span><small>Version {context.profile.version}</small></header>
+          <label>
+            <span>Explicit Lydiard phase</span>
+            <select
+              value={context.profile.currentPhase}
+              disabled={Boolean(working)}
+              onChange={(event) => void act('phase', async () => {
+                await props.onUpdatePhase(event.target.value as CoachPhase, context.profile.version);
+              })}
+            >
+              {PHASES.map((phase) => <option key={phase.value} value={phase.value}>{phase.label}</option>)}
+            </select>
+          </label>
+          <p>{phaseDescription(context.profile.currentPhase)}</p>
+        </article>
+
+        <article className="product-card coach-load-card">
+          <header><span>Background load</span><small>Power-first where dated CP exists</small></header>
+          <div className="coach-stat-row">
+            <CoachStat label="7-day" value={context.backgroundLoad.sevenDayStress.toFixed(1)} />
+            <CoachStat label="42-day" value={context.backgroundLoad.fortyTwoDayStress.toFixed(1)} />
+            <CoachStat label="Balance" value={signed(context.backgroundLoad.stressBalance)} />
+          </div>
+          <p>{context.backgroundLoad.explanation}</p>
+        </article>
+
+        <article className="product-card coach-cp-card">
+          <header><span>Critical Power authority</span><small>Date-effective history</small></header>
+          {canonicalCp ? (
+            <div className="coach-cp-current">
+              <strong>{Math.round(canonicalCp.watts)} W</strong>
+              <span>{confidenceLabel(canonicalCp.confidence)} · {canonicalCp.source === 'platform_estimate' ? 'prospective platform model' : canonicalCp.source.replaceAll('_', ' ')}</span>
+              <small>Effective {formatDate(canonicalCp.effectiveFrom)}</small>
+            </div>
+          ) : (
+            <p className="coach-missing">No canonical dated CP. Power is not silently scored against a guessed current value.</p>
+          )}
+          <form
+            className="coach-cp-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const watts = Number(cpWatts);
+              if (!Number.isFinite(watts) || watts <= 0) return;
+              void act('cp', async () => {
+                await props.onAddCriticalPower({
+                  criticalPowerWatts: watts,
+                  effectiveFrom: `${cpEffective}T00:00:00.000Z`,
+                  source: 'stryd_manual',
+                  device: 'Stryd',
+                  confidence: 0.9,
+                });
+                setCpWatts('');
+              });
+            }}
+          >
+            <label><span>Current CP (W)</span><input inputMode="numeric" value={cpWatts} onChange={(e) => setCpWatts(e.target.value)} placeholder="e.g. 320" /></label>
+            <label><span>Effective from</span><input type="date" value={cpEffective} onChange={(e) => setCpEffective(e.target.value)} /></label>
+            <button type="submit" disabled={working === 'cp' || !cpWatts}><Save size={14} /> Save CP</button>
+          </form>
+        </article>
+      </div>
+
+      <PhysiologyPanel context={context} />
+
+      <section className="product-card coach-block-planner">
+        <header>
+          <div><span>Future training block</span><h3>Plan the next 1–3 weeks</h3></div>
+          <small>Later weeks stay contingent on absorbing the earlier ones.</small>
+        </header>
+        <div className="coach-block-controls">
+          <label><span>First Monday</span><input type="date" value={startWeek} onChange={(e) => setStartWeek(e.target.value)} /></label>
+          <label><span>Horizon</span><select value={horizon} onChange={(e) => setHorizon(Number(e.target.value) as 1 | 2 | 3)}>
+            <option value={1}>1 week</option><option value={2}>2 weeks</option><option value={3}>3 weeks</option>
+          </select></label>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={Boolean(working) || !isMonday(startWeek)}
+            onClick={() => void act('propose', () => props.onProposeBlock(startWeek, horizon))}
+          ><CalendarRange size={16} /> Propose block</button>
+          {proposal && (
+            <button
+              type="button"
+              className="coach-accept-button"
+              disabled={Boolean(working)}
+              onClick={() => void act('accept', () => props.onAcceptBlock(proposal.id, context.profile.version))}
+            ><Check size={16} /> Accept proposal</button>
+          )}
+        </div>
+        <p className="coach-block-rule">No missed run is crammed forward. Weeks 2–3 are provisional, and a post-run adaptation changes only affected future sessions.</p>
+      </section>
+
+      <UpcomingPlan sessions={context.upcomingPlan.sessions} context={context} />
+
+      {pendingAdaptations.length > 0 && (
+        <section className="coach-adaptations" aria-label="Pending plan adaptations">
+          <header><AlertTriangle size={18} /><div><span>Decision required</span><h3>Pending future-session patches</h3></div></header>
+          {pendingAdaptations.map((decision) => (
+            <DecisionCard
+              key={decision.id}
+              decision={decision}
+              busy={Boolean(working)}
+              onApply={() => void act(`apply-${decision.id}`, () => props.onApplyDecision(decision.id, context.profile.version))}
+              onReject={() => void act(`reject-${decision.id}`, () => props.onRejectDecision(decision.id))}
+            />
+          ))}
+        </section>
+      )}
+
+      <RecentResponsePanel {...props} working={working} act={act} />
+
+      {context.limitations.length > 0 && (
+        <details className="product-card coach-limitations">
+          <summary>Model limitations and withheld claims</summary>
+          <ul>{context.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
+        </details>
+      )}
+    </section>
+  );
+}
+
+function PhysiologyPanel({ context }: { context: CoachContextData }) {
+  const p = context.physiology;
+  return (
+    <section className="product-card coach-physiology">
+      <header><div><span>Physiology engine</span><h3>Boundaries with ranges, evidence, and confidence</h3></div><small>Effective {formatDate(p.asOf)}</small></header>
+      <div className="coach-physiology-grid">
+        <EstimateCard icon={<Route size={18} />} title="Critical speed" value={p.criticalSpeed ? formatPace(1000 / p.criticalSpeed.estimate) : 'Withheld'} range={p.criticalSpeed ? `${formatPace(1000 / p.criticalSpeed.high)}–${formatPace(1000 / p.criticalSpeed.low)}` : 'Needs 3–40 min evidence'} confidence={p.criticalSpeed?.confidence} evidence={p.criticalSpeed?.evidence.length} />
+        <EstimateCard icon={<Zap size={18} />} title="Critical Power" value={p.canonicalCriticalPower ? `${Math.round(p.canonicalCriticalPower.watts)} W${p.canonicalCriticalPower.source === 'platform_estimate' ? ' model' : ''}` : p.platformCriticalPower ? `${Math.round(p.platformCriticalPower.estimate)} W model` : 'Withheld'} range={p.platformCriticalPower ? `${Math.round(p.platformCriticalPower.low)}–${Math.round(p.platformCriticalPower.high)} W` : 'No supported range'} confidence={p.canonicalCriticalPower?.confidence ?? p.platformCriticalPower?.confidence} evidence={p.platformCriticalPower?.evidence.length} />
+        <EstimateCard icon={<HeartPulse size={18} />} title="LT1 HR band" value={p.lt1HeartRate ? `${Math.round(p.lt1HeartRate.low)}–${Math.round(p.lt1HeartRate.high)} bpm` : 'Withheld'} range="Aerobic boundary" confidence={p.lt1HeartRate?.confidence} evidence={p.lt1HeartRate?.evidence.length} />
+        <EstimateCard icon={<Gauge size={18} />} title="LT2 HR band" value={p.lt2HeartRate ? `${Math.round(p.lt2HeartRate.low)}–${Math.round(p.lt2HeartRate.high)} bpm` : 'Withheld'} range="Upper sustainable boundary" confidence={p.lt2HeartRate?.confidence} evidence={p.lt2HeartRate?.evidence.length} />
+      </div>
+      <div className="coach-zone-grid">{p.zones.map((zone) => <ZoneCard key={zone.name} zone={zone} />)}</div>
+    </section>
+  );
+}
+
+function UpcomingPlan({ sessions, context }: { sessions: StoredPlannedSession[]; context: CoachContextData }) {
+  const weeks = useMemo(() => groupSessionsByWeek(sessions), [sessions]);
+  if (sessions.length === 0) return <section className="product-card coach-empty-plan"><CalendarRange size={22} /><div><strong>No structured future block yet</strong><p>Generate a proposal above. Your imported free-text plan remains below and is never overwritten.</p></div></section>;
+  return (
+    <section className="coach-future-weeks" aria-label="Upcoming structured training plan">
+      {[...weeks.entries()].map(([weekStart, weekSessions], index) => {
+        const running = weekSessions.filter((session) => !['rest', 'strength'].includes(session.sessionType));
+        const minutes = running.reduce((total, session) => total + (session.plannedDurationSec ?? 0) / 60, 0);
+        const accepted = weekSessions.some((session) => session.status === 'accepted' || session.status === 'planned');
+        return (
+          <article key={weekStart} className="product-card coach-future-week">
+            <header><div><span>Week {index + 1} · {formatDateRange(weekStart, addDays(weekStart, 6))}</span><h3>{accepted ? 'Accepted' : 'Proposed'} · {Math.round(minutes)} min</h3></div><small>{index > 0 ? 'Contingent on prior-week absorption' : 'Current evidence'}</small></header>
+            <div className="coach-session-list">{weekSessions.map((session) => <SessionCard key={session.id} session={session} context={context} />)}</div>
+          </article>
+        );
+      })}
+    </section>
+  );
+}
+
+function SessionCard({ session, context }: { session: StoredPlannedSession; context: CoachContextData }) {
+  const links = context.upcomingPlan.activityLinks.filter((link) => link.plannedSessionId === session.id);
+  const actual = links.map((link) => context.recentRuns.find((run) => run.id === link.activityId)).filter(Boolean);
+  return (
+    <article className={`coach-session-card status-${session.status}`}>
+      <div className="coach-session-date"><strong>{weekday(session.plannedDate)}</strong><span>{formatShortDate(session.plannedDate)}</span></div>
+      <div className="coach-session-main">
+        <header><strong>{session.title}</strong><span>{session.priority} · {session.status}</span></header>
+        <p>{session.purpose}</p>
+        <div className="coach-targets">
+          <span>{session.plannedDurationSec ? `${Math.round(session.plannedDurationSec / 60)} min` : 'No running'}</span>
+          {rangeLabel(session.targetPowerLowPctCp, session.targetPowerHighPctCp, '% CP', 100)}
+          {rangeLabel(session.targetPowerLowW, session.targetPowerHighW, 'W')}
+          {session.targetHrCeiling && <span>HR ceiling {Math.round(session.targetHrCeiling)}</span>}
+          {paceTarget(session) && <span>{paceTarget(session)}</span>}
+        </div>
+        {session.fallbackPlan && <p className="coach-fallback"><strong>Fallback:</strong> {session.fallbackPlan}</p>}
+        {actual.length > 0 && <p className="coach-actual"><Check size={13} /> Actual linked · {actual.map((run) => run?.name).join(', ')}</p>}
+      </div>
+    </article>
+  );
+}
+
+function RecentResponsePanel(props: CoachPanelProps & { working: string; act: (name: string, fn: () => Promise<void>) => Promise<void> }) {
+  const runs = props.context?.recentRuns.slice(-5).reverse() ?? [];
+  if (runs.length === 0) return null;
+  return (
+    <section className="product-card coach-responses">
+      <header><div><span>Post-run loop</span><h3>How did the run actually cost you?</h3></div><small>Four taps + optional note</small></header>
+      <div className="coach-response-list">
+        {runs.map((run) => (
+          <RunFeedbackCard
+            key={run.id}
+            run={run}
+            sessions={props.context?.upcomingPlan.sessions ?? []}
+            busy={Boolean(props.working)}
+            onOpen={() => props.onOpenActivity(run.id)}
+            onSubmit={(draft) => props.act(`feedback-${run.id}`, () => props.onSubmitFeedback(run.id, draft))}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RunFeedbackCard({ run, sessions, busy, onOpen, onSubmit }: { run: NonNullable<CoachContextData['recentRuns'][number]>; sessions: StoredPlannedSession[]; busy: boolean; onOpen: () => void; onSubmit: (draft: CoachFeedbackDraft) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [energy, setEnergy] = useState<CoachFeedbackDraft['energy']>('okay');
+  const [legs, setLegs] = useState<CoachFeedbackDraft['legCondition']>('normal');
+  const [pain, setPain] = useState<CoachFeedbackDraft['pain']>('none');
+  const [feel, setFeel] = useState<CoachFeedbackDraft['sessionFeel']>('as_expected');
+  const [note, setNote] = useState('');
+  const sameDaySessions = sessions.filter((session) =>
+    session.plannedDate === (run.startDateLocal ?? run.startDate).slice(0, 10) &&
+    ['accepted', 'planned', 'completed', 'partial'].includes(session.status),
+  );
+  const plannedSessionId = run.plannedSessionIds[0]
+    ?? sameDaySessions.find((session) => !['rest', 'strength'].includes(session.sessionType))?.id
+    ?? sameDaySessions.find((session) => session.sessionType === 'rest')?.id;
+  return (
+    <article className="coach-run-response">
+      <button type="button" className="coach-run-summary" onClick={onOpen}>
+        <Activity size={16} /><span><strong>{run.name}</strong><small>{formatDate(run.startDateLocal ?? run.startDate)} · {run.distanceKm.toFixed(1)} km · {Math.round(run.movingTimeSec / 60)} min</small></span>
+      </button>
+      <div className="coach-run-cost"><span>{run.assessment.externalStress.source}</span><strong>{run.assessment.externalStress.totalStress?.toFixed(1) ?? '-'}</strong><small>stress</small></div>
+      {run.feedback ? (
+        <div className="coach-feedback-saved"><ShieldCheck size={15} /><span>{run.verdict?.replaceAll('_', ' ') || run.feedback.sessionFeel?.replaceAll('_', ' ') || 'Response saved'}</span><button type="button" onClick={() => setOpen((value) => !value)}>Edit</button></div>
+      ) : <button type="button" className="coach-feedback-open" onClick={() => setOpen((value) => !value)}>Add response</button>}
+      {open && (
+        <form className="coach-feedback-form" onSubmit={(event) => { event.preventDefault(); void onSubmit({ plannedSessionId, energy, legCondition: legs, pain, sessionFeel: feel, note }); }}>
+          <ChoiceRow label="Energy" value={energy} options={['good', 'okay', 'poor']} onChange={(value) => setEnergy(value as typeof energy)} />
+          <ChoiceRow label="Legs" value={legs} options={['fresh', 'normal', 'heavy', 'dead']} onChange={(value) => setLegs(value as typeof legs)} />
+          <ChoiceRow label="Pain" value={pain} options={['none', 'mild', 'concerning']} onChange={(value) => setPain(value as typeof pain)} />
+          <ChoiceRow label="Feel" value={feel} options={['easier', 'as_expected', 'harder']} onChange={(value) => setFeel(value as typeof feel)} />
+          <label><span>Optional note</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Heat, knee, Achilles, sleep, life stress…" /></label>
+          <button type="submit" disabled={busy || !plannedSessionId}><Save size={14} /> Save & evaluate</button>
+          {!plannedSessionId && <small>No accepted structured session is linked to this run yet.</small>}
+        </form>
+      )}
+    </article>
+  );
+}
+
+function DecisionCard({ decision, busy, onApply, onReject }: { decision: CoachDecisionRecord; busy: boolean; onApply: () => void; onReject: () => void }) {
+  const patches = Array.isArray(decision.planPatch.patches) ? decision.planPatch.patches as Array<Record<string, unknown>> : [];
+  return <article className="product-card coach-decision"><div><strong>{decision.summary}</strong><p>{decision.reasoning}</p><small>{patches.length} future session patch{patches.length === 1 ? '' : 'es'} · nothing changed yet</small></div><div><button type="button" className="coach-accept-button" disabled={busy} onClick={onApply}><Check size={14} /> Apply</button><button type="button" disabled={busy} onClick={onReject}><X size={14} /> Reject</button></div></article>;
+}
+
+function EstimateCard({ icon, title, value, range, confidence, evidence }: { icon: ReactNode; title: string; value: string; range: string; confidence?: string; evidence?: number }) {
+  return <article className="coach-estimate-card">{icon}<span>{title}</span><strong>{value}</strong><small>{range}</small><em className={`confidence-${confidence ?? 'low'}`}>{confidence ?? 'low'} confidence · {evidence ?? 0} evidence</em></article>;
+}
+
+function ZoneCard({ zone }: { zone: PracticalZone }) {
+  return <article className={`coach-zone zone-${zone.name}`}><header><strong>{zone.label}</strong><span>{zone.domain}</span></header><p>{zone.control}</p><div>{zone.powerWatts && <span>{numericRange(zone.powerWatts.low, zone.powerWatts.high, 'W')}</span>}{zone.heartRateBpm && <span>{numericRange(zone.heartRateBpm.low, zone.heartRateBpm.high, 'bpm')}</span>}{zone.pace && <span>{paceRange(zone)}</span>}</div></article>;
+}
+
+function RoadmapStep({ index, title, detail, active = false }: { index: string; title: string; detail: string; active?: boolean }) { return <article className={`coach-roadmap-step${active ? ' active' : ''}`}><span>{index}</span><div><strong>{title}</strong><small>{detail}</small></div></article>; }
+function CoachStat({ label, value }: { label: string; value: string }) { return <span><small>{label}</small><strong>{value}</strong></span>; }
+function ChoiceRow({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) { return <fieldset><legend>{label}</legend><div>{options.map((option) => <button key={option} type="button" className={value === option ? 'active' : ''} aria-pressed={value === option} onClick={() => onChange(option)}>{option.replaceAll('_', ' ')}</button>)}</div></fieldset>; }
+
+function latestDecision(decisions: CoachDecisionRecord[], types: string[], status: CoachDecisionRecord['status']) { return decisions.find((decision) => types.includes(decision.decisionType) && decision.status === status); }
+function stateHeadline(state: 'green' | 'amber' | 'red') { return state === 'red' ? 'Recovery overrides performance today.' : state === 'amber' ? 'Train, but protect the next decision.' : 'Build what you can repeatedly absorb.'; }
+function stateExplanation(context: CoachContextData) { return context.observedState.reasons.length ? context.observedState.reasons.join(' · ') : 'No red or amber response signal is present. Only one training dimension progresses at a time.'; }
+function phaseDescription(phase: CoachPhase) { return ({ aerobic_conditioning: 'Build sustainable aerobic density, long-run tolerance, strength, and relaxed speed before substantial glycolytic work.', hill_resistance: 'Maintain the aerobic base while adding conservative running-specific force, elasticity, and hills.', anaerobic_development: 'Layer limited threshold, 5K/10K-specific, and VO2 work onto the completed foundation.', coordination: 'Reduce background load, rehearse current race-specific output, and sharpen with full recovery.', recovery_regeneration: 'Deliberately reduce load until energy, mechanics, symptoms, and motivation normalize.' })[phase]; }
+function confidenceLabel(value: string) { return `${value} confidence`; }
+function signed(value: number) { return `${value > 0 ? '+' : ''}${value.toFixed(1)}`; }
+function formatPace(sec: number) { if (!Number.isFinite(sec) || sec <= 0) return '-'; const total = Math.round(sec); return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}/km`; }
+function formatDate(value: string) { const date = new Date(value.length === 10 ? `${value}T12:00:00Z` : value); return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(date) : value; }
+function formatShortDate(value: string) { return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(new Date(`${value}T12:00:00Z`)); }
+function weekday(value: string) { return new Intl.DateTimeFormat('en-GB', { weekday: 'short' }).format(new Date(`${value}T12:00:00Z`)); }
+function formatDateRange(from: string, to: string) { return `${formatShortDate(from)}–${formatShortDate(to)}`; }
+function nextMonday(value: Date) { const date = new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate())); const offset = ((8 - date.getUTCDay()) % 7) || 7; date.setUTCDate(date.getUTCDate() + offset); return date.toISOString().slice(0, 10); }
+function isMonday(value: string) { const date = new Date(`${value}T12:00:00Z`); return Number.isFinite(date.getTime()) && date.getUTCDay() === 1; }
+function addDays(value: string, days: number) { const date = new Date(`${value}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10); }
+function mondayOf(value: string) { const date = new Date(`${value}T12:00:00Z`); const offset = (date.getUTCDay() + 6) % 7; date.setUTCDate(date.getUTCDate() - offset); return date.toISOString().slice(0, 10); }
+function groupSessionsByWeek(sessions: StoredPlannedSession[]) { const map = new Map<string, StoredPlannedSession[]>(); for (const session of sessions.filter((item) => item.status !== 'superseded')) { const week = mondayOf(session.plannedDate); const bucket = map.get(week) ?? []; bucket.push(session); map.set(week, bucket); } return new Map([...map.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([week, items]) => [week, items.sort((a, b) => a.plannedDate.localeCompare(b.plannedDate) || a.sequence - b.sequence)])); }
+function rangeLabel(low: number | undefined, high: number | undefined, unit: string, scale = 1) { if (low === undefined && high === undefined) return null; return <span>{numericRange(low === undefined ? undefined : low * scale, high === undefined ? undefined : high * scale, unit)}</span>; }
+function numericRange(low: number | undefined, high: number | undefined, unit: string) { if (low !== undefined && high !== undefined) return `${Math.round(low)}–${Math.round(high)} ${unit}`; if (high !== undefined) return `<${Math.round(high)} ${unit}`; if (low !== undefined) return `>${Math.round(low)} ${unit}`; return '-'; }
+function paceTarget(session: StoredPlannedSession) { if (session.targetGapLowSecPerKm === undefined && session.targetGapHighSecPerKm === undefined) return ''; return `${session.targetGapLowSecPerKm ? formatPace(session.targetGapLowSecPerKm) : ''}${session.targetGapLowSecPerKm && session.targetGapHighSecPerKm ? '–' : ''}${session.targetGapHighSecPerKm ? formatPace(session.targetGapHighSecPerKm) : ''}`; }
+function paceRange(zone: PracticalZone) { const pace = zone.pace; if (!pace) return '-'; return `${pace.fastSecPerKm ? formatPace(pace.fastSecPerKm) : ''}${pace.fastSecPerKm && pace.slowSecPerKm ? '–' : ''}${pace.slowSecPerKm ? formatPace(pace.slowSecPerKm) : ''}`; }

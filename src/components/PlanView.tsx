@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertCircle,
@@ -16,6 +16,7 @@ import { matchPlanActualDurations, type PlanDurationMatch } from '../data/planMa
 import type { ActivitySummary, GymSession, TrainingPlanDay } from '../types';
 
 interface PlanViewProps {
+  coachPanel?: ReactNode;
   planDays: TrainingPlanDay[];
   activities: ActivitySummary[];
   gymSessions: GymSession[];
@@ -37,6 +38,7 @@ interface DayDraft {
 }
 
 export function PlanView({
+  coachPanel,
   planDays,
   activities,
   gymSessions,
@@ -111,6 +113,7 @@ export function PlanView({
     return (
       <main className="product-page plan-view plan-editor-view">
         <PlanPageIntro />
+        {coachPanel}
         <section className={`product-card plan-editor-status${loadError ? ' error' : ''}`} role={loadError ? 'alert' : 'status'}>
           {loadError ? (
             <>
@@ -140,6 +143,7 @@ export function PlanView({
   return (
     <main className="product-page plan-view plan-editor-view">
       <PlanPageIntro />
+      {coachPanel}
 
       <section className="product-card plan-editor-card" aria-label={`Training plan ${formatWeekRange(weekStart)}`}>
         <header className="plan-editor-toolbar">

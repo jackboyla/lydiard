@@ -9,6 +9,7 @@ import { publicRoutes } from './routes/public';
 import { agentRoutes } from './routes/agent';
 import { authRoutes } from './routes/auth';
 import { ingestRoutes } from './routes/ingest';
+import { coachRoutes } from './routes/coach';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -28,6 +29,7 @@ app.get('/openapi.json', (c) => c.json(buildOpenApiDocument(new URL(c.req.url).o
 app.route('/auth', authRoutes());
 app.route('/api/agent', agentRoutes());
 app.route('/api/ingest', ingestRoutes());
+app.route('/api/coach', coachRoutes());
 app.route('/api', publicRoutes());
 
 app.onError((error, c) => {

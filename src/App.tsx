@@ -18,8 +18,10 @@ import {
   X,
 } from 'lucide-react';
 import { analyzeWeeks, formatPace } from './analysis/fatigue';
+import type { PhysiologyEstimate } from './analysis/coachEngine';
 import {
   buildTrainingLoadModel,
+  type CanonicalActivityMetric,
   type SessionLoad,
   type TrainingLoadModel,
   type WeekLoadSummary,
@@ -27,6 +29,7 @@ import {
 import { IndicatorList } from './components/IndicatorList';
 import { LoadStory } from './components/LoadStory';
 import { MapView } from './components/MapView';
+import { CoachPanel } from './components/CoachPanel';
 import { PlanView } from './components/PlanView';
 import { TrainingView, type TrainingJumpApi } from './components/TrainingView';
 import { TrainingLoadChart } from './components/TrainingLoadChart';
@@ -35,6 +38,7 @@ import {
   getActivities,
   getActivity,
   getBestEfforts,
+  getCoachContext,
   getGymSessions,
   getPlanDays,
   getSiteKey,
@@ -43,6 +47,14 @@ import {
   disconnectStrava,
   setSiteKey,
   savePlanDay,
+  saveCoachPhase,
+  addCoachCriticalPower,
+  proposeCoachBlock,
+  acceptCoachBlock,
+  saveCoachFeedback,
+  evaluateCoachActivity,
+  applyCoachDecision,
+  rejectCoachDecision,
   SiteUnauthorizedError,
   stravaLoginUrl,
   triggerSync,
@@ -64,6 +76,7 @@ import type {
   WeeklyAnalysis,
   WeeklyRunBlock,
 } from './types';
+import type { CoachContextData, CoachFeedbackDraft, CoachPhase, CriticalPowerDraft } from './data/coachTypes';
 
 type RangePreset = '4w' | '12w' | '6mo' | '1y' | 'all';
 type ViewMode = 'home' | 'fitness' | 'plan' | 'analysis' | 'calendar' | 'map';
@@ -101,12 +114,16 @@ export default function App() {
   const [planLoading, setPlanLoading] = useState(true);
   const [planLoadError, setPlanLoadError] = useState('');
   const [planHasUnsavedChanges, setPlanHasUnsavedChanges] = useState(false);
+  const [coachContext, setCoachContext] = useState<CoachContextData | null>(null);
+  const [coachLoading, setCoachLoading] = useState(true);
+  const [coachError, setCoachError] = useState('');
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
   const [activityDetail, setActivityDetail] = useState<ActivityDetail | null>(null);
   const [activityFocus, setActivityFocus] = useState<{ id: string; request: number } | null>(null);
   const activityFocusRequest = useRef(0);
   const coreLoadRequest = useRef(0);
   const planLoadRequest = useRef(0);
+  const coachLoadRequest = useRef(0);
   const [bestEffortGroups, setBestEffortGroups] = useState<BestEffortDistance[]>([]);
   const [bestEffortsLoading, setBestEffortsLoading] = useState(false);
   const [bestEffortsError, setBestEffortsError] = useState('');
@@ -158,7 +175,20 @@ export default function App() {
   const weeks = localWeeks ?? (apiWeeks.length >= 4 ? apiWeeks : sampleWeeks);
   const usingSample = !localWeeks && apiWeeks.length < 4;
   const analyses = useMemo(() => analyzeWeeks(weeks), [weeks]);
-  const loadModel = useMemo(() => buildTrainingLoadModel(activities), [activities]);
+  const canonicalMetrics = useMemo<CanonicalActivityMetric[]>(
+    () => (coachContext?.recentRuns ?? []).map((run) => ({
+      activityId: run.id,
+      totalStress: run.assessment.externalStress.totalStress,
+      hardStress: run.assessment.externalStress.hardStress,
+      averagePctCp: run.assessment.averagePctCp === undefined ? undefined : run.assessment.averagePctCp * 100,
+      effectiveCp: run.assessment.effectiveCriticalPower?.criticalPowerWatts,
+      hrCostResidualBpm: run.assessment.heartRateCost.residualBpm,
+      latePowerChangePct: run.assessment.latePowerChangePct,
+      source: run.assessment.externalStress.source === 'power' ? 'lydiard-power-stress' : `${run.assessment.externalStress.source}-fallback`,
+    })),
+    [coachContext],
+  );
+  const loadModel = useMemo(() => buildTrainingLoadModel(activities, canonicalMetrics), [activities, canonicalMetrics]);
   const dataKey = `${localWeeks ? 'local' : 'api'}:${weeks.length}`;
 
   const severityByWeek = useMemo(() => {
@@ -272,6 +302,33 @@ export default function App() {
     }
   }, []);
 
+  const loadCoachData = useCallback(async (weekStart?: string) => {
+    const request = ++coachLoadRequest.current;
+    setCoachLoading(true);
+    setCoachError('');
+    try {
+      const nextContext = await getCoachContext({ weekStart });
+      if (request !== coachLoadRequest.current) {
+        return;
+      }
+      setCoachContext(nextContext);
+    } catch (error) {
+      if (request !== coachLoadRequest.current) {
+        return;
+      }
+      if (error instanceof SiteUnauthorizedError) {
+        setNeedsPassword(true);
+        setPasswordError(getSiteKey() ? 'That password was not accepted. Try again.' : '');
+      } else {
+        setCoachError(error instanceof Error ? error.message : 'Could not load the coaching context.');
+      }
+    } finally {
+      if (request === coachLoadRequest.current) {
+        setCoachLoading(false);
+      }
+    }
+  }, []);
+
   const handleSavePlanDay = useCallback(
     async (
       date: string,
@@ -296,19 +353,56 @@ export default function App() {
     return fresh;
   }, []);
 
+  const handleCoachPhase = useCallback(async (phase: CoachPhase, expectedVersion: number) => {
+    await saveCoachPhase(phase, expectedVersion);
+    await loadCoachData();
+  }, [loadCoachData]);
+
+  const handleCoachCriticalPower = useCallback(async (input: CriticalPowerDraft) => {
+    await addCoachCriticalPower(input);
+    await loadCoachData();
+  }, [loadCoachData]);
+
+  const handleCoachBlockProposal = useCallback(async (startWeek: string, weekCount: 1 | 2 | 3) => {
+    await proposeCoachBlock(startWeek, weekCount);
+    await loadCoachData(startWeek);
+  }, [loadCoachData]);
+
+  const handleCoachBlockAcceptance = useCallback(async (decisionId: string, expectedVersion: number) => {
+    await acceptCoachBlock(decisionId, expectedVersion);
+    await loadCoachData();
+  }, [loadCoachData]);
+
+  const handleCoachFeedback = useCallback(async (activityId: string, draft: CoachFeedbackDraft) => {
+    await saveCoachFeedback(activityId, draft);
+    await evaluateCoachActivity(activityId, draft.plannedSessionId);
+    await loadCoachData();
+  }, [loadCoachData]);
+
+  const handleCoachDecisionApplication = useCallback(async (decisionId: string, expectedVersion: number) => {
+    await applyCoachDecision(decisionId, expectedVersion);
+    await loadCoachData();
+  }, [loadCoachData]);
+
+  const handleCoachDecisionRejection = useCallback(async (decisionId: string) => {
+    await rejectCoachDecision(decisionId);
+    await loadCoachData();
+  }, [loadCoachData]);
+
   const submitPassword = useCallback(
     async (value: string) => {
       setSiteKey(value.trim());
       setNeedsPassword(false);
-      await Promise.all([loadData(), loadPlanData()]);
+      await Promise.all([loadData(), loadPlanData(), loadCoachData()]);
     },
-    [loadData, loadPlanData],
+    [loadCoachData, loadData, loadPlanData],
   );
 
   useEffect(() => {
     void loadData();
     void loadPlanData();
-  }, [loadData, loadPlanData]);
+    void loadCoachData();
+  }, [loadCoachData, loadData, loadPlanData]);
 
   useEffect(() => {
     if (!bestEffortFrom) {
@@ -621,12 +715,29 @@ export default function App() {
           loadModel={loadModel}
           analyses={usingSample ? [] : analyses}
           status={status}
+          physiology={coachContext?.physiology}
           bestEffortGroups={bestEffortGroups}
           bestEffortWindowLabel={bestEffortWindowLabel}
           onOpenActivity={openActivityInCalendar}
         />
       ) : view === 'plan' ? (
         <PlanView
+          coachPanel={(
+            <CoachPanel
+              context={coachContext}
+              loading={coachLoading}
+              error={coachError}
+              onReload={loadCoachData}
+              onUpdatePhase={handleCoachPhase}
+              onAddCriticalPower={handleCoachCriticalPower}
+              onProposeBlock={handleCoachBlockProposal}
+              onAcceptBlock={handleCoachBlockAcceptance}
+              onSubmitFeedback={handleCoachFeedback}
+              onApplyDecision={handleCoachDecisionApplication}
+              onRejectDecision={handleCoachDecisionRejection}
+              onOpenActivity={openActivityInCalendar}
+            />
+          )}
           planDays={planDays}
           activities={activities}
           gymSessions={gymSessions}
@@ -685,6 +796,8 @@ export default function App() {
           gymSessions={gymSessions}
           planDays={planDays}
           usingSample={usingSample}
+          canonicalMetrics={canonicalMetrics}
+          physiology={coachContext?.physiology}
           onJumpApi={setTrainingJump}
           activityFocus={activityFocus}
         />
@@ -1131,6 +1244,7 @@ function FitnessView({
   loadModel,
   analyses,
   status,
+  physiology,
   bestEffortGroups,
   bestEffortWindowLabel,
   onOpenActivity,
@@ -1138,12 +1252,13 @@ function FitnessView({
   loadModel: TrainingLoadModel;
   analyses: WeeklyAnalysis[];
   status: SyncStatus | null;
+  physiology?: PhysiologyEstimate;
   bestEffortGroups: BestEffortDistance[];
   bestEffortWindowLabel: string;
   onOpenActivity: (activityId: string) => void;
 }) {
   const cards = buildFitnessCards(loadModel, analyses);
-  const zones = buildProductZones(loadModel.thresholds);
+  const zones = buildFitnessZones(physiology, loadModel.thresholds);
   return (
     <main className="product-page fitness-control-view">
       <section className="product-page-head">
@@ -1173,7 +1288,7 @@ function FitnessView({
         <article className="product-card zones-now-card">
           <header>
             <span>Current fitness</span>
-            <small>{status?.streamedCount ?? 0} streamed runs</small>
+            <small>{physiology?.zones.length ? `Physiology · effective ${formatActivityDate(physiology.asOf)}` : 'Low-confidence fallback'}</small>
           </header>
           <h3>Zones now</h3>
           <div className="zone-list">
@@ -1181,7 +1296,7 @@ function FitnessView({
               <div key={zone.name} className={`zone-list-row tone-${zone.tone}`}>
                 <span>{zone.name}</span>
                 <strong>{zone.pace}</strong>
-                <small>{zone.hr}</small>
+                <small>{zone.hr}{zone.power ? ` · ${zone.power}` : ''}</small>
               </div>
             ))}
           </div>
@@ -1393,6 +1508,36 @@ function buildFitnessCards(loadModel: TrainingLoadModel, analyses: WeeklyAnalysi
       },
     ],
   };
+}
+
+function buildFitnessZones(
+  physiology: PhysiologyEstimate | undefined,
+  thresholds: TrainingLoadModel['thresholds'],
+) {
+  if (!physiology?.zones.length) {
+    return buildProductZones(thresholds).map((zone) => ({ ...zone, power: '' }));
+  }
+  const tones = ['easy', 'easy', 'moderate', 'hard', 'danger'];
+  return physiology.zones.map((zone, index) => ({
+    name: zone.label,
+    tone: tones[index] ?? 'moderate',
+    pace: zone.pace
+      ? `${zone.pace.fastSecPerKm ? formatPace(zone.pace.fastSecPerKm).replace('/km', '') : ''}${zone.pace.fastSecPerKm && zone.pace.slowSecPerKm ? '–' : ''}${zone.pace.slowSecPerKm ? formatPace(zone.pace.slowSecPerKm) : ''}`
+      : 'Pace withheld',
+    hr: zone.heartRateBpm
+      ? formatNumericRange(zone.heartRateBpm.low, zone.heartRateBpm.high, 'bpm')
+      : 'HR boundary withheld',
+    power: zone.powerWatts
+      ? formatNumericRange(zone.powerWatts.low, zone.powerWatts.high, 'W')
+      : '',
+  }));
+}
+
+function formatNumericRange(low: number | undefined, high: number | undefined, unit: string): string {
+  if (low !== undefined && high !== undefined) return `${Math.round(low)}–${Math.round(high)} ${unit}`;
+  if (high !== undefined) return `< ${Math.round(high)} ${unit}`;
+  if (low !== undefined) return `> ${Math.round(low)} ${unit}`;
+  return `${unit} withheld`;
 }
 
 function buildProductZones(thresholds: TrainingLoadModel['thresholds']) {

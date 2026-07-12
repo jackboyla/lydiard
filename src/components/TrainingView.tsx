@@ -15,10 +15,12 @@ import {
 import { formatPace } from '../analysis/fatigue';
 import {
   buildTrainingLoadModel,
+  type CanonicalActivityMetric,
   type SessionLoad,
   type TrainingLoadModel,
   type WeekLoadSummary,
 } from '../analysis/loadModel';
+import type { PhysiologyEstimate, PracticalZone } from '../analysis/coachEngine';
 import { getActivity } from '../data/api';
 import { activityPaceSecPerKm, decodePolyline, toWeekIdUtc } from '../data/mapRoutes';
 import type { ActivityDetail, ActivitySummary, GymSession, TrainingPlanDay, WeeklyAnalysis } from '../types';
@@ -58,6 +60,8 @@ interface TrainingViewProps {
   gymSessions: GymSession[];
   planDays: TrainingPlanDay[];
   usingSample: boolean;
+  canonicalMetrics?: readonly CanonicalActivityMetric[];
+  physiology?: PhysiologyEstimate;
   onJumpApi?: (api: TrainingJumpApi | null) => void;
   activityFocus?: { id: string; request: number } | null;
 }
@@ -101,8 +105,18 @@ interface TrainingZone {
   tone: MetricTone;
   paceRange: string;
   hrRange: string;
+  powerRange: string;
   hrMin?: number;
   hrMax?: number;
+  domain?: PracticalZone['domain'];
+  control?: string;
+}
+
+interface TrainingZoneModel {
+  zones: TrainingZone[];
+  title: string;
+  context: string;
+  physiologyBacked: boolean;
 }
 
 interface LapSplit {
@@ -152,7 +166,17 @@ const ZONE_TEMPLATES: ZoneTemplate[] = [
   { key: 'z5', label: 'Z5', name: 'VO2 / faster', tone: 'danger' as MetricTone, ifMin: 1.02, hrMinRatio: 1.02 },
 ];
 
-export function TrainingView({ activities, analyses, gymSessions, planDays, usingSample, onJumpApi, activityFocus }: TrainingViewProps) {
+export function TrainingView({
+  activities,
+  analyses,
+  gymSessions,
+  planDays,
+  usingSample,
+  canonicalMetrics,
+  physiology,
+  onJumpApi,
+  activityFocus,
+}: TrainingViewProps) {
   const [range, setRange] = useState<RangeKey>('all');
   const [showGuide, setShowGuide] = useState(false);
   const [visibleWeekCount, setVisibleWeekCount] = useState(INITIAL_WEEK_COUNT);
@@ -164,9 +188,15 @@ export function TrainingView({ activities, analyses, gymSessions, planDays, usin
   const scrollerRef = useRef<HTMLElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  const loadModel = useMemo(() => buildTrainingLoadModel(activities), [activities]);
+  const loadModel = useMemo(
+    () => buildTrainingLoadModel(activities, canonicalMetrics),
+    [activities, canonicalMetrics],
+  );
   const scoped = useMemo(() => scopeLoadModel(loadModel, range, gymSessions), [loadModel, range, gymSessions]);
-  const trainingZones = useMemo(() => buildTrainingZones(loadModel.thresholds), [loadModel.thresholds]);
+  const trainingZoneModel = useMemo(
+    () => buildTrainingZoneModel(physiology, loadModel.thresholds),
+    [physiology, loadModel.thresholds],
+  );
   const planByDate = useMemo(() => new Map(planDays.map((day) => [day.date, day])), [planDays]);
   const analysisByWeek = useMemo(
     () => new Map(analyses.map((analysis) => [analysis.week.weekStart, analysis])),
@@ -392,7 +422,7 @@ export function TrainingView({ activities, analyses, gymSessions, planDays, usin
 
       {showGuide && <MetricsGuide metrics={GUIDE_METRICS} />}
 
-      <ZoneSummary zones={trainingZones} />
+      <ZoneSummary model={trainingZoneModel} />
 
       <aside className="training-kpis training-kpis-wide" aria-label="Current training metrics">
           <TrainingKpi
@@ -484,7 +514,7 @@ export function TrainingView({ activities, analyses, gymSessions, planDays, usin
               detail={previewDetail}
               session={previewSession}
               loading={previewLoading}
-              zones={trainingZones}
+              zones={trainingZoneModel.zones}
               planDay={previewPlanDay}
             />
           </div>
@@ -549,31 +579,37 @@ function WeekBlock({
   );
 }
 
-function ZoneSummary({ zones }: { zones: TrainingZone[] }) {
+function ZoneSummary({ model }: { model: TrainingZoneModel }) {
   return (
-    <section className="training-zone-panel" aria-label="Current training zones">
+    <section
+      className="training-zone-panel"
+      aria-label="Current training zones"
+      data-zone-source={model.physiologyBacked ? 'physiology' : 'low-confidence-fallback'}
+    >
       <header>
         <div>
           <p>Current zones</p>
-          <h3>Suggested pace and HR</h3>
+          <h3>{model.title}</h3>
+          <small>{model.context}</small>
         </div>
         <div className="zone-info-row">
           <span>
-            Pace
-            <MetricInfo metric="paceZones" align="right" />
+            {model.physiologyBacked ? 'Pace · CS' : 'Pace'}
+            {!model.physiologyBacked && <MetricInfo metric="paceZones" align="right" />}
           </span>
           <span>
-            HR
-            <MetricInfo metric="hrZones" align="right" />
+            {model.physiologyBacked ? 'HR · LT1/LT2' : 'HR'}
+            {!model.physiologyBacked && <MetricInfo metric="hrZones" align="right" />}
           </span>
+          <span>{model.physiologyBacked ? 'Power · CP' : 'Power'}</span>
         </div>
       </header>
       <div className="zone-card-grid">
-        {zones.map((zone) => (
+        {model.zones.map((zone) => (
           <article key={zone.key} className={`zone-card tone-${zone.tone}`}>
             <div>
               <strong>{zone.label}</strong>
-              <span>{zone.name}</span>
+              <span>{zone.name}{zone.domain ? ` · ${zone.domain}` : ''}</span>
             </div>
             <dl>
               <div>
@@ -584,7 +620,12 @@ function ZoneSummary({ zones }: { zones: TrainingZone[] }) {
                 <dt>HR</dt>
                 <dd>{zone.hrRange}</dd>
               </div>
+              <div>
+                <dt>Power</dt>
+                <dd>{zone.powerRange}</dd>
+              </div>
             </dl>
+            {zone.control && <small>{zone.control}</small>}
           </article>
         ))}
       </div>
@@ -847,14 +888,14 @@ function ActivityPreview({
       <HrZoneBreakdown totals={hrZoneTotals} loading={loading} />
       <LapSplitsTable splits={lapSplits} loading={loading} />
       <div className="preview-stat-grid">
-        <Metric label="Load" value={session.load.toFixed(1)} />
-        <Metric label="External" value={session.externalLoad.toFixed(1)} />
-        <Metric label="HR" value={session.internalLoad?.toFixed(1) ?? '-'} />
-        <Metric label="Power" value={session.powerLoad?.toFixed(1) ?? '-'} />
+        <Metric label="Session stress" value={session.load.toFixed(1)} />
+        <Metric label="External fallback" value={session.paceFallbackLoad.toFixed(1)} />
+        <Metric label="HR response" value={formatHrCostResidual(session.hrCostResidualBpm)} />
+        <Metric label="LPS" value={formatLydiardPowerStress(session)} />
       </div>
       <div className="preview-stat-grid">
-        <Metric label="IF" value={session.externalIntensityFactor.toFixed(2)} />
-        <Metric label="HR cost" value={session.hiddenCostPct === undefined ? '-' : `${session.hiddenCostPct > 0 ? '+' : ''}${session.hiddenCostPct.toFixed(1)}%`} />
+        <Metric label="Pace IF" value={session.externalIntensityFactor.toFixed(2)} />
+        <Metric label="Load source" value={formatLoadSource(session.loadSource)} />
         <Metric label="W/bpm" value={session.powerHrRatio?.toFixed(2) ?? '-'} />
         <Metric label="Split" value={split ? `${formatPace(split.first)} / ${formatPace(split.second)}` : formatDecoupling(activity.decouplingPct)} />
       </div>
@@ -1109,7 +1150,45 @@ function monthIdFromEntry(entry: WeekEntry): string {
   return entry.weekId.slice(0, 7);
 }
 
-function buildTrainingZones(thresholds: TrainingLoadModel['thresholds']): TrainingZone[] {
+function buildTrainingZoneModel(
+  physiology: PhysiologyEstimate | undefined,
+  thresholds: TrainingLoadModel['thresholds'],
+): TrainingZoneModel {
+  if (physiology?.zones.length) {
+    return {
+      zones: physiology.zones.map((zone, index) => physiologyTrainingZone(zone, index)),
+      title: 'Physiology pace, HR and power',
+      context: physiologyEvidenceContext(physiology),
+      physiologyBacked: true,
+    };
+  }
+  return {
+    zones: buildFallbackTrainingZones(thresholds),
+    title: 'Suggested pace, HR and power · low confidence',
+    context: 'Low-confidence fallback: summary pace percentiles and inferred HR threshold. No effective physiology estimate was supplied.',
+    physiologyBacked: false,
+  };
+}
+
+function physiologyTrainingZone(zone: PracticalZone, index: number): TrainingZone {
+  const hrMin = finiteZoneBoundary(zone.heartRateBpm?.low);
+  const hrMax = finiteZoneBoundary(zone.heartRateBpm?.high);
+  return {
+    key: zone.name,
+    label: `Z${index + 1}`,
+    name: zone.label,
+    tone: toneForPhysiologyZone(zone.name),
+    paceRange: formatPhysiologyPaceRange(zone.pace),
+    hrRange: formatPhysiologyNumericRange(zone.heartRateBpm, 'bpm'),
+    powerRange: formatPhysiologyPowerRange(zone),
+    hrMin,
+    hrMax,
+    domain: zone.domain,
+    control: zone.control,
+  };
+}
+
+function buildFallbackTrainingZones(thresholds: TrainingLoadModel['thresholds']): TrainingZone[] {
   return ZONE_TEMPLATES.map((template) => {
     const hrMin = thresholds.thresholdHeartRate && template.hrMinRatio
       ? Math.round(thresholds.thresholdHeartRate * template.hrMinRatio)
@@ -1124,10 +1203,122 @@ function buildTrainingZones(thresholds: TrainingLoadModel['thresholds']): Traini
       tone: template.tone,
       paceRange: formatZonePaceRange(thresholds.thresholdPaceSecPerKm, template.ifMin, template.ifMax),
       hrRange: formatHrZoneRange(hrMin, hrMax),
+      powerRange: formatZonePowerRange(thresholds.thresholdPower, template.ifMin, template.ifMax),
       hrMin,
       hrMax,
     };
   });
+}
+
+function physiologyEvidenceContext(physiology: PhysiologyEstimate): string {
+  const parts = [`Effective ${formatEvidenceDate(physiology.asOf)}`];
+  if (physiology.criticalSpeed) {
+    parts.push(
+      `critical speed ${physiology.criticalSpeed.confidence} confidence · ${physiology.criticalSpeed.evidence.length} evidence ${physiology.criticalSpeed.evidence.length === 1 ? 'effort' : 'efforts'}`,
+    );
+  } else {
+    parts.push('critical speed withheld');
+  }
+  if (physiology.canonicalCriticalPower) {
+    const cp = physiology.canonicalCriticalPower;
+    parts.push(
+      `CP ${Math.round(cp.watts)} W (${cp.confidence}, ${cp.source.replaceAll('_', ' ')}, effective ${formatEvidenceDate(cp.effectiveFrom)})`,
+    );
+  } else {
+    parts.push('CP withheld');
+  }
+  const lt1 = physiology.lt1HeartRate;
+  const lt2 = physiology.lt2HeartRate;
+  if (lt1 || lt2) {
+    parts.push(
+      `HR evidence LT1 ${lt1 ? `${lt1.confidence}/${lt1.evidence.length}` : 'withheld'} · LT2 ${lt2 ? `${lt2.confidence}/${lt2.evidence.length}` : 'withheld'}`,
+    );
+  } else {
+    parts.push('HR boundaries withheld');
+  }
+  return parts.join(' · ');
+}
+
+function formatEvidenceDate(value: string): string {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime())
+    ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(date)
+    : value;
+}
+
+function toneForPhysiologyZone(name: PracticalZone['name']): MetricTone {
+  if (name === 'vo2_anaerobic') {
+    return 'danger';
+  }
+  if (name === 'threshold') {
+    return 'hard';
+  }
+  if (name === 'steady') {
+    return 'moderate';
+  }
+  return 'easy';
+}
+
+function finiteZoneBoundary(value: number | undefined): number | undefined {
+  return value !== undefined && Number.isFinite(value) ? Math.round(value) : undefined;
+}
+
+function isFinitePositiveValue(value: number | undefined): value is number {
+  return value !== undefined && Number.isFinite(value) && value > 0;
+}
+
+function formatPhysiologyPaceRange(pace: PracticalZone['pace']): string {
+  const fast = pace?.fastSecPerKm;
+  const slow = pace?.slowSecPerKm;
+  if (isFinitePositiveValue(fast) && isFinitePositiveValue(slow)) {
+    return `${formatCompactPace(fast)}-${formatCompactPace(slow)}`;
+  }
+  if (isFinitePositiveValue(fast)) {
+    return `>${formatCompactPace(fast)}`;
+  }
+  if (isFinitePositiveValue(slow)) {
+    return `<${formatCompactPace(slow)}`;
+  }
+  return '-';
+}
+
+function formatPhysiologyNumericRange(
+  range: { low?: number; high?: number } | undefined,
+  unit: string,
+): string {
+  const low = finiteZoneBoundary(range?.low);
+  const high = finiteZoneBoundary(range?.high);
+  if (low !== undefined && high !== undefined) {
+    return `${low}-${high} ${unit}`;
+  }
+  if (high !== undefined) {
+    return `<${high} ${unit}`;
+  }
+  if (low !== undefined) {
+    return `>${low} ${unit}`;
+  }
+  return '-';
+}
+
+function formatPhysiologyPowerRange(zone: PracticalZone): string {
+  const watts = formatPhysiologyNumericRange(zone.powerWatts, 'W');
+  const percent = formatPhysiologyPercentRange(zone.powerPctCp);
+  return watts === '-' ? percent : percent === '-' ? watts : `${watts} · ${percent}`;
+}
+
+function formatPhysiologyPercentRange(range: { low?: number; high?: number } | undefined): string {
+  const low = range?.low !== undefined && Number.isFinite(range.low) ? Math.round(range.low * 100) : undefined;
+  const high = range?.high !== undefined && Number.isFinite(range.high) ? Math.round(range.high * 100) : undefined;
+  if (low !== undefined && high !== undefined) {
+    return `${low}-${high}% CP`;
+  }
+  if (high !== undefined) {
+    return `<${high}% CP`;
+  }
+  if (low !== undefined) {
+    return `>${low}% CP`;
+  }
+  return '-';
 }
 
 function formatZonePaceRange(thresholdPaceSecPerKm: number, ifMin?: number, ifMax?: number): string {
@@ -1144,6 +1335,24 @@ function formatZonePaceRange(thresholdPaceSecPerKm: number, ifMin?: number, ifMa
     const fast = thresholdPaceSecPerKm / ifMax;
     const slow = thresholdPaceSecPerKm / ifMin;
     return `${formatCompactPace(fast)}-${formatCompactPace(slow)}`;
+  }
+  return '-';
+}
+
+function formatZonePowerRange(thresholdPower: number | undefined, ifMin?: number, ifMax?: number): string {
+  if (!thresholdPower || !Number.isFinite(thresholdPower)) {
+    return '-';
+  }
+  const low = ifMin ? Math.round(thresholdPower * ifMin) : undefined;
+  const high = ifMax ? Math.round(thresholdPower * ifMax) : undefined;
+  if (low !== undefined && high !== undefined) {
+    return `${low}-${high} W`;
+  }
+  if (high !== undefined) {
+    return `<${high} W`;
+  }
+  if (low !== undefined) {
+    return `>${low} W`;
   }
   return '-';
 }
@@ -1239,13 +1448,13 @@ function toneForHeartRate(session: SessionLoad): MetricTone {
   if (!session.activity.averageHeartRate) {
     return 'muted';
   }
-  if ((session.hiddenCostPct ?? 0) >= 18) {
+  if ((session.hrCostResidualBpm ?? 0) >= 8) {
     return 'danger';
   }
-  if ((session.hiddenCostPct ?? 0) >= 10) {
+  if ((session.hrCostResidualBpm ?? 0) >= 5) {
     return 'hard';
   }
-  return session.heartRateIntensityFactor && session.heartRateIntensityFactor >= 0.92 ? 'hard' : 'easy';
+  return 'easy';
 }
 
 function toneForDecoupling(value?: number): MetricTone {
@@ -1358,6 +1567,24 @@ function calendarRunSummary(kind: RunKind): string {
 
 function formatOptionalIf(value?: number): string {
   return value === undefined || !Number.isFinite(value) ? '-' : value.toFixed(2);
+}
+
+function formatHrCostResidual(value?: number): string {
+  if (value === undefined || !Number.isFinite(value)) {
+    return '-';
+  }
+  return `${value > 0 ? '+' : ''}${value.toFixed(1)} bpm`;
+}
+
+function formatLydiardPowerStress(session: SessionLoad): string {
+  const canonicalPower =
+    session.reliability === 'canonical-stream' &&
+    /lydiard|power|stryd|rss/i.test(session.loadSource);
+  return canonicalPower && session.powerLoad !== undefined ? session.powerLoad.toFixed(1) : '-';
+}
+
+function formatLoadSource(source: string): string {
+  return source.replaceAll('_', ' ').replaceAll('-', ' ');
 }
 
 function routePoints(detail: ActivityDetail | ActivitySummary): Array<[number, number]> {

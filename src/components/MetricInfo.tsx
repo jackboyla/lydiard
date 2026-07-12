@@ -37,57 +37,57 @@ interface MetricDef {
 export const METRIC_INFO: Record<MetricKey, MetricDef> = {
   load: {
     title: 'Session load',
-    what: 'How much training stress a single run added, blending pace, heart rate and power into one score relative to your own thresholds.',
-    how: 'Duration (hours) × intensity² × 100. Intensity is grade-adjusted speed ÷ your threshold pace. When a run has HR and/or power, an HR-based and power-based load are computed the same way and blended 50% pace / 30% HR / 20% power.',
+    what: 'The external training stress assigned to one run. Its source is explicit; heart rate describes the response to that work and is never blended into this number.',
+    how: 'A canonical stream-derived Lydiard Power Stress is used exactly when available. Otherwise, power is primary only when the Critical Power effective on that activity date was supplied. With neither, duration × pace/elevation intensity² × 100 is used as a labelled fallback.',
     levels: [
-      { tone: 'muted', label: '≈100', text: '= one hour at threshold effort.' },
-      { tone: 'good', label: 'Easy runs', text: 'usually land ~20–50.' },
-      { tone: 'watch', label: 'Long / hard', text: 'sessions reach ~70–150+.' },
+      { tone: 'muted', label: '≈100', text: '= one hour at threshold effort for formula-based sources.' },
+      { tone: 'good', label: 'Canonical', text: 'stream stress passes through without pace/HR blending.' },
+      { tone: 'watch', label: 'Fallback', text: 'trusted CP plus power, or labelled pace/elevation stress.' },
     ],
   },
   ctl: {
     title: 'Fitness (CTL)',
-    what: 'Your durable fitness base — the training load your body has absorbed over the last several weeks.',
+    what: 'Your long-term training-load background. It describes accumulated external work, not complete physiological or race fitness.',
     how: 'A 42-day exponentially-weighted average of daily load. Each day it moves 1/42 of the way toward that day’s load, so it climbs and fades slowly.',
     levels: [
-      { tone: 'good', label: 'Rising steadily', text: 'fitness is building sustainably.' },
-      { tone: 'watch', label: 'Rising fast', text: 'often shows up as high Fatigue and Ramp — watch recovery.' },
-      { tone: 'bad', label: 'Long decline', text: 'detraining / extended time off.' },
+      { tone: 'good', label: 'Rising steadily', text: 'long-term load background is building.' },
+      { tone: 'watch', label: 'Rising fast', text: 'check the short-term load and observed run response.' },
+      { tone: 'bad', label: 'Long decline', text: 'the long-term load background is falling.' },
     ],
   },
   atl: {
     title: 'Fatigue (ATL)',
-    what: 'Your recent, short-term fatigue. It spikes after hard days and settles within about a week of easier training.',
+    what: 'Your recent external-load background. It estimates modelled fatigue pressure, which must be checked against HR response, symptoms and feedback.',
     how: 'A 7-day exponentially-weighted average of daily load. Each day it moves 1/7 of the way toward that day’s load, so it reacts quickly.',
     levels: [
       { tone: 'muted', label: 'Read vs Fitness', text: 'fatigue alone is neither good nor bad.' },
-      { tone: 'watch', label: 'Above Fitness', text: 'you are loading harder than your base — see Ramp.' },
-      { tone: 'good', label: 'Falling', text: 'you are recovering / freshening up.' },
+      { tone: 'watch', label: 'Above Fitness', text: 'recent external load exceeds the long-term background.' },
+      { tone: 'good', label: 'Falling', text: 'recent external load is reducing.' },
     ],
   },
   freshness: {
     title: 'Freshness',
-    what: 'How rested you are right now — the balance between long-term fitness and short-term fatigue (like Strava’s Form).',
+    what: 'The modelled balance between long-term and recent external load. It is not, by itself, proof that you are recovered or ready.',
     how: 'Fitness (CTL) − Fatigue (ATL).',
     levels: [
-      { tone: 'good', label: '> +8', text: 'fresh / tapered — good to race, or undertrained if it lasts.' },
+      { tone: 'good', label: '> +8', text: 'recent load is below the long-term background; verify readiness separately.' },
       { tone: 'muted', label: '−10 to +8', text: 'normal training range.' },
-      { tone: 'bad', label: '< −10', text: 'productive overload — fine briefly, risky if sustained.' },
+      { tone: 'bad', label: '< −10', text: 'recent load is well above the long-term background; inspect response evidence.' },
     ],
   },
   acwr: {
     title: 'Ramp (ACWR)',
-    what: 'Acute:chronic workload ratio — how fast you are loading compared with what you are used to. The clearest injury-risk gauge here.',
+    what: 'Acute:chronic workload ratio — background context for how quickly external load is changing. It is not an injury prediction or a standalone coaching decision.',
     how: 'Fatigue (7-day) ÷ Fitness (42-day).',
     levels: [
-      { tone: 'good', label: '0.8 – 1.3', text: 'sweet spot — sustainable progression.' },
-      { tone: 'watch', label: '1.3 – 1.5', text: 'high ramp — protect recovery.' },
-      { tone: 'bad', label: '> 1.5', text: 'acute spike — elevated injury risk, back off.' },
+      { tone: 'good', label: '0.8 – 1.3', text: 'load is broadly matched to the recent training background.' },
+      { tone: 'watch', label: '1.3 – 1.5', text: 'load is rising; check run response and recovery evidence.' },
+      { tone: 'bad', label: '> 1.5', text: 'large modelled spike; investigate rather than treating the ratio as a verdict.' },
     ],
   },
   chart: {
     title: 'Fitness, Fatigue & Freshness',
-    what: 'The load model over time. Fitness (CTL) is your slow base, Fatigue (ATL) your fast recent load, and Freshness the gap between them.',
+    what: 'The external-load model over time. Fitness (CTL) is the slow load background, Fatigue (ATL) the fast background, and Freshness their difference.',
     how: 'Daily load is smoothed into a 42-day average (Fitness) and a 7-day average (Fatigue). Freshness = Fitness − Fatigue.',
     levels: [
       { tone: 'good', label: 'Fitness up, Freshness ~0', text: 'healthy build.' },
@@ -96,9 +96,9 @@ export const METRIC_INFO: Record<MetricKey, MetricDef> = {
     ],
   },
   intensityFactor: {
-    title: 'Intensity factor (IF)',
-    what: 'How hard a run was relative to your own threshold pace.',
-    how: 'Grade-adjusted speed ÷ your threshold speed. Threshold is estimated from the fastest ~18% of your run paces (≈ tempo/threshold). Clamped to 0.35–1.35.',
+    title: 'Pace/elevation intensity factor',
+    what: 'How hard the summary pace/elevation fallback looks relative to the current pace threshold. It is supporting evidence when canonical power stress exists.',
+    how: 'Elevation-adjusted summary speed ÷ threshold speed, clamped to 0.35–1.35. It controls load only when canonical stream stress and trusted date-effective CP are unavailable.',
     levels: [
       { tone: 'good', label: '< 0.8', text: 'easy aerobic running.' },
       { tone: 'watch', label: '0.8 – 0.9', text: 'steady / moderate.' },
@@ -107,11 +107,12 @@ export const METRIC_INFO: Record<MetricKey, MetricDef> = {
   },
   hrCost: {
     title: 'HR cost',
-    what: 'Whether your heart worked harder than the pace alone suggests — a fingerprint of heat, fatigue or dehydration.',
-    how: '(HR-based load − pace-based load) ÷ pace-based load, for runs with heart rate.',
+    what: 'Whether your heart rate was higher or lower than expected for the external power output. It is response evidence, not extra training load.',
+    how: 'Observed HR − expected HR in bpm, supplied by the personal HR–power response model. It is kept separate from Lydiard Power Stress, CTL and ATL.',
     levels: [
-      { tone: 'good', label: '≤ +18%', text: 'HR in line with the pace.' },
-      { tone: 'bad', label: '> +18%', text: 'high HR cost flagged — the run taxed you more than the pace implies.' },
+      { tone: 'good', label: '< +5 bpm', text: 'HR broadly in line with the expected power response.' },
+      { tone: 'watch', label: '+5 to +8 bpm', text: 'elevated cardiovascular cost; check context and repeatability.' },
+      { tone: 'bad', label: '≥ +8 bpm', text: 'high HR cost versus the personal power-response model.' },
     ],
   },
   decoupling: {
@@ -147,7 +148,7 @@ export const METRIC_INFO: Record<MetricKey, MetricDef> = {
   hardShare: {
     title: 'Intensity density',
     what: 'How much of a week’s load came from hard running rather than easy volume.',
-    how: 'Hard-session load ÷ total weekly load. A run counts as hard at IF ≥ 0.85 (or the HR/power equivalent).',
+    how: 'Canonical hard-running stress ÷ total weekly stress when supplied. Trusted-CP and pace/elevation fallbacks estimate hard stress from their primary intensity; HR never makes a run hard by adding load.',
     levels: [
       { tone: 'good', label: '≤ 25%', text: 'healthy easy/hard balance.' },
       { tone: 'bad', label: '> 25%', text: 'high intensity density flagged — a lot of the week was hard.' },
@@ -173,10 +174,10 @@ export const METRIC_INFO: Record<MetricKey, MetricDef> = {
   },
   weekStatus: {
     title: 'Week status',
-    what: 'The week’s headline read on your training state.',
-    how: 'Derived from Ramp, Freshness and the risk flags on the week.',
+    what: 'The week’s load-only headline. It is background context, not a complete readiness, injury-risk or coaching verdict.',
+    how: 'Derived from Ramp, Freshness and weekly load-structure flags. HR-cost residuals, symptoms and athlete feedback must be assessed separately.',
     levels: [
-      { tone: 'bad', label: 'Back off', text: 'acute spike (Ramp > 1.5).' },
+      { tone: 'bad', label: 'Back off', text: 'load-spike flag (Ramp > 1.5); confirm against response evidence.' },
       { tone: 'watch', label: 'Caution', text: 'one or more risk flags raised.' },
       { tone: 'good', label: 'Fresh', text: 'well rested (Freshness > 8).' },
       { tone: 'muted', label: 'Productive overload', text: 'training hard (Freshness < −10).' },

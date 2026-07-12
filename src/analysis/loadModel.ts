@@ -4,17 +4,48 @@ import type { ActivitySummary, Severity } from '../types';
 export interface LoadThresholds {
   thresholdPaceSecPerKm: number;
   thresholdSpeedMps: number;
+  /** Latest caller-supplied, date-effective CP. Never inferred from average run power. */
   thresholdPower?: number;
   thresholdHeartRate?: number;
   maxHeartRate?: number;
 }
+
+/**
+ * Optional stream-derived evidence for one activity. `totalStress`, when
+ * supplied, is canonical and is passed through without blending it with pace
+ * or HR. `averagePctCp` uses percentage points (75 = 75% of CP).
+ *
+ * A caller may instead provide only a trusted, date-effective `effectiveCp`.
+ * In that case the summary average power is used as a lower-fidelity power
+ * stress fallback. Without either form of trusted power evidence the model
+ * falls back to pace plus elevation and labels that source explicitly.
+ */
+export interface CanonicalActivityMetric {
+  activityId: string;
+  totalStress?: number;
+  hardStress?: number;
+  averagePctCp?: number;
+  effectiveCp?: number;
+  hrCostResidualBpm?: number;
+  latePowerChangePct?: number;
+  source: string;
+}
+
+export type SessionLoadReliability =
+  | 'canonical-stream'
+  | 'trusted-power-cp'
+  | 'pace-elevation-fallback';
 
 export interface SessionLoad {
   activity: ActivitySummary;
   day: string;
   weekId: string;
   paceSecPerKm: number;
+  /** Selected canonical/trusted/fallback external stress (the same source as `load`). */
   externalLoad: number;
+  /** Diagnostic only: the summary pace/elevation estimate, even when a better source wins. */
+  paceFallbackLoad: number;
+  /** @deprecated Compatibility-only HR response index; it is excluded from `load`. */
   internalLoad?: number;
   powerLoad?: number;
   load: number;
@@ -22,7 +53,13 @@ export interface SessionLoad {
   heartRateIntensityFactor?: number;
   powerIntensityFactor?: number;
   hardLoad: number;
-  reliability: 'external-only' | 'external-hr' | 'external-power' | 'external-hr-power';
+  reliability: SessionLoadReliability;
+  loadSource: string;
+  effectiveCp?: number;
+  averagePctCp?: number;
+  hrCostResidualBpm?: number;
+  latePowerChangePct?: number;
+  /** @deprecated The former pace-vs-HR blended-cost percentage is no longer produced. */
   hiddenCostPct?: number;
   powerHrRatio?: number;
   flags: string[];
@@ -73,14 +110,18 @@ export interface TrainingLoadModel {
 
 const DAY_MS = 86400000;
 
-export function buildTrainingLoadModel(activities: ActivitySummary[]): TrainingLoadModel {
+export function buildTrainingLoadModel(
+  activities: ActivitySummary[],
+  canonicalMetrics: readonly CanonicalActivityMetric[] = [],
+): TrainingLoadModel {
   const runs = activities
     .filter(isRunLike)
     .filter((activity) => activity.distanceKm > 0 && activity.movingTimeSec > 0)
     .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 
-  const thresholds = estimateThresholds(runs);
-  const sessions = runs.map((activity) => scoreSession(activity, thresholds));
+  const canonicalByActivity = new Map(canonicalMetrics.map((metric) => [metric.activityId, metric]));
+  const thresholds = estimateThresholds(runs, canonicalByActivity);
+  const sessions = runs.map((activity) => scoreSession(activity, thresholds, canonicalByActivity.get(activity.id)));
   const daily = buildDailyLoad(sessions);
   const weeks = buildWeeklySummaries(sessions, daily);
 
@@ -100,7 +141,11 @@ export function dayIdFromActivity(activity: ActivitySummary): string {
   return source.slice(0, 10);
 }
 
-function scoreSession(activity: ActivitySummary, thresholds: LoadThresholds): SessionLoad {
+function scoreSession(
+  activity: ActivitySummary,
+  thresholds: LoadThresholds,
+  canonical?: CanonicalActivityMetric,
+): SessionLoad {
   const hours = activity.movingTimeSec / 3600;
   const paceSecPerKm = activity.movingTimeSec / activity.distanceKm;
   const speed = activity.averageSpeed && activity.averageSpeed > 0
@@ -109,62 +154,99 @@ function scoreSession(activity: ActivitySummary, thresholds: LoadThresholds): Se
   const elevationFactor = 1 + clamp((activity.elevationGainM / Math.max(activity.distanceKm * 1000, 1)) * 4, 0, 0.18);
   const gradeAdjustedSpeed = speed * elevationFactor;
   const externalIntensityFactor = clamp(gradeAdjustedSpeed / thresholds.thresholdSpeedMps, 0.35, 1.35);
-  const externalLoad = hours * externalIntensityFactor ** 2 * 100;
+  const paceFallbackLoad = hours * externalIntensityFactor ** 2 * 100;
 
+  // HR is response evidence only. Keep the old index available for the current
+  // detail UI, but never include it in total session stress.
   const heartRateIntensityFactor =
     activity.averageHeartRate && thresholds.thresholdHeartRate
       ? clamp(activity.averageHeartRate / thresholds.thresholdHeartRate, 0.35, 1.35)
       : undefined;
   const internalLoad = heartRateIntensityFactor === undefined ? undefined : hours * heartRateIntensityFactor ** 2 * 100;
 
-  const powerIntensityFactor =
-    activity.averageWatts && thresholds.thresholdPower
-      ? clamp(activity.averageWatts / thresholds.thresholdPower, 0.35, 1.35)
-      : undefined;
-  const powerLoad = powerIntensityFactor === undefined ? undefined : hours * powerIntensityFactor ** 2 * 100;
+  const canonicalStress = finiteNonNegative(canonical?.totalStress);
+  const effectiveCp = finitePositive(canonical?.effectiveCp);
+  const suppliedPctCp = finiteNonNegative(canonical?.averagePctCp);
+  const trustedPowerIntensity = effectiveCp
+    ? suppliedPctCp !== undefined
+      ? clamp(suppliedPctCp / 100, 0.35, 1.35)
+      : activity.averageWatts
+        ? clamp(activity.averageWatts / effectiveCp, 0.35, 1.35)
+        : undefined
+    : undefined;
+  const canonicalIsPower = Boolean(
+    effectiveCp ||
+      suppliedPctCp !== undefined ||
+      (canonical?.source && /power|stryd|rss/i.test(canonical.source)),
+  );
 
-  const weighted = [
-    [externalLoad, 0.5] as const,
-    ...(internalLoad === undefined ? [] : ([[internalLoad, 0.3] as const])),
-    ...(powerLoad === undefined ? [] : ([[powerLoad, 0.2] as const])),
-  ];
-  const weightTotal = weighted.reduce((total, [, weight]) => total + weight, 0);
-  const load = weighted.reduce((total, [value, weight]) => total + value * weight, 0) / weightTotal;
-  const hard =
-    externalIntensityFactor >= 0.85 ||
-    (heartRateIntensityFactor ?? 0) >= 0.92 ||
-    (powerIntensityFactor ?? 0) >= 0.88;
-  const hiddenCostPct = internalLoad === undefined ? undefined : ((internalLoad - externalLoad) / externalLoad) * 100;
+  let load: number;
+  let hardLoad: number;
+  let powerLoad: number | undefined;
+  let powerIntensityFactor: number | undefined;
+  let reliability: SessionLoadReliability;
+  let loadSource: string;
+
+  if (canonicalStress !== undefined) {
+    // This is the only exact path: no pace/HR weighting or re-scaling.
+    load = canonicalStress;
+    powerLoad = canonicalIsPower ? canonicalStress : undefined;
+    powerIntensityFactor = suppliedPctCp === undefined ? undefined : clamp(suppliedPctCp / 100, 0.35, 1.35);
+    hardLoad = finiteNonNegative(canonical?.hardStress) ?? (powerIntensityFactor && powerIntensityFactor >= 0.88 ? load : 0);
+    reliability = 'canonical-stream';
+    loadSource = canonical?.source || 'canonical-stream';
+  } else if (trustedPowerIntensity !== undefined) {
+    // Lower-fidelity fallback for a caller that supplied the CP effective on the
+    // activity date. We deliberately never infer CP from average run powers.
+    powerIntensityFactor = trustedPowerIntensity;
+    powerLoad = hours * trustedPowerIntensity ** 2 * 100;
+    load = powerLoad;
+    hardLoad = finiteNonNegative(canonical?.hardStress) ?? (trustedPowerIntensity >= 0.88 ? load : 0);
+    reliability = 'trusted-power-cp';
+    loadSource = canonical?.source || 'trusted-power-cp';
+  } else {
+    load = paceFallbackLoad;
+    hardLoad = externalIntensityFactor >= 0.85 ? load : 0;
+    reliability = 'pace-elevation-fallback';
+    loadSource = 'pace-elevation-fallback';
+  }
+
   const flags = buildSessionFlags({
-    externalIntensityFactor,
-    hiddenCostPct,
+    hardLoad,
+    reliability,
+    hrCostResidualBpm: finiteNumber(canonical?.hrCostResidualBpm),
+    latePowerChangePct: finiteNumber(canonical?.latePowerChangePct),
     decouplingPct: activity.decouplingPct,
-    hasHeartRate: Boolean(activity.averageHeartRate),
     hasPower: Boolean(activity.averageWatts),
   });
+
+  const resolvedLoad = canonicalStress === undefined ? round1(load) : load;
 
   return {
     activity,
     day: dayIdFromActivity(activity),
     weekId: toWeekIdUtc(activity.startDate),
     paceSecPerKm,
-    externalLoad: round1(externalLoad),
+    externalLoad: resolvedLoad,
+    paceFallbackLoad: round1(paceFallbackLoad),
     internalLoad: internalLoad === undefined ? undefined : round1(internalLoad),
-    powerLoad: powerLoad === undefined ? undefined : round1(powerLoad),
-    load: round1(load),
+    powerLoad:
+      powerLoad === undefined
+        ? undefined
+        : canonicalStress !== undefined
+          ? powerLoad
+          : round1(powerLoad),
+    load: resolvedLoad,
     externalIntensityFactor: round2(externalIntensityFactor),
     heartRateIntensityFactor: heartRateIntensityFactor === undefined ? undefined : round2(heartRateIntensityFactor),
     powerIntensityFactor: powerIntensityFactor === undefined ? undefined : round2(powerIntensityFactor),
-    hardLoad: hard ? round1(load) : 0,
-    reliability:
-      internalLoad !== undefined && powerLoad !== undefined
-        ? 'external-hr-power'
-        : internalLoad !== undefined
-          ? 'external-hr'
-          : powerLoad !== undefined
-            ? 'external-power'
-            : 'external-only',
-    hiddenCostPct: hiddenCostPct === undefined ? undefined : round1(hiddenCostPct),
+    hardLoad: canonicalStress !== undefined && canonical?.hardStress !== undefined ? hardLoad : round1(hardLoad),
+    reliability,
+    loadSource,
+    effectiveCp,
+    averagePctCp: suppliedPctCp,
+    hrCostResidualBpm: finiteNumber(canonical?.hrCostResidualBpm),
+    latePowerChangePct: finiteNumber(canonical?.latePowerChangePct),
     powerHrRatio:
       activity.averageWatts && activity.averageHeartRate
         ? round2(activity.averageWatts / activity.averageHeartRate)
@@ -270,7 +352,10 @@ function buildWeeklySummaries(sessions: SessionLoad[], daily: DailyLoadPoint[]):
   });
 }
 
-function estimateThresholds(runs: ActivitySummary[]): LoadThresholds {
+function estimateThresholds(
+  runs: ActivitySummary[],
+  canonicalByActivity: ReadonlyMap<string, CanonicalActivityMetric>,
+): LoadThresholds {
   const eligiblePaces = runs
     .filter((activity) => activity.distanceKm >= 3 && activity.movingTimeSec >= 12 * 60)
     .map((activity) => activity.movingTimeSec / activity.distanceKm)
@@ -280,45 +365,53 @@ function estimateThresholds(runs: ActivitySummary[]): LoadThresholds {
   const thresholdPaceSecPerKm = percentile(eligiblePaces, 0.18) ?? percentile(allPaces, 0.18) ?? 300;
   const thresholdSpeedMps = 1000 / thresholdPaceSecPerKm;
 
-  const powers = runs
-    .filter((activity) => activity.averageWatts && activity.movingTimeSec >= 15 * 60)
-    .map((activity) => activity.averageWatts as number)
-    .sort((a, b) => a - b);
   const maxHeartRates = runs.map((activity) => activity.maxHeartRate).filter(isUsefulHeartRate);
   const averageHeartRates = runs.map((activity) => activity.averageHeartRate).filter(isUsefulHeartRate);
   const maxHeartRate = percentile(maxHeartRates, 0.9) ?? percentile(averageHeartRates, 0.95);
+  const latestEffectiveCp = [...runs]
+    .reverse()
+    .map((activity) => finitePositive(canonicalByActivity.get(activity.id)?.effectiveCp))
+    .find((value): value is number => value !== undefined);
 
   return {
     thresholdPaceSecPerKm: Math.round(thresholdPaceSecPerKm),
     thresholdSpeedMps,
-    thresholdPower: percentile(powers, 0.85),
+    thresholdPower: latestEffectiveCp,
     maxHeartRate,
     thresholdHeartRate: maxHeartRate ? maxHeartRate * 0.9 : undefined,
   };
 }
 
 function buildSessionFlags(ctx: {
-  externalIntensityFactor: number;
-  hiddenCostPct?: number;
+  hardLoad: number;
+  reliability: SessionLoadReliability;
+  hrCostResidualBpm?: number;
+  latePowerChangePct?: number;
   decouplingPct?: number;
-  hasHeartRate: boolean;
   hasPower: boolean;
 }): string[] {
   const flags: string[] = [];
-  if (ctx.externalIntensityFactor >= 0.9) {
+  if (ctx.hardLoad > 0) {
     flags.push('quality load');
   }
-  if (ctx.hiddenCostPct !== undefined && ctx.hiddenCostPct > 18) {
-    flags.push('high HR cost');
+  if (ctx.hrCostResidualBpm !== undefined && ctx.hrCostResidualBpm >= 8) {
+    flags.push('high HR cost vs expected power response');
+  } else if (ctx.hrCostResidualBpm !== undefined && ctx.hrCostResidualBpm >= 5) {
+    flags.push('elevated HR cost vs expected power response');
+  }
+  if (ctx.latePowerChangePct !== undefined && ctx.latePowerChangePct <= -8) {
+    flags.push('late power fade');
+  } else if (ctx.latePowerChangePct !== undefined && ctx.latePowerChangePct <= -5) {
+    flags.push('late power decline');
   }
   if (ctx.decouplingPct !== undefined && ctx.decouplingPct > 8) {
     flags.push('HR drift');
   }
-  if (!ctx.hasHeartRate) {
-    flags.push('HR estimated');
-  }
-  if (!ctx.hasPower) {
-    flags.push('power estimated');
+  if (ctx.reliability === 'pace-elevation-fallback') {
+    flags.push('pace/elevation load fallback');
+    if (ctx.hasPower) {
+      flags.push('power present but CP not trusted');
+    }
   }
   return flags;
 }
@@ -381,6 +474,18 @@ function isUsefulHeartRate(value?: number): value is number {
 
 function isFinitePositive(value?: number): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function finitePositive(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function finiteNonNegative(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function weeklyMonotony(dayLoads: number[]): number {

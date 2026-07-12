@@ -188,6 +188,62 @@ export function buildOpenApiDocument(origin: string): unknown {
       type: 'object',
       properties: { activities: { type: 'array', items: ref('Activity') } },
     },
+    CoachContext: {
+      type: 'object',
+      description: 'Deterministic stateful-coach context, including physiology, future sessions, recent responses, and pending decisions.',
+      properties: {
+        generatedAt: str,
+        asOf: str,
+        policyVersion: str,
+        goals: {
+          type: 'object',
+          properties: {
+            firstMilestone: { type: 'object', properties: { distance: str, targetSeconds: int, target: str } },
+            laterMilestone: { type: 'object', properties: { distance: str, targetSeconds: int, target: str } },
+          },
+        },
+        profile: {
+          type: 'object',
+          properties: { currentPhase: str, goal5kSeconds: int, goal10kSeconds: int, version: int, policyVersion: str },
+        },
+        physiology: {
+          type: 'object',
+          properties: {
+            asOf: str,
+            criticalSpeed: { type: 'object', properties: { estimate: num, low: num, high: num, confidence: str } },
+            canonicalCriticalPower: { type: 'object', properties: { watts: num, effectiveFrom: str, source: str, confidence: str } },
+            lt1HeartRate: { type: 'object', properties: { low: num, high: num, confidence: str } },
+            lt2HeartRate: { type: 'object', properties: { low: num, high: num, confidence: str } },
+            zones: { type: 'array', items: { type: 'object', properties: { name: str, label: str, domain: str, control: str } } },
+            limitations: { type: 'array', items: str },
+          },
+        },
+        backgroundLoad: {
+          type: 'object',
+          properties: { sevenDayStress: num, fortyTwoDayStress: num, stressBalance: num, sevenDayHardStress: num, explanation: str },
+        },
+        observedState: {
+          type: 'object',
+          properties: { state: str, reasons: { type: 'array', items: str }, maxRecentPain: num, alteredGait: bool },
+        },
+        upcomingPlan: {
+          type: 'object',
+          properties: {
+            from: str,
+            to: str,
+            sessions: {
+              type: 'array',
+              items: { type: 'object', properties: { id: str, plannedDate: str, title: str, sessionType: str, purpose: str, fallbackPlan: str, status: str } },
+            },
+            proposedDecisionIds: { type: 'array', items: str },
+            acceptedDecisionIds: { type: 'array', items: str },
+          },
+        },
+        recentRuns: { type: 'array', items: { type: 'object', properties: { id: str, name: str, startDate: str, distanceKm: num, movingTimeSec: num, verdict: str } } },
+        recentDecisions: { type: 'array', items: { type: 'object', properties: { id: str, decisionType: str, status: str, summary: str, reasoning: str } } },
+        limitations: { type: 'array', items: str },
+      },
+    },
     SyncAccepted: {
       type: 'object',
       properties: { ok: bool, message: str },
@@ -203,10 +259,10 @@ export function buildOpenApiDocument(origin: string): unknown {
     openapi: '3.1.0',
     info: {
       title: 'Lydiard Training API',
-      version: '1.0.0',
+      version: '2.0.0',
       description:
-        'Query a single runner\'s training history (activities, weekly features, and personalized ' +
-        'fatigue/injury-risk analysis) over any time period. Designed for AI agents planning training.',
+        'Query a single runner\'s training history and deterministic stateful coaching context: physiology, ' +
+        'future plans, planned-versus-actual responses, and pending adaptations.',
     },
     servers: [{ url: origin }],
     security: [{ bearerAuth: [] }],
@@ -223,6 +279,21 @@ export function buildOpenApiDocument(origin: string): unknown {
             dateParam('to', 'End of the trend window (inclusive).'),
           ],
           responses: { '200': jsonResponse('Plan context bundle', 'PlanContext') },
+        },
+      },
+      '/api/agent/coach-context': {
+        get: {
+          operationId: 'getCoachContext',
+          summary: 'Get the authoritative stateful-coach context',
+          description:
+            'Start here for zones, current Lydiard phase, the accepted/proposed future block, recent run responses, ' +
+            'and pending adaptation decisions. Later planned weeks are contingent on earlier-week absorption.',
+          parameters: [
+            dateParam('asOf', 'Evaluate evidence available on or before this date.'),
+            dateParam('weekStart', 'Monday that starts the requested planning horizon.'),
+            { name: 'lookbackDays', in: 'query', required: false, schema: { type: 'integer', minimum: 30, maximum: 365 } },
+          ],
+          responses: { '200': jsonResponse('Stateful coach context', 'CoachContext') },
         },
       },
       '/api/agent/risk': {

@@ -1,58 +1,99 @@
-# Skill: Analyze Jack's running training
+---
+name: analyze-jacks-running-training
+description: Use Lydiard's live coaching API to explain Jack's physiology, review planned versus completed runs, assess pain and fatigue, and communicate deterministic Lydiard-style weekly plans toward sub-15 5K and later sub-30 10K. Use whenever Jack asks what to run next, whether a run was absorbed, how zones were estimated, or whether the remaining week should change.
+---
 
-Use the **Lydiard Training API** to analyze a single runner's training history and produce
-injury-risk assessments and short-term training plans. The API reads a live store synced from
-Garmin health-data (activities, per-week features, and a personalized fatigue model).
+# Coach Jack with Lydiard
 
-## Auth
+Use the platform as the decision-maker. Explain its evidence and uncertainty; do not invent zones, training phases, or sessions directly from raw activity rows.
 
-Every `/api/agent/*` endpoint requires the API key. Two ways to send it:
+## Connect
 
-- **In the URL (works in a normal chat):** append `?key=<AGENT_API_KEY>`.
-- **As a header (Custom GPT Action / scripts):** `Authorization: Bearer <AGENT_API_KEY>`.
+- Base URL: `https://lydiard.lydiard.workers.dev`
+- Prefer `Authorization: Bearer <AGENT_API_KEY>`.
+- In a chat that cannot set headers, append `?key=<AGENT_API_KEY>`.
+- Never print, quote, or expose the key.
 
-Replace `<AGENT_API_KEY>` with the key the user gives you. **Never print the key back to the user
-or include it in your visible answer.**
+## Start with the coach context
 
-Base URL: `https://lydiard.lydiard.workers.dev`
+Call:
 
-## Primary call — one request for the whole picture
-
+```text
+GET /api/agent/coach-context
 ```
-GET https://lydiard.lydiard.workers.dev/api/agent/plan-context?key=<AGENT_API_KEY>
-```
 
-Optional `from` / `to` (`YYYY-MM-DD`) change the trend window; with no params it returns the last
-12 weeks. The JSON contains:
+Use its deterministic outputs:
 
-- `current` — latest week's `riskScore` (0–100), `severity` (`steady`/`watch`/`high`), and
-  `topIndicators` (each with `label`, `deltaLabel`, `score`, `severity`, `detail`).
-- `loadStatus` — `acuteLoad`, `chronicLoad`, `acRatio`, and an `interpretation`.
-- `summary` — totals for the window (distance, duration, avg weekly km, longest run).
-- `weeklyTrend[]` — per week: distance, duration, trainingLoad, acRatio, easyPaceSecPerKm,
-  thresholdPaceSecPerKm, hrPaceDecouplingPct, strideLengthCm, cadenceSpm, hrvMs, sleepHours,
-  riskScore, severity, `streamsBacked`.
-- `indicatorGuide` + `instructions` — how to read each signal.
+- `profile`: goals, current phase, durability constraints, and plan version.
+- `physiology`: critical speed, Critical Power, LT1/LT2 bands, confidence, evidence, model version, and effective date.
+- `zones`: Recovery, Aerobic, Steady, Threshold, and VO2/anaerobic controls.
+- `currentState`: background load plus observed HR/power/pace and feedback signals.
+- `upcomingPlan`: accepted or proposed structured sessions across the current and next three weeks, with purposes, fallbacks, and decision IDs.
+- `recentEvaluations`: planned-versus-actual verdicts and pending adaptations.
+- `sessionMetrics`: Lydiard Power Stress, HR cost, durability, and fallbacks for recent activities.
 
-## How to analyze (what the user wants)
+Use `/api/agent/plan-context`, `/risk`, `/weeks`, and `/activities` only for supporting history.
 
-1. **Injury risk.** Combine `current.riskScore`/`severity` with `loadStatus.acRatio`
-   (≳1.4 = spike, classic risk) and any drift in `weeklyTrend`: falling `strideLengthCm`, rising
-   `hrPaceDecouplingPct`, or slower `easyPaceSecPerKm` vs earlier weeks are the key warning signs.
-   Everything is judged against the runner's OWN rolling baseline, not population norms.close wor
-2. **Plan the next 1–3 weeks.** Recommend target weekly volume (km), number of quality sessions,
-   long-run distance, and recovery guidance. Progress conservatively when severity is `watch`/`high`
-   and keep the acute/chronic ratio in a safe band (~0.8–1.3).
+## Respect the measurement hierarchy
 
-## Other endpoints (same `?key=` / Bearer auth)
+- Treat Stryd power as external work when its provenance and effective CP are known.
+- Treat chest-strap HR as internal cardiovascular cost.
+- Treat grade-adjusted pace as performance outcome and race specificity.
+- Treat feedback as the evidence for pain, legs, energy, sleep, motivation, and context that sensors cannot observe.
+- Never average these as interchangeable measurements.
+- Call platform-computed power load `Lydiard Power Stress`, never Stryd RSS.
+- When power is unavailable or invalid, use the platform's labelled pace/GAP fallback.
 
-- `GET /api/agent/risk?key=<KEY>[&asOf=YYYY-MM-DD]` — full fatigue analysis for one week.
-- `GET /api/agent/weeks?key=<KEY>[&from=&to=]` — weekly feature rows.
-- `GET /api/agent/activities?key=<KEY>[&from=&to=]` — per-activity metrics.
+## Follow the goal order
 
-## Example task
+Treat both headline targets as 3:00/km, but recognize that sub-30 10K is materially harder:
 
-> Fetch `https://lydiard.lydiard.workers.dev/api/agent/plan-context?key=<AGENT_API_KEY>`, assess my
-> injury risk from the current-week risk score, the acute/chronic ratio, and stride/pace/decoupling
-> drift, then give me a specific plan for the next 1–3 weeks (weekly km, quality sessions, long run,
-> recovery).
+1. Durable, healthy training.
+2. Sub-15:00 5K.
+3. Approximately sub-31:00 10K.
+4. Sub-30:00 10K.
+
+Do not sacrifice continuity or connective-tissue tolerance to accelerate a later milestone.
+
+## Apply the coaching policy
+
+Read [docs/coach-policy.md](docs/coach-policy.md) when producing a weekly recommendation, post-run review, phase recommendation, or adaptation explanation.
+
+Always distinguish:
+
+- observed fact;
+- model estimate;
+- coaching inference;
+- uncertain hypothesis.
+
+Keep ranges and confidence visible. Never move a zone merely to make the latest run look correctly classified.
+
+## Future-plan response contract
+
+Return, in this order:
+
+1. Current state.
+2. Current phase.
+3. This week's objective.
+4. Day-by-day accepted/proposed plan for the requested one-to-three-week horizon.
+5. Intensity controls and their confidence.
+6. Total duration and approximate distance.
+7. What is deliberately absent.
+8. Green, amber, and red adaptation triggers.
+9. Next decision point.
+
+Be decisive. Recommend one plan, not a menu. Mark weeks two and three as contingent on absorption of the prior week, and identify what evidence would change them.
+
+## Post-run response contract
+
+Return, in this order:
+
+1. Intended stimulus.
+2. Actual stimulus.
+3. External dose versus internal cost.
+4. Mechanical observations.
+5. Platform verdict: Absorbed, Productive but costly, Excessive for current state, Inconclusive, or Pain/injury concern.
+6. Effect on the remaining week.
+7. Any justified change in physiology confidence.
+
+Treat one run as weak evidence unless pain alters gait, symptoms escalate, illness is plausible, performance collapses unexplained, or prescribed intensity cannot be controlled. Present pending plan patches for explicit acceptance; do not silently rewrite the week.

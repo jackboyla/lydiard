@@ -5,6 +5,7 @@ import { normalizeFrom, normalizeTo } from '../http';
 import { buildPlanContext } from '../planContext';
 import { runSync } from '../sync';
 import { loadAnalyses } from './public';
+import { buildCoachContext } from '../coachContext';
 
 function athleteName(firstname: string | null | undefined, lastname: string | null | undefined): string | null {
   const name = [firstname, lastname].filter(Boolean).join(' ').trim();
@@ -70,6 +71,17 @@ export function agentRoutes(): Hono<{ Bindings: Env }> {
       normalizeTo(c.req.query('to')) ?? null,
       new Date().toISOString(),
     );
+    return c.json(context);
+  });
+
+  app.get('/coach-context', async (c) => {
+    const rawLookback = c.req.query('lookbackDays');
+    const lookbackDays = rawLookback && /^\d+$/.test(rawLookback) ? Number(rawLookback) : undefined;
+    const context = await buildCoachContext(c.env.lydiard, {
+      asOf: c.req.query('asOf'),
+      weekStart: c.req.query('weekStart'),
+      lookbackDays,
+    });
     return c.json(context);
   });
 

@@ -4613,3 +4613,279 @@ dd {
     text-align: left;
   }
 }
+
+/* Stateful coach --------------------------------------------------------- */
+
+.coach-shell {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 26px;
+}
+
+.coach-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: clamp(20px, 3vw, 32px);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--green);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 85% 0, rgba(91, 124, 250, 0.18), transparent 32%),
+    linear-gradient(135deg, rgba(24, 43, 38, 0.96), rgba(18, 23, 31, 0.98));
+}
+
+.coach-hero.coach-state-amber { border-left-color: var(--warning); }
+.coach-hero.coach-state-red { border-left-color: var(--danger); }
+.coach-hero h2 { margin: 8px 0; font-size: clamp(1.7rem, 4vw, 3rem); line-height: 1.04; }
+.coach-hero p:not(.eyebrow) { max-width: 780px; margin: 0; color: var(--muted); line-height: 1.6; }
+
+.coach-hero-actions,
+.coach-block-controls,
+.coach-cp-form,
+.coach-targets,
+.coach-feedback-saved {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.coach-hero-actions { justify-content: flex-end; }
+.coach-hero-actions button,
+.coach-block-controls button,
+.coach-cp-form button,
+.coach-feedback-open,
+.coach-feedback-saved button,
+.coach-decision button,
+.coach-error button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 12px;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-control);
+  cursor: pointer;
+}
+
+.coach-state-pill,
+.coach-session-main header span {
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  text-transform: capitalize;
+}
+
+.coach-state-pill.green { color: #75dfb7; border-color: #28634f; background: var(--green-soft); }
+.coach-state-pill.amber { color: var(--warning); border-color: var(--warning-border); background: var(--warning-soft); }
+.coach-state-pill.red { color: #ff9ba3; border-color: var(--danger-border); background: var(--danger-soft); }
+
+.coach-roadmap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.coach-roadmap > svg { color: var(--subtle); }
+.coach-roadmap-step {
+  display: flex;
+  min-height: 82px;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  background: var(--surface-muted);
+}
+.coach-roadmap-step.active { border-color: #28634f; background: var(--green-soft); }
+.coach-roadmap-step > span {
+  display: grid;
+  flex: 0 0 27px;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--text-strong);
+  background: var(--surface-control);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+.coach-roadmap-step div { display: grid; gap: 5px; }
+.coach-roadmap-step small { color: var(--muted); line-height: 1.35; }
+
+.coach-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.coach-overview-grid .product-card { min-width: 0; }
+.coach-phase-card label,
+.coach-cp-form label,
+.coach-block-controls label,
+.coach-feedback-form > label { display: grid; gap: 6px; color: var(--muted); font-size: 0.75rem; font-weight: 700; }
+.coach-phase-card select,
+.coach-cp-form input,
+.coach-block-controls input,
+.coach-block-controls select,
+.coach-feedback-form input {
+  min-height: 40px;
+  padding: 8px 10px;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-control);
+}
+.coach-phase-card select { width: 100%; }
+.coach-phase-card > p,
+.coach-load-card > p,
+.coach-block-rule { color: var(--muted); line-height: 1.55; }
+.coach-stat-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
+.coach-stat-row > span { display: grid; gap: 5px; padding: 12px; border-radius: 9px; background: var(--surface-muted); }
+.coach-stat-row small { color: var(--muted); }
+.coach-stat-row strong { font-size: 1.22rem; }
+.coach-cp-current { display: grid; gap: 5px; margin: 12px 0 16px; }
+.coach-cp-current strong { font-size: 2rem; color: var(--accent-strong); }
+.coach-cp-current span,
+.coach-cp-current small,
+.coach-missing { color: var(--muted); }
+.coach-cp-form { align-items: end; }
+.coach-cp-form label { flex: 1 1 120px; }
+
+.coach-physiology > header,
+.coach-block-planner > header,
+.coach-responses > header,
+.coach-future-week > header,
+.coach-adaptations > header {
+  align-items: flex-start;
+}
+.coach-physiology > header h3,
+.coach-block-planner > header h3,
+.coach-responses > header h3,
+.coach-future-week > header h3,
+.coach-adaptations > header h3 { margin: 4px 0 0; }
+.coach-physiology-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+.coach-estimate-card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+.coach-estimate-card > svg { color: var(--accent-strong); }
+.coach-estimate-card > span,
+.coach-estimate-card > small { color: var(--muted); }
+.coach-estimate-card > strong { font-size: 1.18rem; }
+.coach-estimate-card > em { font-size: 0.68rem; font-style: normal; text-transform: uppercase; }
+.confidence-high { color: #75dfb7; }
+.confidence-medium { color: var(--warning); }
+.confidence-low { color: #ff9ba3; }
+
+.coach-zone-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.coach-zone { min-width: 0; padding: 13px; border: 1px solid var(--border-soft); border-top: 3px solid var(--accent); border-radius: 9px; background: var(--surface-soft); }
+.coach-zone:nth-child(1), .coach-zone:nth-child(2) { border-top-color: var(--green); }
+.coach-zone:nth-child(4) { border-top-color: var(--warning); }
+.coach-zone:nth-child(5) { border-top-color: var(--danger); }
+.coach-zone header { display: grid; gap: 3px; }
+.coach-zone header span { color: var(--muted); font-size: 0.7rem; }
+.coach-zone p { min-height: 54px; color: var(--muted); font-size: 0.78rem; line-height: 1.4; }
+.coach-zone > div { display: grid; gap: 4px; font-size: 0.76rem; font-weight: 700; }
+
+.coach-block-controls { align-items: end; margin-top: 15px; }
+.coach-block-controls label { flex: 1 1 150px; }
+.coach-accept-button { border-color: #28634f !important; background: var(--green-soft) !important; color: #75dfb7 !important; }
+
+.coach-future-weeks { display: grid; gap: 12px; }
+.coach-session-list { display: grid; gap: 8px; margin-top: 14px; }
+.coach-session-card { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 13px; padding: 13px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface-muted); }
+.coach-session-card.status-proposed { border-left: 3px solid var(--warning); }
+.coach-session-card.status-accepted,
+.coach-session-card.status-planned { border-left: 3px solid var(--green); }
+.coach-session-date { display: grid; align-content: start; gap: 3px; }
+.coach-session-date strong { color: var(--accent-strong); }
+.coach-session-date span { color: var(--muted); font-size: 0.75rem; }
+.coach-session-main header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.coach-session-main > p { margin: 7px 0; color: var(--muted); line-height: 1.45; }
+.coach-targets span { padding: 4px 7px; border-radius: 6px; color: var(--text); background: var(--surface-control); font-size: 0.73rem; }
+.coach-fallback { font-size: 0.78rem; }
+.coach-actual { display: flex; align-items: center; gap: 6px; color: #75dfb7 !important; }
+
+.coach-adaptations { display: grid; gap: 10px; padding: 18px; border: 1px solid var(--warning-border); border-radius: 12px; background: var(--warning-soft); }
+.coach-adaptations > header { display: flex; gap: 10px; }
+.coach-decision { display: flex; justify-content: space-between; gap: 18px; }
+.coach-decision > div:last-child { display: flex; align-items: center; gap: 8px; }
+.coach-decision p,
+.coach-decision small { color: var(--muted); }
+
+.coach-response-list { display: grid; gap: 8px; margin-top: 14px; }
+.coach-run-response { display: grid; grid-template-columns: minmax(0, 1fr) 72px auto; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface-muted); }
+.coach-run-summary { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 0; color: var(--text); text-align: left; border: 0; background: transparent; cursor: pointer; }
+.coach-run-summary span { display: grid; min-width: 0; gap: 3px; }
+.coach-run-summary small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.coach-run-cost { display: grid; text-align: center; }
+.coach-run-cost span,
+.coach-run-cost small { color: var(--muted); font-size: 0.68rem; }
+.coach-feedback-form { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
+.coach-feedback-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.coach-feedback-form legend { margin-bottom: 5px; color: var(--muted); font-size: 0.72rem; font-weight: 700; }
+.coach-feedback-form fieldset div { display: flex; flex-wrap: wrap; gap: 4px; }
+.coach-feedback-form fieldset button { flex: 1; min-height: 32px; padding: 5px; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; background: var(--surface-control); font-size: 0.69rem; cursor: pointer; }
+.coach-feedback-form fieldset button.active { color: var(--text-strong); border-color: var(--accent); background: rgba(91, 124, 250, 0.2); }
+.coach-feedback-form > label { grid-column: 1 / -1; }
+.coach-feedback-form > button { grid-column: 1 / -1; justify-self: start; }
+.coach-feedback-form > small { grid-column: 1 / -1; color: var(--warning); }
+.coach-loading,
+.coach-error,
+.coach-empty-plan { display: flex; align-items: center; gap: 12px; }
+.coach-loading p,
+.coach-error p,
+.coach-empty-plan p { margin: 3px 0 0; color: var(--muted); }
+.coach-action-error { margin: 0; padding: 10px 12px; color: #ff9ba3; border: 1px solid var(--danger-border); border-radius: 8px; background: var(--danger-soft); }
+.coach-limitations summary { cursor: pointer; font-weight: 750; }
+.coach-limitations li { margin: 8px 0; color: var(--muted); line-height: 1.45; }
+
+@media (max-width: 1050px) {
+  .coach-roadmap { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .coach-roadmap > svg { display: none; }
+  .coach-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .coach-cp-card { grid-column: 1 / -1; }
+  .coach-physiology-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .coach-zone-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .coach-shell { gap: 13px; }
+  .coach-hero { display: grid; gap: 16px; padding: 19px 16px; }
+  .coach-hero-actions { justify-content: flex-start; }
+  .coach-roadmap,
+  .coach-overview-grid,
+  .coach-physiology-grid,
+  .coach-zone-grid { grid-template-columns: minmax(0, 1fr); }
+  .coach-cp-card { grid-column: auto; }
+  .coach-roadmap-step { min-height: auto; }
+  .coach-zone p { min-height: 0; }
+  .coach-block-controls > label,
+  .coach-block-controls > button { flex: 1 1 100%; width: 100%; }
+  .coach-session-card { grid-template-columns: 58px minmax(0, 1fr); gap: 9px; padding: 11px; }
+  .coach-session-main header { display: grid; gap: 7px; }
+  .coach-session-main header span { justify-self: start; }
+  .coach-decision { display: grid; }
+  .coach-decision > div:last-child { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .coach-run-response { grid-template-columns: minmax(0, 1fr) 58px; }
+  .coach-feedback-open,
+  .coach-feedback-saved { grid-column: 1 / -1; }
+  .coach-feedback-form { grid-template-columns: minmax(0, 1fr); }
+  .coach-feedback-form fieldset,
+  .coach-feedback-form > label,
+  .coach-feedback-form > button,
+  .coach-feedback-form > small { grid-column: 1; }
+  .coach-stat-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .coach-stat-row > span { padding: 9px 7px; }
+  .coach-stat-row strong { font-size: 1rem; }
+}
