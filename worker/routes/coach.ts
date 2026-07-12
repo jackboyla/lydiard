@@ -281,6 +281,46 @@ export function coachRoutes(): Hono<{ Bindings: Env }> {
     }
   });
 
+  app.patch('/sessions/:id', async (c) => {
+    const body = await objectBody(c);
+    if (!body) return c.json({ error: 'Request body must be a JSON object.' }, 400);
+    const expectedRevision = integer(body.expectedRevision);
+    if (!expectedRevision || expectedRevision < 1) return c.json({ error: 'expectedRevision must be a positive integer.' }, 400);
+    const existing = await getPlannedSession(c.env.lydiard, c.req.param('id'));
+    if (!existing) return c.json({ error: 'Planned session not found.' }, 404);
+    if (!['proposed', 'accepted', 'planned'].includes(existing.status)) {
+      return c.json({ error: `A ${existing.status} session can no longer be edited.` }, 409);
+    }
+    const patch: Parameters<typeof patchPlannedSession>[2] = {};
+    if (body.plannedDate !== undefined) {
+      const plannedDate = dateString(body.plannedDate);
+      if (!plannedDate) return c.json({ error: 'plannedDate must use YYYY-MM-DD.' }, 400);
+      patch.plannedDate = plannedDate;
+    }
+    if (body.title !== undefined) {
+      const title = nonEmptyString(body.title);
+      if (!title || title.length > 300) return c.json({ error: 'title must be 1–300 characters.' }, 400);
+      patch.title = title;
+    }
+    if (body.plannedDurationMin !== undefined) {
+      const minutes = integer(body.plannedDurationMin);
+      if (minutes === undefined || minutes < 0 || minutes > 600) return c.json({ error: 'plannedDurationMin must be 0–600.' }, 400);
+      patch.plannedDurationSec = minutes * 60;
+    }
+    if (body.purpose !== undefined) {
+      if (typeof body.purpose !== 'string' || body.purpose.length > 2_000) return c.json({ error: 'purpose must be at most 2000 characters.' }, 400);
+      patch.purpose = body.purpose;
+    }
+    if (Object.keys(patch).length === 0) return c.json({ error: 'Provide plannedDate, title, plannedDurationMin, and/or purpose.' }, 400);
+    try {
+      const session = await patchPlannedSession(c.env.lydiard, existing.id, patch, expectedRevision);
+      return c.json({ session });
+    } catch (error) {
+      if (error instanceof PlannedSessionConflictError) return c.json({ error: error.message }, 409);
+      throw error;
+    }
+  });
+
   app.post('/activities/:id/feedback', async (c) => {
     const activityId = c.req.param('id');
     const activity = await getActivity(c.env.lydiard, activityId);

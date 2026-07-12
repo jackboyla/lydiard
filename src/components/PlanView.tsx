@@ -145,7 +145,10 @@ export function PlanView({
       <PlanPageIntro />
       {coachPanel}
 
-      <section className="product-card plan-editor-card" aria-label={`Training plan ${formatWeekRange(weekStart)}`}>
+      <details className="product-card plan-legacy-editor">
+        <summary>Imported plan and general day notes</summary>
+        <p className="plan-legacy-editor-intro">Your structured future plan is shown above. Open this only to review imported RUNMASTER text or edit a general day note.</p>
+      <section className="plan-editor-card" aria-label={`Training plan ${formatWeekRange(weekStart)}`}>
         <header className="plan-editor-toolbar">
           <div>
             <span>Training week</span>
@@ -188,6 +191,7 @@ export function PlanView({
           ))}
         </div>
       </section>
+      </details>
     </main>
   );
 }
@@ -442,8 +446,8 @@ function PlanPageIntro() {
           <CalendarDays size={15} aria-hidden="true" />
           Plan
         </p>
-        <h2>Planned and actual training</h2>
-        <p>Edit each day's plan and notes. Garmin fills the actual column automatically after sync.</p>
+        <h2>Your training plan</h2>
+        <p>Review the next 1–3 weeks, accept a draft, and adjust only what needs changing.</p>
       </div>
     </section>
   );

@@ -17,6 +17,7 @@ import {
   getTrainingPlanDays,
   getWeeklyFeatures,
   patchTrainingPlanDay,
+  patchActivityNote,
   TrainingPlanConflictError,
 } from '../db';
 import { normalizeFrom, normalizeTo } from '../http';
@@ -111,6 +112,31 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
       planDay: planDay ?? undefined,
     };
     return c.json(detail);
+  });
+
+  app.patch('/activities/:id/note', async (c) => {
+    const activity = await getActivity(c.env.lydiard, c.req.param('id'));
+    if (!activity) {
+      return c.json({ error: 'Activity not found' }, 404);
+    }
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json({ error: 'Request body must be JSON.' }, 400);
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return c.json({ error: 'Request body must be an object.' }, 400);
+    }
+    const note = (payload as Record<string, unknown>).note;
+    if (typeof note !== 'string') {
+      return c.json({ error: 'note must be a string.' }, 400);
+    }
+    if (note.length > 100_000) {
+      return c.json({ error: 'note must not exceed 100000 characters.' }, 400);
+    }
+    const feedback = await patchActivityNote(c.env.lydiard, activity.id, note);
+    return c.json({ note: feedback.note, updatedAt: feedback.updatedAt });
   });
 
   app.get('/gym', async (c) => {
@@ -285,6 +311,9 @@ function requiredPlanDate(value: string): string | undefined {
 }
 
 const BEST_EFFORT_TARGETS = [
+  { label: '1K', distanceKm: 1 },
+  { label: 'Mile', distanceKm: 1.609344 },
+  { label: '3K', distanceKm: 3 },
   { label: '5K', distanceKm: 5 },
   { label: '10K', distanceKm: 10 },
   { label: '15K', distanceKm: 15 },

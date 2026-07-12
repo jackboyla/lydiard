@@ -1,12 +1,12 @@
-import { type ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, type ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   ArrowDownToLine,
   CalendarDays,
   ClipboardList,
   Gauge,
-  Home,
   Link2,
+  List,
   Map as MapIcon,
   Menu,
   RefreshCw,
@@ -14,7 +14,6 @@ import {
   Sparkles,
   TrendingUp,
   Unlink,
-  UserRound,
   X,
 } from 'lucide-react';
 import { analyzeWeeks, formatPace } from './analysis/fatigue';
@@ -26,14 +25,9 @@ import {
   type TrainingLoadModel,
   type WeekLoadSummary,
 } from './analysis/loadModel';
-import { IndicatorList } from './components/IndicatorList';
-import { LoadStory } from './components/LoadStory';
-import { MapView } from './components/MapView';
 import { CoachPanel } from './components/CoachPanel';
 import { PlanView } from './components/PlanView';
 import { TrainingView, type TrainingJumpApi } from './components/TrainingView';
-import { TrainingLoadChart } from './components/TrainingLoadChart';
-import { TrendPanel } from './components/TrendPanel';
 import {
   getActivities,
   getActivity,
@@ -47,6 +41,7 @@ import {
   disconnectStrava,
   setSiteKey,
   savePlanDay,
+  saveActivityNote,
   saveCoachPhase,
   addCoachCriticalPower,
   proposeCoachBlock,
@@ -55,6 +50,7 @@ import {
   evaluateCoachActivity,
   applyCoachDecision,
   rejectCoachDecision,
+  updateCoachSession,
   SiteUnauthorizedError,
   stravaLoginUrl,
   triggerSync,
@@ -62,7 +58,6 @@ import {
 } from './data/api';
 import { parseActivityCsv } from './data/importActivities';
 import { toWeekIdUtc, type ColorBy } from './data/mapRoutes';
-import { sampleWeeks } from './data/sampleWeeks';
 import type {
   ActivityDetail,
   ActivitySummary,
@@ -79,8 +74,9 @@ import type {
 import type { CoachContextData, CoachFeedbackDraft, CoachPhase, CriticalPowerDraft } from './data/coachTypes';
 
 type RangePreset = '4w' | '12w' | '6mo' | '1y' | 'all';
-type ViewMode = 'home' | 'fitness' | 'plan' | 'analysis' | 'calendar' | 'map';
-type MobileNavKey = 'home' | 'fitness' | 'plan' | 'analysis' | 'calendar' | 'map';
+type ViewMode = 'log' | 'progress' | 'plan';
+type LogMode = 'list' | 'map';
+type BestEffortScope = 'all' | 'season';
 
 const RANGE_DAYS: Record<RangePreset, number> = {
   '4w': 28,
@@ -104,11 +100,15 @@ const COLOR_OPTIONS: Array<{ key: ColorBy; label: string }> = [
   { key: 'recency', label: 'Recency' },
 ];
 
+const LazyMapView = lazy(() => import('./components/MapView').then((module) => ({ default: module.MapView })));
+const LazyAdvancedAnalysis = lazy(() => import('./components/AdvancedAnalysis'));
+
 export default function App() {
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [apiWeeks, setApiWeeks] = useState<WeeklyRunBlock[]>([]);
   const [localWeeks, setLocalWeeks] = useState<WeeklyRunBlock[] | null>(null);
   const [activities, setActivities] = useState<ActivitySummary[]>([]);
+  const [allActivitiesLoaded, setAllActivitiesLoaded] = useState(false);
   const [gymSessions, setGymSessions] = useState<GymSession[]>([]);
   const [planDays, setPlanDays] = useState<TrainingPlanDay[]>([]);
   const [planLoading, setPlanLoading] = useState(true);
@@ -119,8 +119,11 @@ export default function App() {
   const [coachError, setCoachError] = useState('');
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
   const [activityDetail, setActivityDetail] = useState<ActivityDetail | null>(null);
-  const [activityFocus, setActivityFocus] = useState<{ id: string; request: number } | null>(null);
-  const activityFocusRequest = useRef(0);
+  const [activityFocus, setActivityFocus] = useState<{ id: string; request: number } | null>(() => {
+    const id = new URLSearchParams(window.location.search).get('activity');
+    return id ? { id, request: 1 } : null;
+  });
+  const activityFocusRequest = useRef(activityFocus ? 1 : 0);
   const coreLoadRequest = useRef(0);
   const planLoadRequest = useRef(0);
   const coachLoadRequest = useRef(0);
@@ -133,9 +136,10 @@ export default function App() {
   const [needsPassword, setNeedsPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
 
-  const [view, setView] = useState<ViewMode>('home');
+  const [view, setView] = useState<ViewMode>(() => viewFromLocation());
+  const [logMode, setLogMode] = useState<LogMode>(() => logModeFromLocation());
   const [menuOpen, setMenuOpen] = useState(false);
-  const [mobileNav, setMobileNav] = useState<MobileNavKey>('home');
+  const [bestEffortScope, setBestEffortScope] = useState<BestEffortScope>('all');
   const [trainingJump, setTrainingJump] = useState<TrainingJumpApi | null>(null);
   const confirmPlanNavigation = useCallback(
     (next: ViewMode): boolean => {
@@ -156,15 +160,7 @@ export default function App() {
     }
     setView(next);
     setMenuOpen(false);
-    setMobileNav(next);
-  }, [confirmPlanNavigation]);
-  const selectMobileNav = useCallback((next: MobileNavKey) => {
-    if (!confirmPlanNavigation(next)) {
-      return;
-    }
-    setMobileNav(next);
-    setMenuOpen(false);
-    setView(next);
+    window.history.pushState(null, '', appUrl(next));
   }, [confirmPlanNavigation]);
   const [range, setRange] = useState<RangePreset>('12w');
   const [colorBy, setColorBy] = useState<ColorBy>('severity');
@@ -172,23 +168,13 @@ export default function App() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const weeks = localWeeks ?? (apiWeeks.length >= 4 ? apiWeeks : sampleWeeks);
-  const usingSample = !localWeeks && apiWeeks.length < 4;
+  const weeks = localWeeks ?? apiWeeks;
+  const usingSample = false;
   const analyses = useMemo(() => analyzeWeeks(weeks), [weeks]);
-  const canonicalMetrics = useMemo<CanonicalActivityMetric[]>(
-    () => (coachContext?.recentRuns ?? []).map((run) => ({
-      activityId: run.id,
-      totalStress: run.assessment.externalStress.totalStress,
-      hardStress: run.assessment.externalStress.hardStress,
-      averagePctCp: run.assessment.averagePctCp === undefined ? undefined : run.assessment.averagePctCp * 100,
-      effectiveCp: run.assessment.effectiveCriticalPower?.criticalPowerWatts,
-      hrCostResidualBpm: run.assessment.heartRateCost.residualBpm,
-      latePowerChangePct: run.assessment.latePowerChangePct,
-      source: run.assessment.externalStress.source === 'power' ? 'lydiard-power-stress' : `${run.assessment.externalStress.source}-fallback`,
-    })),
-    [coachContext],
-  );
-  const loadModel = useMemo(() => buildTrainingLoadModel(activities, canonicalMetrics), [activities, canonicalMetrics]);
+  // Log and Progress intentionally share one visible load model. The deeper
+  // coach engine remains available in Plan without changing historical charts.
+  const loadModel = useMemo(() => buildTrainingLoadModel(activities), [activities]);
+  const currentRead = readForWeek(lastItem(loadModel.weeks));
   const dataKey = `${localWeeks ? 'local' : 'api'}:${weeks.length}`;
 
   const severityByWeek = useMemo(() => {
@@ -199,17 +185,14 @@ export default function App() {
     return map;
   }, [analyses]);
 
-  const safeSelectedIndex = Math.min(selectedIndex, analyses.length - 1);
+  const safeSelectedIndex = Math.max(0, Math.min(selectedIndex, analyses.length - 1));
   const selected = analyses[safeSelectedIndex];
-  const selectedWeek = selected.week;
-  const topIndicators = [...selected.indicators].sort((a, b) => b.score - a.score).slice(0, 3);
-  const hasImportedHeartRate = selectedWeek.dataCompleteness?.heartRate ?? true;
 
   const filteredActivities = useMemo(
     () => filterActivitiesByRange(activities, range),
     [activities, range],
   );
-  const bestEffortFrom = useMemo(() => {
+  const seasonStart = useMemo(() => {
     const latest = lastItem(activities);
     if (!latest) {
       return undefined;
@@ -217,22 +200,52 @@ export default function App() {
     const year = new Date(latest.startDate).getUTCFullYear();
     return `${year}-01-01T00:00:00.000Z`;
   }, [activities]);
-  const bestEffortWindowLabel = bestEffortFrom
-    ? `Since 1 Jan ${new Date(bestEffortFrom).getUTCFullYear()}`
-    : 'Stream-backed';
+  const bestEffortFrom = bestEffortScope === 'season' ? seasonStart : undefined;
+  const bestEffortWindowLabel = bestEffortScope === 'season' && seasonStart
+    ? `${new Date(seasonStart).getUTCFullYear()} season`
+    : 'All-time personal bests';
   const hasTrainingData = (status?.activityCount ?? 0) > 0;
   const isGarminSource = status?.source === 'garmin-health-data' || (!status?.connected && hasTrainingData);
 
-  const openActivityInCalendar = useCallback((activityId: string) => {
-    if (!confirmPlanNavigation('calendar')) {
+  const loadAllActivities = useCallback(async () => {
+    if (allActivitiesLoaded) return;
+    const nextActivities = await getActivities();
+    setActivities(nextActivities);
+    setAllActivitiesLoaded(true);
+  }, [allActivitiesLoaded]);
+
+  const openActivityInLog = useCallback((activityId: string) => {
+    if (!confirmPlanNavigation('log')) {
       return;
     }
-    activityFocusRequest.current += 1;
-    setActivityFocus({ id: activityId, request: activityFocusRequest.current });
-    setView('calendar');
-    setMobileNav('calendar');
+    void (async () => {
+      if (!activities.some((activity) => activity.id === activityId)) {
+        await loadAllActivities();
+      }
+      activityFocusRequest.current += 1;
+      setActivityFocus({ id: activityId, request: activityFocusRequest.current });
+      setView('log');
+      setLogMode('list');
+      setMenuOpen(false);
+      window.history.pushState(null, '', appUrl('log', { activity: activityId }));
+    })();
+  }, [activities, confirmPlanNavigation, loadAllActivities]);
+
+  const openRouteExplorer = useCallback(() => {
+    if (!confirmPlanNavigation('log')) return;
+    setView('log');
+    setLogMode('map');
     setMenuOpen(false);
+    window.history.pushState(null, '', appUrl('log', { mode: 'map' }));
   }, [confirmPlanNavigation]);
+
+  const handleSaveActivityNote = useCallback(async (activityId: string, note: string) => {
+    const saved = await saveActivityNote(activityId, note);
+    setActivities((current) => current.map((activity) => activity.id === activityId
+      ? { ...activity, activityNote: saved.note || undefined }
+      : activity));
+    return saved.note;
+  }, []);
 
   const loadData = useCallback(async () => {
     const request = ++coreLoadRequest.current;
@@ -241,7 +254,7 @@ export default function App() {
       const [nextStatus, nextWeeks, nextActivities, nextGym] = await Promise.all([
         getSyncStatus(),
         getWeeks(),
-        getActivities(),
+        getActivities({ from: recentHistoryFrom() }),
         getGymSessions().catch(() => [] as GymSession[]),
       ]);
       if (request !== coreLoadRequest.current) {
@@ -373,6 +386,15 @@ export default function App() {
     await loadCoachData();
   }, [loadCoachData]);
 
+  const handleCoachSessionUpdate = useCallback(async (
+    id: string,
+    patch: { plannedDate?: string; title?: string; plannedDurationMin?: number; purpose?: string },
+    expectedRevision: number,
+  ) => {
+    await updateCoachSession(id, patch, expectedRevision);
+    await loadCoachData();
+  }, [loadCoachData]);
+
   const handleCoachFeedback = useCallback(async (activityId: string, draft: CoachFeedbackDraft) => {
     await saveCoachFeedback(activityId, draft);
     await evaluateCoachActivity(activityId, draft.plannedSessionId);
@@ -393,19 +415,57 @@ export default function App() {
     async (value: string) => {
       setSiteKey(value.trim());
       setNeedsPassword(false);
-      await Promise.all([loadData(), loadPlanData(), loadCoachData()]);
+      await loadData();
+      if (view === 'plan') {
+        await Promise.all([loadPlanData(), loadCoachData()]);
+      }
     },
-    [loadCoachData, loadData, loadPlanData],
+    [loadCoachData, loadData, loadPlanData, view],
   );
 
   useEffect(() => {
     void loadData();
-    void loadPlanData();
-    void loadCoachData();
-  }, [loadCoachData, loadData, loadPlanData]);
+    if (!new URLSearchParams(window.location.search).has('view')) {
+      window.history.replaceState(null, '', appUrl('log'));
+    }
+  }, [loadData]);
 
   useEffect(() => {
-    if (!bestEffortFrom) {
+    if (view === 'plan') {
+      void loadPlanData();
+      void loadCoachData();
+    }
+  }, [view, loadCoachData, loadPlanData]);
+
+  useEffect(() => {
+    if (view === 'log' && activityFocus && activities.length > 0 && !activities.some((activity) => activity.id === activityFocus.id)) {
+      void loadAllActivities();
+    }
+  }, [activities, activityFocus, loadAllActivities, view]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const next = viewFromLocation();
+      if (!confirmPlanNavigation(next)) {
+        window.history.pushState(null, '', appUrl(view));
+        return;
+      }
+      setView(next);
+      setLogMode(logModeFromLocation());
+      const activityId = new URLSearchParams(window.location.search).get('activity');
+      if (activityId) {
+        activityFocusRequest.current += 1;
+        setActivityFocus({ id: activityId, request: activityFocusRequest.current });
+      } else {
+        setActivityFocus(null);
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [confirmPlanNavigation, view]);
+
+  useEffect(() => {
+    if (view !== 'progress' || activities.length === 0) {
       setBestEffortGroups([]);
       setBestEffortsLoading(false);
       setBestEffortsError('');
@@ -414,7 +474,7 @@ export default function App() {
     let cancelled = false;
     setBestEffortsLoading(true);
     setBestEffortsError('');
-    getBestEfforts({ from: bestEffortFrom })
+    getBestEfforts(bestEffortFrom ? { from: bestEffortFrom } : undefined)
       .then((distances) => {
         if (!cancelled) {
           setBestEffortGroups(distances);
@@ -434,7 +494,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [bestEffortFrom]);
+  }, [activities.length, bestEffortFrom, view]);
 
   useEffect(() => {
     setSelectedIndex(Math.max(0, analyses.length - 1));
@@ -523,7 +583,7 @@ export default function App() {
     if (!file) {
       return;
     }
-    if (!confirmPlanNavigation('analysis')) {
+    if (!confirmPlanNavigation('progress')) {
       return;
     }
     try {
@@ -531,8 +591,8 @@ export default function App() {
       const imported = parseActivityCsv(csvText, file.name);
       setLocalWeeks(imported.weeks);
       setBanner(`Loaded ${imported.weekCount} weeks from ${file.name} (analysis only - CSV has no routes).`);
-      setView('analysis');
-      setMobileNav('analysis');
+      setView('progress');
+      window.history.pushState(null, '', appUrl('progress'));
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'The file could not be imported.');
     }
@@ -556,10 +616,16 @@ export default function App() {
           <h1>Lydiard</h1>
         </div>
 
+        <div className="view-toggle product-view-toggle desktop-primary-nav" role="tablist" aria-label="Primary">
+          <button role="tab" aria-selected={view === 'log'} className={view === 'log' ? 'active' : ''} type="button" onClick={() => { setLogMode('list'); selectView('log'); }}><List size={16} aria-hidden="true" /> Log</button>
+          <button role="tab" aria-selected={view === 'progress'} className={view === 'progress' ? 'active' : ''} type="button" onClick={() => selectView('progress')}><TrendingUp size={16} aria-hidden="true" /> Progress</button>
+          <button role="tab" aria-selected={view === 'plan'} className={view === 'plan' ? 'active' : ''} type="button" onClick={() => selectView('plan')}><ClipboardList size={16} aria-hidden="true" /> Plan</button>
+        </div>
+
         <button
           className="topbar-menu-toggle"
           type="button"
-          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+          aria-label={menuOpen ? 'Close settings' : 'Open settings'}
           aria-expanded={menuOpen}
           aria-controls="topbar-controls"
           onClick={() => setMenuOpen((open) => !open)}
@@ -587,7 +653,7 @@ export default function App() {
             )}
           </div>
 
-          {view === 'map' && (
+          {view === 'log' && logMode === 'map' && (
             <>
               <Segmented
                 ariaLabel="Route color"
@@ -600,39 +666,16 @@ export default function App() {
                 ariaLabel="Date range"
                 options={(Object.keys(RANGE_DAYS) as RangePreset[]).map((key) => ({ key, label: RANGE_LABELS[key] }))}
                 value={range}
-                onChange={(next) => setRange(next as RangePreset)}
+                onChange={(next) => {
+                  const nextRange = next as RangePreset;
+                  setRange(nextRange);
+                  if (nextRange === 'all') void loadAllActivities();
+                }}
               />
             </>
           )}
 
-          <div className="view-toggle product-view-toggle" role="tablist" aria-label="View">
-            <button
-              role="tab"
-              aria-selected={view === 'home'}
-              className={view === 'home' ? 'active' : ''}
-              type="button"
-              onClick={() => selectView('home')}
-            >
-              <Home size={16} aria-hidden="true" /> Home
-            </button>
-            <button role="tab" aria-selected={view === 'fitness'} className={view === 'fitness' ? 'active' : ''} type="button" onClick={() => selectView('fitness')}>
-              <UserRound size={16} aria-hidden="true" /> Fitness
-            </button>
-            <button role="tab" aria-selected={view === 'plan'} className={view === 'plan' ? 'active' : ''} type="button" onClick={() => selectView('plan')}>
-              <ClipboardList size={16} aria-hidden="true" /> Plan
-            </button>
-            <button role="tab" aria-selected={view === 'analysis'} className={view === 'analysis' ? 'active' : ''} type="button" onClick={() => selectView('analysis')}>
-              <TrendingUp size={16} aria-hidden="true" /> Analysis
-            </button>
-            <button role="tab" aria-selected={view === 'calendar'} className={view === 'calendar' ? 'active' : ''} type="button" onClick={() => selectView('calendar')}>
-              <CalendarDays size={16} aria-hidden="true" /> Calendar
-            </button>
-            <button role="tab" aria-selected={view === 'map'} className={view === 'map' ? 'active' : ''} type="button" onClick={() => selectView('map')}>
-              <MapIcon size={16} aria-hidden="true" /> Map
-            </button>
-          </div>
-
-          {view === 'calendar' && trainingJump && trainingJump.months.length > 0 && (
+          {view === 'log' && logMode === 'list' && trainingJump && trainingJump.months.length > 0 && (
             <label className="menu-jump">
               <span>
                 <CalendarDays size={15} aria-hidden="true" />
@@ -662,6 +705,10 @@ export default function App() {
               </select>
             </label>
           )}
+
+          <button className="utility-menu-button" type="button" onClick={openRouteExplorer}>
+            <MapIcon size={16} aria-hidden="true" /> Explore routes
+          </button>
 
           <button
             className="icon-button"
@@ -698,29 +745,7 @@ export default function App() {
         </div>
       )}
 
-      {view === 'home' ? (
-        <HomeView
-          loadModel={loadModel}
-          gymSessions={gymSessions}
-          status={status}
-          isLoading={!status && activities.length === 0}
-          bestEffortGroups={bestEffortGroups}
-          bestEffortsLoading={bestEffortsLoading}
-          bestEffortsError={bestEffortsError}
-          bestEffortWindowLabel={bestEffortWindowLabel}
-          onOpenActivity={openActivityInCalendar}
-        />
-      ) : view === 'fitness' ? (
-        <FitnessView
-          loadModel={loadModel}
-          analyses={usingSample ? [] : analyses}
-          status={status}
-          physiology={coachContext?.physiology}
-          bestEffortGroups={bestEffortGroups}
-          bestEffortWindowLabel={bestEffortWindowLabel}
-          onOpenActivity={openActivityInCalendar}
-        />
-      ) : view === 'plan' ? (
+      {view === 'plan' ? (
         <PlanView
           coachPanel={(
             <CoachPanel
@@ -735,7 +760,9 @@ export default function App() {
               onSubmitFeedback={handleCoachFeedback}
               onApplyDecision={handleCoachDecisionApplication}
               onRejectDecision={handleCoachDecisionRejection}
-              onOpenActivity={openActivityInCalendar}
+              onOpenActivity={openActivityInLog}
+              currentRead={currentRead}
+              onUpdateSession={handleCoachSessionUpdate}
             />
           )}
           planDays={planDays}
@@ -746,18 +773,47 @@ export default function App() {
           onRetry={loadPlanData}
           onSave={handleSavePlanDay}
           onReloadDay={handleReloadPlanDay}
-          onOpenActivity={openActivityInCalendar}
+          onOpenActivity={openActivityInLog}
           onDirtyStateChange={setPlanHasUnsavedChanges}
         />
-      ) : view === 'map' ? (
+      ) : view === 'progress' ? (
+        <ProgressView
+          loadModel={loadModel}
+          analyses={usingSample ? [] : analyses}
+          currentRead={currentRead}
+          bestEffortGroups={bestEffortGroups}
+          bestEffortsLoading={bestEffortsLoading}
+          bestEffortsError={bestEffortsError}
+          bestEffortWindowLabel={bestEffortWindowLabel}
+          bestEffortScope={bestEffortScope}
+          onBestEffortScopeChange={setBestEffortScope}
+          onOpenActivity={openActivityInLog}
+          metric={metric}
+          selectedIndex={safeSelectedIndex}
+          onMetricChange={setMetric}
+          onWeekSelect={setSelectedIndex}
+        />
+      ) : logMode === 'map' ? (
         <main className="map-stage">
-          <MapView
-            activities={filteredActivities}
-            severityByWeek={severityByWeek}
-            colorBy={colorBy}
-            selectedId={selectedActivityId}
-            onSelect={setSelectedActivityId}
-          />
+          <button
+            className="map-back-to-log"
+            type="button"
+            onClick={() => {
+              setLogMode('list');
+              window.history.pushState(null, '', appUrl('log'));
+            }}
+          >
+            <List size={16} aria-hidden="true" /> Back to Log
+          </button>
+          <Suspense fallback={<div className="surface-loading">Loading route explorer…</div>}>
+            <LazyMapView
+              activities={filteredActivities}
+              severityByWeek={severityByWeek}
+              colorBy={colorBy}
+              selectedId={selectedActivityId}
+              onSelect={setSelectedActivityId}
+            />
+          </Suspense>
 
           {filteredActivities.length === 0 && (
             <div className="map-empty">
@@ -779,133 +835,210 @@ export default function App() {
           <aside className="side-rail">
             {activityDetail ? (
               <ActivityCard detail={activityDetail} severityByWeek={severityByWeek} onClose={() => setSelectedActivityId(null)} />
-            ) : (
+            ) : selected ? (
               <WeekSnapshot
                 analysis={selected}
                 colorBy={colorBy}
                 routeCount={filteredActivities.filter((activity) => activity.summaryPolyline).length}
                 usingSample={usingSample}
               />
+            ) : (
+              <div className="map-empty-context"><strong>No training week yet</strong><p>Sync a run to build route and weekly context.</p></div>
             )}
           </aside>
         </main>
-      ) : view === 'calendar' ? (
+      ) : (
         <TrainingView
           activities={activities}
           analyses={usingSample ? [] : analyses}
           gymSessions={gymSessions}
           planDays={planDays}
           usingSample={usingSample}
-          canonicalMetrics={canonicalMetrics}
-          physiology={coachContext?.physiology}
           onJumpApi={setTrainingJump}
           activityFocus={activityFocus}
+          onSaveActivityNote={handleSaveActivityNote}
+          onRequestFullHistory={loadAllActivities}
         />
-      ) : (
-        <main className="dashboard">
-          <section className="analysis-chart-stack" aria-label="Training analysis charts">
-            <TrainingLoadChart daily={loadModel.daily} />
-
-            <TrendPanel
-              analyses={analyses}
-              metric={metric}
-              selectedIndex={safeSelectedIndex}
-              onMetricChange={setMetric}
-              onWeekSelect={setSelectedIndex}
-            />
-
-            <LoadStory analyses={analyses} />
-          </section>
-
-          <section className="overview-grid" aria-label="Current analysis">
-            <article className={`risk-panel ${selected.severity}`}>
-              <div className="risk-header">
-                <div>
-                  <p>Current week</p>
-                  <h2>{selected.stateLabel}</h2>
-                </div>
-                <span>{selected.riskScore}</span>
-              </div>
-              <div className="risk-meter" aria-hidden="true">
-                <span style={{ width: `${selected.riskScore}%` }} />
-              </div>
-              <p>{selected.summary}</p>
-              <strong>{selected.recommendation}</strong>
-            </article>
-
-            <article className="baseline-panel">
-              <div className="panel-title">
-                <TrendingUp size={18} aria-hidden="true" />
-                <span>Personal model</span>
-              </div>
-              <dl>
-                <div>
-                  <dt>Baseline</dt>
-                  <dd>{selected.baselineWeeks.length} prior weeks</dd>
-                </div>
-                <div>
-                  <dt>Week</dt>
-                  <dd>{selectedWeek.label}</dd>
-                </div>
-                <div>
-                  <dt>Source</dt>
-                  <dd>
-                    {usingSample
-                      ? 'Sample history'
-                      : isGarminSource
-                        ? 'Garmin Health · D1'
-                        : status?.connected
-                          ? 'Strava · D1'
-                          : 'CSV import'}
-                  </dd>
-                </div>
-              </dl>
-              <p>
-                Scores compare this week against your own rolling distribution for stride, fixed-HR pace, threshold,
-                decoupling, load, and recovery.
-              </p>
-            </article>
-
-            <article className="fitness-panel">
-              <div className="panel-title">
-                <CalendarDays size={18} aria-hidden="true" />
-                <span>Store coverage</span>
-              </div>
-              <div className="race-grid coverage-grid">
-                <div className="race-tile">
-                  <span>Activities</span>
-                  <strong>{status?.activityCount ?? 0}</strong>
-                  <small>{status?.streamedCount ?? 0} streamed</small>
-                </div>
-                <div className="race-tile">
-                  <span>Weeks</span>
-                  <strong>{status?.weekCount ?? weeks.length}</strong>
-                  <small>rolling baseline</small>
-                </div>
-                <div className="race-tile">
-                  <span>Latest</span>
-                  <strong>{selectedWeek.label}</strong>
-                  <small>{selectedWeek.year}</small>
-                </div>
-              </div>
-              <p>{formatDateRange(status?.dateRange) || 'Run the Garmin import to populate the store.'}</p>
-            </article>
-          </section>
-
-          <section className="metric-strip" aria-label="Selected week metrics">
-            <MetricTile icon={<CalendarDays size={18} />} label="Volume" value={`${selectedWeek.distanceKm} km`} detail={`${selectedWeek.durationHours.toFixed(1)} h`} />
-            <MetricTile icon={<Sparkles size={18} />} label="Easy pace" value={formatPace(selectedWeek.easyPaceSecPerKm)} detail={hasImportedHeartRate ? `${selectedWeek.easyHeartRate} bpm` : 'pace proxy'} />
-            <MetricTile icon={<TrendingUp size={18} />} label="LT2 estimate" value={formatPace(selectedWeek.thresholdPaceSecPerKm)} detail="personal model" />
-            <MetricTile icon={<ShieldAlert size={18} />} label="Top signal" value={topIndicators[0]?.label ?? 'None'} detail={topIndicators[0]?.deltaLabel ?? 'near baseline'} />
-          </section>
-
-          <IndicatorList indicators={selected.indicators} />
-
-        </main>
       )}
 
-      <MobileBottomNav active={mobileNav} onSelect={selectMobileNav} />
+      <MobileBottomNav active={view} onSelect={(next) => {
+        if (next === 'log') setLogMode('list');
+        selectView(next);
+      }} />
     </div>
+  );
+}
+
+interface CurrentTrainingRead {
+  status: string;
+  tone: 'easy' | 'moderate' | 'hard' | 'danger' | 'muted';
+  summary: string;
+}
+
+function viewFromLocation(): ViewMode {
+  const queryView = new URLSearchParams(window.location.search).get('view');
+  if (queryView === 'progress' || queryView === 'plan' || queryView === 'log') return queryView;
+  const segment = window.location.pathname.split('/').filter(Boolean)[0];
+  return segment === 'progress' || segment === 'plan' ? segment : 'log';
+}
+
+function appUrl(view: ViewMode, extras: Record<string, string> = {}): string {
+  const params = new URLSearchParams({ view, ...extras });
+  return `/?${params.toString()}`;
+}
+
+function logModeFromLocation(): LogMode {
+  return new URLSearchParams(window.location.search).get('mode') === 'map' ? 'map' : 'list';
+}
+
+function recentHistoryFrom(): string {
+  return new Date(Date.now() - 400 * 86_400_000).toISOString();
+}
+
+function readForWeek(week?: WeekLoadSummary): CurrentTrainingRead {
+  if (!week) {
+    return { status: 'Building history', tone: 'muted', summary: 'Sync a few runs to establish your current training pattern.' };
+  }
+  if (week.status === 'Back off') {
+    return { status: 'Back off', tone: 'danger', summary: 'Recent load rose sharply. Keep the next work easy and reassess after recovery.' };
+  }
+  if (week.status === 'Caution') {
+    return { status: 'Caution', tone: 'hard', summary: 'Recent load is elevated against your training background. Hold intensity steady.' };
+  }
+  if (week.status === 'Fresh') {
+    return { status: 'Fresh', tone: 'easy', summary: 'Recent load has eased below your longer-term background. Readiness still depends on how you feel.' };
+  }
+  if (week.status === 'Productive overload') {
+    return { status: 'Productive overload', tone: 'moderate', summary: 'You are carrying a deliberate training load. Protect recovery before adding another step.' };
+  }
+  return { status: 'Steady', tone: 'easy', summary: 'Training load is broadly matched to your recent background.' };
+}
+
+function ProgressView({
+  loadModel,
+  analyses,
+  currentRead,
+  bestEffortGroups,
+  bestEffortsLoading,
+  bestEffortsError,
+  bestEffortWindowLabel,
+  bestEffortScope,
+  onBestEffortScopeChange,
+  onOpenActivity,
+  metric,
+  selectedIndex,
+  onMetricChange,
+  onWeekSelect,
+}: {
+  loadModel: TrainingLoadModel;
+  analyses: WeeklyAnalysis[];
+  currentRead: CurrentTrainingRead;
+  bestEffortGroups: BestEffortDistance[];
+  bestEffortsLoading: boolean;
+  bestEffortsError: string;
+  bestEffortWindowLabel: string;
+  bestEffortScope: BestEffortScope;
+  onBestEffortScopeChange: (scope: BestEffortScope) => void;
+  onOpenActivity: (activityId: string) => void;
+  metric: TrendMetricKey;
+  selectedIndex: number;
+  onMetricChange: (metric: TrendMetricKey) => void;
+  onWeekSelect: (index: number) => void;
+}) {
+  const [loadMetric, setLoadMetric] = useState<'time' | 'distance'>('time');
+  const [activeWeekId, setActiveWeekId] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const latestWeek = lastItem(loadModel.weeks);
+  const recentWeeks = loadModel.weeks.slice(-12);
+  const maxValue = Math.max(1, ...recentWeeks.map((week) => homeLoadMetricValue(week, loadMetric)));
+  const activeWeek = recentWeeks.find((week) => week.weekId === activeWeekId) ?? latestWeek;
+
+  return (
+    <main className="product-page progress-view">
+      <section className="product-page-head progress-page-head">
+        <p className="eyebrow"><TrendingUp size={15} aria-hidden="true" /> Progress</p>
+        <h2>How your training is moving</h2>
+        <p>Weekly progression, personal bests, and one consistent read of your current load.</p>
+      </section>
+
+      <section className="progress-summary-grid">
+        <article className={`product-card progress-read-card tone-${currentRead.tone}`}>
+          <span>Current training read</span>
+          <h3>{currentRead.status}</h3>
+          <p>{currentRead.summary}</p>
+        </article>
+        <article className="product-card progress-week-card">
+          <span>This week</span>
+          <h3>{latestWeek ? `${latestWeek.distanceKm.toFixed(1)} km` : 'No runs yet'}</h3>
+          <div>
+            <Stat label="Runs" value={latestWeek ? String(latestWeek.activityCount) : '-'} />
+            <Stat label="Time" value={latestWeek ? formatHours(latestWeek.durationHours) : '-'} />
+            <Stat label="Load" value={latestWeek ? latestWeek.load.toFixed(1) : '-'} />
+          </div>
+        </article>
+      </section>
+
+      <section className="product-card load-preview-panel progress-load-panel">
+        <header>
+          <span>Last 12 weeks</span>
+          <div className="load-panel-controls">
+            <strong>{activeWeek ? formatHomeLoadMetric(activeWeek, loadMetric) : '-'}</strong>
+            <div className="mini-toggle" role="group" aria-label="Weekly progression metric">
+              <button type="button" className={loadMetric === 'time' ? 'active' : ''} onClick={() => setLoadMetric('time')}>Time</button>
+              <button type="button" className={loadMetric === 'distance' ? 'active' : ''} onClick={() => setLoadMetric('distance')}>km</button>
+            </div>
+          </div>
+        </header>
+        <div className="mini-load-bars" aria-label="Last 12 weeks of training">
+          {recentWeeks.map((week) => (
+            <button
+              key={week.weekId}
+              type="button"
+              className={activeWeek?.weekId === week.weekId ? 'active' : ''}
+              onMouseEnter={() => setActiveWeekId(week.weekId)}
+              onFocus={() => setActiveWeekId(week.weekId)}
+              onClick={() => setActiveWeekId(week.weekId)}
+              title={`${week.label}: ${formatHomeLoadMetric(week, loadMetric)}`}
+            >
+              <span style={{ height: `${Math.max(8, (homeLoadMetricValue(week, loadMetric) / maxValue) * 100)}%` }} />
+            </button>
+          ))}
+        </div>
+        {activeWeek && <p>{activeWeek.label} · {activeWeek.activityCount} runs · {activeWeek.distanceKm.toFixed(1)} km</p>}
+      </section>
+
+      <section className="product-card performance-profile-panel progress-bests-panel">
+        <header>
+          <div><span>Personal bests</span><small>{bestEffortWindowLabel}</small></div>
+          <div className="mini-toggle" role="group" aria-label="Personal best scope">
+            <button type="button" className={bestEffortScope === 'all' ? 'active' : ''} onClick={() => onBestEffortScopeChange('all')}>All time</button>
+            <button type="button" className={bestEffortScope === 'season' ? 'active' : ''} onClick={() => onBestEffortScopeChange('season')}>Season</button>
+          </div>
+        </header>
+        <BestEffortsPanel
+          groups={bestEffortGroups}
+          loading={bestEffortsLoading}
+          error={bestEffortsError}
+          onOpenActivity={onOpenActivity}
+        />
+      </section>
+
+      <details className="progress-advanced-analysis" onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
+        <summary>Advanced analysis</summary>
+        {advancedOpen && (
+          <Suspense fallback={<div className="surface-loading">Loading advanced charts…</div>}>
+            <LazyAdvancedAnalysis
+              loadModel={loadModel}
+              analyses={analyses}
+              metric={metric}
+              selectedIndex={selectedIndex}
+              onMetricChange={onMetricChange}
+              onWeekSelect={onWeekSelect}
+            />
+          </Suspense>
+        )}
+      </details>
+    </main>
   );
 }
 
@@ -982,14 +1115,11 @@ function Segmented({
   );
 }
 
-function MobileBottomNav({ active, onSelect }: { active: MobileNavKey; onSelect: (next: MobileNavKey) => void }) {
-  const items: Array<{ key: MobileNavKey; label: string; icon: ReactNode }> = [
-    { key: 'home', label: 'Home', icon: <Home size={24} aria-hidden="true" /> },
-    { key: 'fitness', label: 'Fitness', icon: <UserRound size={24} aria-hidden="true" /> },
+function MobileBottomNav({ active, onSelect }: { active: ViewMode; onSelect: (next: ViewMode) => void }) {
+  const items: Array<{ key: ViewMode; label: string; icon: ReactNode }> = [
+    { key: 'log', label: 'Log', icon: <List size={24} aria-hidden="true" /> },
+    { key: 'progress', label: 'Progress', icon: <TrendingUp size={24} aria-hidden="true" /> },
     { key: 'plan', label: 'Plan', icon: <ClipboardList size={24} aria-hidden="true" /> },
-    { key: 'analysis', label: 'Analysis', icon: <TrendingUp size={24} aria-hidden="true" /> },
-    { key: 'calendar', label: 'Calendar', icon: <CalendarDays size={24} aria-hidden="true" /> },
-    { key: 'map', label: 'Map', icon: <MapIcon size={24} aria-hidden="true" /> },
   ];
 
   return (
@@ -1205,7 +1335,7 @@ function BestEffortsPanel({
           </header>
           {group.efforts.length > 0 ? (
             <ol>
-              {group.efforts.map((effort) => (
+              {group.efforts.slice(0, 3).map((effort) => (
                 <li key={`${group.label}-${effort.activityId}`}>
                   <BestEffortButton effort={effort} onOpenActivity={onOpenActivity} />
                 </li>
@@ -1233,7 +1363,7 @@ function BestEffortButton({
       <strong>{formatRaceTime(effort.seconds)}</strong>
       <small>
         {formatPace(effort.paceSecPerKm)} · {formatActivityDate(effort.startDateLocal || effort.startDate)}
-        {effort.source === 'stream' ? ' · segment' : ' · whole run'}
+        {effort.source === 'stream' ? ' · observed segment' : ' · estimated from whole run'}
       </small>
       <em>{effort.activityName}</em>
     </button>

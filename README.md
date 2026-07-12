@@ -1,8 +1,9 @@
 # Lydiard
 
-A personal running companion: a **single-map training log** (Strava-style), a one-view training
-history, plus a personalized fatigue/injury-risk model, architected so **AI agents can natively
-query your training over any period**. Runs free on Cloudflare with no always-on local machine.
+A private running diary with a coach behind it: a Strava-style training log with direct activity
+notes, all-time and seasonal best efforts, clear weekly progression, and an editable 1–3 week plan.
+The deeper physiology and load models remain available without dominating the daily workflow. Runs
+free on Cloudflare with no always-on local machine.
 
 ## Architecture — "one synced store, three consumers"
 
@@ -25,23 +26,26 @@ run in **both** the Worker and the browser.
 
 - **Phone-accessible web app:** the built React app is deployed as Cloudflare Worker static assets
   on the same `workers.dev` host as the API, so there is no separate frontend server to run.
-- **Map-first UX:** every run's route on one MapLibre map (free dark tiles, no API key). Date-range
-  presets, color routes by weekly fatigue / pace / recency, click a route for its detail card and
-  the fatigue context of its week. A Dashboard toggle shows the full indicator/trend view.
-- **Training log:** the main page is a week-grouped, scrollable run log with CTL/ATL fitness/fatigue,
-  session load, pace, elevation, HR, power, projected easy pace, and hover previews for route +
-  pace-over-time splits.
-- **Editable training plan:** date-bound Planned and Notes fields live beside read-only Garmin Actuals.
-  Legacy RUNMASTER sheet text is retained for audit, double-run days are duration-matched, future
-  Garmin runs appear automatically, and day notes flow through to Calendar run details.
+- **Three clear destinations:** Log answers what you did and how it felt, Progress shows how training
+  is moving, and Plan shows what to do next. The URL preserves the current destination and activity.
+- **Training log with notes:** the default page is a week-grouped run log. Open any run to add an
+  activity-specific note, see its ordinary facts and route, then expand splits, zones, and load
+  diagnostics only when useful.
+- **Progress and personal bests:** one 12-week time/distance view, one consistent current-load read,
+  and explicit All time / Season best-effort scopes for 1K through marathon.
+- **One visible future plan:** the deterministic coach proposes an approval-gated 1–3 week block in
+  the same Plan surface where sessions can be reviewed and edited. Legacy RUNMASTER rows remain in a
+  collapsed provenance/day-note editor rather than competing with the current plan.
+- **Route explorer:** the all-routes MapLibre view remains available under settings as a secondary
+  tool, with fatigue / pace / recency coloring and range controls.
 - **Cloud sync:** an hourly GitHub Action runs `garmin-health-data`, verifies the SQLite DB,
   audits coverage, and imports Garmin runs with full GPS + HR/cadence/power streams.
 - **Agent-native:** a Bearer-key REST API + OpenAPI schema for ChatGPT to assess injury risk and
   plan the next 1–3 weeks. See [docs/agent-api.md](docs/agent-api.md).
 - **Personalized:** all signals compare each week to the runner's own rolling baselines.
-- **Stateful Lydiard coach:** date-effective Stryd Critical Power, evidence-backed CS/CP and
-  LT1/LT2 bands, power-first load with separate HR cost, coherent 1–3 week future blocks, fast
-  post-run feedback, and explicit future-session adaptations with an audit trail.
+- **Stateful Lydiard coach:** date-effective Stryd Critical Power, evidence-backed CS/CP and LT1/LT2
+  bands, power-first load with separate HR cost, coherent future blocks, post-run feedback, and an
+  audit trail live behind the simple recommendation and plan workflow.
 
 ## Run locally
 
@@ -84,6 +88,7 @@ secrets and visit the `workers.dev` URL on desktop or phone.
 npm run build          # typecheck app + production bundle
 npm run typecheck:worker
 npm run coach:smoke    # deterministic physiology/load/plan/adaptation invariants
+npm run product:smoke  # Log/notes/PBs/Plan mobile journey against the local Worker
 ```
 
 ## Strava app inactive

@@ -98,6 +98,7 @@ export interface ActivitySummary {
   summaryPolyline?: string; // encoded polyline for the overview map
   hasStreams: boolean;
   decouplingPct?: number; // true stream-derived HR-pace decoupling
+  activityNote?: string; // runner-authored note attached to this activity
 }
 
 /**

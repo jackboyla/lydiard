@@ -5,7 +5,9 @@ import {
   CalendarDays,
   Dumbbell,
   Gauge,
+  MessageSquareText,
   Mountain,
+  Save,
   ShieldAlert,
   Timer,
   TrendingUp,
@@ -64,6 +66,8 @@ interface TrainingViewProps {
   physiology?: PhysiologyEstimate;
   onJumpApi?: (api: TrainingJumpApi | null) => void;
   activityFocus?: { id: string; request: number } | null;
+  onSaveActivityNote: (activityId: string, note: string) => Promise<string>;
+  onRequestFullHistory: () => Promise<void>;
 }
 
 // A week in the log is either a scored run week (with any gym that week attached)
@@ -145,11 +149,9 @@ interface ZoneTemplate {
 }
 
 const RANGE_OPTIONS: Array<{ key: RangeKey; label: string; months?: number }> = [
-  { key: 'all', label: 'All' },
   { key: '3m', label: '3m', months: 3 },
-  { key: '6m', label: '6m', months: 6 },
   { key: '12m', label: '12m', months: 12 },
-  { key: '10y', label: '10y', months: 120 },
+  { key: 'all', label: 'All' },
 ];
 
 const INITIAL_WEEK_COUNT = 12;
@@ -176,8 +178,10 @@ export function TrainingView({
   physiology,
   onJumpApi,
   activityFocus,
+  onSaveActivityNote,
+  onRequestFullHistory,
 }: TrainingViewProps) {
-  const [range, setRange] = useState<RangeKey>('all');
+  const [range, setRange] = useState<RangeKey>('3m');
   const [showGuide, setShowGuide] = useState(false);
   const [visibleWeekCount, setVisibleWeekCount] = useState(INITIAL_WEEK_COUNT);
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -213,6 +217,12 @@ export function TrainingView({
   const gymCount = scoped.gymCount;
   const hrCount = scoped.sessions.filter((session) => session.activity.averageHeartRate).length;
   const powerCount = scoped.sessions.filter((session) => session.activity.averageWatts).length;
+  const openPreview = useCallback((activityId: string) => {
+    setPreviewId(activityId);
+    if (new URLSearchParams(window.location.search).get('view') === 'log') {
+      window.history.pushState(null, '', `/?view=log&activity=${encodeURIComponent(activityId)}`);
+    }
+  }, []);
 
   // Month/year jump. Week blocks are lazily rendered, so a naive #anchor link
   // does nothing when the target month isn't in the DOM yet. Instead we render
@@ -300,6 +310,15 @@ export function TrainingView({
   }, [activityFocus?.id, activityFocus?.request, loadModel.sessionsById, scoped.weekEntries]);
 
   useEffect(() => {
+    const onPopState = () => {
+      const activityId = new URLSearchParams(window.location.search).get('activity');
+      setPreviewId(activityId);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  useEffect(() => {
     setVisibleWeekCount(INITIAL_WEEK_COUNT);
   }, [range, loadModel.sessions.length]);
 
@@ -358,6 +377,18 @@ export function TrainingView({
     };
   }, [previewId]);
 
+  const savePreviewNote = useCallback(async (activityId: string, note: string) => {
+    const savedNote = await onSaveActivityNote(activityId, note);
+    const cached = detailCache.current.get(activityId);
+    if (cached) {
+      detailCache.current.set(activityId, { ...cached, activityNote: savedNote || undefined });
+    }
+    setPreviewDetail((current) => current?.id === activityId
+      ? { ...current, activityNote: savedNote || undefined }
+      : current);
+    return savedNote;
+  }, [onSaveActivityNote]);
+
   return (
     <main ref={scrollerRef} className="training-view training-log-view" aria-label="Training history">
       <section className="training-toolbar" aria-label="Training range">
@@ -366,19 +397,9 @@ export function TrainingView({
             <Activity size={15} aria-hidden="true" />
             Training log
           </p>
-          <h2>All runs, scored by load</h2>
+          <h2>Your runs and notes</h2>
         </div>
         <div className="training-range-controls">
-          <button
-            type="button"
-            className={`guide-toggle${showGuide ? ' active' : ''}`}
-            aria-pressed={showGuide}
-            aria-expanded={showGuide}
-            onClick={() => setShowGuide((current) => !current)}
-          >
-            <BookOpen size={15} aria-hidden="true" />
-            Metrics guide
-          </button>
           <div className="segmented compact-segmented" role="group" aria-label="Training range">
             {RANGE_OPTIONS.map((option) => (
               <button
@@ -386,7 +407,10 @@ export function TrainingView({
                 type="button"
                 className={range === option.key ? 'active' : ''}
                 aria-pressed={range === option.key}
-                onClick={() => setRange(option.key)}
+                onClick={() => {
+                  setRange(option.key);
+                  if (option.key === 'all') void onRequestFullHistory();
+                }}
               >
                 {option.label}
               </button>
@@ -420,11 +444,21 @@ export function TrainingView({
         </div>
       </section>
 
-      {showGuide && <MetricsGuide metrics={GUIDE_METRICS} />}
+      <details className="training-advanced-summary">
+        <summary>Training zones and load model</summary>
+        <button
+          type="button"
+          className={`guide-toggle${showGuide ? ' active' : ''}`}
+          aria-pressed={showGuide}
+          aria-expanded={showGuide}
+          onClick={() => setShowGuide((current) => !current)}
+        >
+          <BookOpen size={15} aria-hidden="true" /> Metrics guide
+        </button>
+        {showGuide && <MetricsGuide metrics={GUIDE_METRICS} />}
+        <ZoneSummary model={trainingZoneModel} />
 
-      <ZoneSummary model={trainingZoneModel} />
-
-      <aside className="training-kpis training-kpis-wide" aria-label="Current training metrics">
+        <aside className="training-kpis training-kpis-wide" aria-label="Current training metrics">
           <TrainingKpi
             icon={<Timer size={18} />}
             label="Latest load"
@@ -453,11 +487,9 @@ export function TrainingView({
             value={latestDaily ? latestDaily.acwr.toFixed(2) : '-'}
             detail="ATL / CTL"
           />
-      </aside>
+        </aside>
 
-      <details className="training-additional-info">
-        <summary>Additional info</summary>
-        <div>
+        <div className="training-additional-info-grid">
           <Metric label="Runs" value={String(runCount)} />
           <Metric label="Distance" value={`${Math.round(scoped.distanceKm)} km`} />
           <Metric label="Gym" value={String(gymCount)} />
@@ -483,7 +515,7 @@ export function TrainingView({
                       analysis={analysisByWeek.get(entry.weekId)}
                       planByDate={planByDate}
                       previewId={previewId}
-                      onPreview={setPreviewId}
+                      onPreview={openPreview}
                     />
                   ) : (
                     <GymOnlyBlock weekId={entry.weekId} gym={entry.gym} planByDate={planByDate} />
@@ -506,7 +538,10 @@ export function TrainingView({
               type="button"
               className="floating-preview-close"
               aria-label="Close activity preview"
-              onClick={() => setPreviewId(null)}
+              onClick={() => {
+                setPreviewId(null);
+                if (new URLSearchParams(window.location.search).get('view') === 'log') window.history.replaceState(null, '', '/?view=log');
+              }}
             >
               <X size={16} aria-hidden="true" />
             </button>
@@ -516,6 +551,7 @@ export function TrainingView({
               loading={previewLoading}
               zones={trainingZoneModel.zones}
               planDay={previewPlanDay}
+              onSaveNote={savePreviewNote}
             />
           </div>
         )}
@@ -547,6 +583,20 @@ function WeekBlock({
           <p>{week.label}</p>
           <h3>{week.status}</h3>
         </div>
+      </header>
+      <div className="week-at-a-glance">
+        <span>{week.activityCount} runs</span>
+        <span>{week.distanceKm.toFixed(1)} km</span>
+        <span>{week.durationHours.toFixed(1)} h</span>
+      </div>
+      <WeekCalendar
+        days={days}
+        previewId={previewId}
+        onPreview={onPreview}
+        ariaLabel={`${week.label} training calendar`}
+      />
+      <details className="week-analysis-disclosure">
+        <summary>Week analysis</summary>
         <div className="week-load-summary">
           <Metric label="Load" value={week.load.toFixed(1)} />
           <Metric label="Fitness" value={week.fitness.toFixed(1)} />
@@ -554,27 +604,16 @@ function WeekBlock({
           <Metric label="Freshness" value={week.freshness.toFixed(1)} />
           <Metric label="Ramp" value={week.acwr.toFixed(2)} />
         </div>
-      </header>
-      <div className="week-risk-row">
-        <span>{week.activityCount} runs</span>
-        <span>{week.distanceKm.toFixed(1)} km</span>
-        <span>{week.durationHours.toFixed(1)} h</span>
-        <span>{Math.round(week.hardShare * 100)}% hard load</span>
-        <span>{Math.round(week.longRunShare * 100)}% long-run share</span>
-      </div>
-      {week.flags.length > 0 && (
-        <div className="week-flags">
-          {week.flags.map((flag) => (
-            <span key={flag}>{flag}</span>
-          ))}
+        <div className="week-risk-row">
+          <span>{Math.round(week.hardShare * 100)}% hard load</span>
+          <span>{Math.round(week.longRunShare * 100)}% long-run share</span>
         </div>
-      )}
-      <WeekCalendar
-        days={days}
-        previewId={previewId}
-        onPreview={onPreview}
-        ariaLabel={`${week.label} training calendar`}
-      />
+        {week.flags.length > 0 && (
+          <div className="week-flags">
+            {week.flags.map((flag) => <span key={flag}>{flag}</span>)}
+          </div>
+        )}
+      </details>
     </article>
   );
 }
@@ -800,9 +839,15 @@ function CalendarRunCard({
       <span className={`calendar-run-reason tone-${runKind.tone}`} title={runKind.reasons.join(' ')}>
         {calendarRunSummary(runKind.key)}
       </span>
-      {note && note.length > 0 && (
+      {(activity.activityNote || note) && (
         <span className="calendar-run-note" title={note}>
-          {note}
+          <MessageSquareText size={12} aria-hidden="true" />
+          {activity.activityNote || note}
+        </span>
+      )}
+      {!activity.activityNote && !note && (
+        <span className="calendar-run-note calendar-run-note-empty">
+          <MessageSquareText size={12} aria-hidden="true" /> Add note
         </span>
       )}
       <span className="calendar-run-primary">
@@ -851,12 +896,14 @@ function ActivityPreview({
   loading,
   zones,
   planDay,
+  onSaveNote,
 }: {
   detail: ActivityDetail | null;
   session: SessionLoad;
   loading: boolean;
   zones: TrainingZone[];
   planDay?: TrainingPlanDay;
+  onSaveNote: (activityId: string, note: string) => Promise<string>;
 }) {
   const activity = detail ?? session.activity;
   const split = detail ? splitPaces(detail) : undefined;
@@ -873,7 +920,13 @@ function ActivityPreview({
         </div>
         {loading && <span>loading</span>}
       </div>
-      <RunKindExplanation classification={runKind} />
+      <ActivityNoteEditor activityId={activity.id} note={activity.activityNote ?? ''} onSave={onSaveNote} />
+      <div className="preview-stat-grid preview-primary-stats">
+        <Metric label="Distance" value={`${activity.distanceKm.toFixed(1)} km`} />
+        <Metric label="Time" value={formatDuration(activity.movingTimeSec)} />
+        <Metric label="Pace" value={formatPace(activityPaceSecPerKm(activity))} />
+        <Metric label="Heart rate" value={activity.averageHeartRate ? `${Math.round(activity.averageHeartRate)} bpm` : '-'} />
+      </div>
       {planDay?.notes && planDay.notes.length > 0 && (
         <section className="preview-plan-note" aria-label="Day note">
           <header>
@@ -884,29 +937,87 @@ function ActivityPreview({
         </section>
       )}
       <RoutePreview detail={detail ?? session.activity} />
-      <SplitsPreview detail={detail} />
-      <HrZoneBreakdown totals={hrZoneTotals} loading={loading} />
-      <LapSplitsTable splits={lapSplits} loading={loading} />
-      <div className="preview-stat-grid">
-        <Metric label="Session stress" value={session.load.toFixed(1)} />
-        <Metric label="External fallback" value={session.paceFallbackLoad.toFixed(1)} />
-        <Metric label="HR response" value={formatHrCostResidual(session.hrCostResidualBpm)} />
-        <Metric label="LPS" value={formatLydiardPowerStress(session)} />
-      </div>
-      <div className="preview-stat-grid">
-        <Metric label="Pace IF" value={session.externalIntensityFactor.toFixed(2)} />
-        <Metric label="Load source" value={formatLoadSource(session.loadSource)} />
-        <Metric label="W/bpm" value={session.powerHrRatio?.toFixed(2) ?? '-'} />
-        <Metric label="Split" value={split ? `${formatPace(split.first)} / ${formatPace(split.second)}` : formatDecoupling(activity.decouplingPct)} />
-      </div>
-      {session.flags.length > 0 && (
-        <div className="preview-flags">
-          {session.flags.map((flag) => (
-            <span key={flag}>{flag}</span>
-          ))}
+      <details className="preview-advanced-detail">
+        <summary>Splits, zones and load analysis</summary>
+        <RunKindExplanation classification={runKind} />
+        <SplitsPreview detail={detail} />
+        <HrZoneBreakdown totals={hrZoneTotals} loading={loading} />
+        <LapSplitsTable splits={lapSplits} loading={loading} />
+        <div className="preview-stat-grid">
+          <Metric label="Session stress" value={session.load.toFixed(1)} />
+          <Metric label="External fallback" value={session.paceFallbackLoad.toFixed(1)} />
+          <Metric label="HR response" value={formatHrCostResidual(session.hrCostResidualBpm)} />
+          <Metric label="LPS" value={formatLydiardPowerStress(session)} />
         </div>
-      )}
+        <div className="preview-stat-grid">
+          <Metric label="Pace IF" value={session.externalIntensityFactor.toFixed(2)} />
+          <Metric label="Load source" value={formatLoadSource(session.loadSource)} />
+          <Metric label="W/bpm" value={session.powerHrRatio?.toFixed(2) ?? '-'} />
+          <Metric label="Split" value={split ? `${formatPace(split.first)} / ${formatPace(split.second)}` : formatDecoupling(activity.decouplingPct)} />
+        </div>
+        {session.flags.length > 0 && <div className="preview-flags">{session.flags.map((flag) => <span key={flag}>{flag}</span>)}</div>}
+      </details>
     </div>
+  );
+}
+
+function ActivityNoteEditor({
+  activityId,
+  note,
+  onSave,
+}: {
+  activityId: string;
+  note: string;
+  onSave: (activityId: string, note: string) => Promise<string>;
+}) {
+  const [draft, setDraft] = useState(note);
+  const [saved, setSaved] = useState(note);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setDraft(note);
+    setSaved(note);
+    setError('');
+  }, [activityId, note]);
+
+  const changed = draft !== saved;
+  const save = async () => {
+    if (!changed || saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      const next = await onSave(activityId, draft);
+      setSaved(next);
+      setDraft(next);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save the note.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="activity-note-editor" aria-label="Training note">
+      <header>
+        <span><MessageSquareText size={15} aria-hidden="true" /> Training note</span>
+        <small>{changed ? 'Unsaved' : saved ? 'Saved' : 'Add how it felt'}</small>
+      </header>
+      <textarea
+        rows={3}
+        value={draft}
+        disabled={saving}
+        placeholder="How did it feel? Add session, recovery, pain, weather or life context…"
+        onChange={(event) => setDraft(event.target.value)}
+      />
+      <div>
+        <button type="button" disabled={!changed || saving} onClick={() => void save()}>
+          <Save size={14} aria-hidden="true" /> {saving ? 'Saving…' : 'Save note'}
+        </button>
+        {changed && <button type="button" disabled={saving} onClick={() => setDraft(saved)}>Cancel</button>}
+      </div>
+      {error && <p role="alert">{error}</p>}
+    </section>
   );
 }
 

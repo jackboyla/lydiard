@@ -23,7 +23,6 @@ app.use('/api/*', (c, next) => {
   })(c, next);
 });
 
-app.get('/', (c) => c.json({ name: 'lydiard', ok: true }));
 app.get('/openapi.json', (c) => c.json(buildOpenApiDocument(new URL(c.req.url).origin) as object));
 
 app.route('/auth', authRoutes());

@@ -736,9 +736,8 @@ dd {
   min-width: 0;
 }
 
-/* Hamburger — only shown on mobile (see the max-width: 760px block). */
 .topbar-menu-toggle {
-  display: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
@@ -790,10 +789,21 @@ dd {
 }
 
 .topbar-controls {
-  display: flex;
+  display: none;
   align-items: center;
   flex-wrap: wrap;
+  flex-basis: 100%;
   gap: 10px;
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.topbar-controls.open {
+  display: flex;
+}
+
+.desktop-primary-nav {
+  margin-left: auto;
 }
 
 .connection-chip {
@@ -3350,6 +3360,10 @@ dd {
     backdrop-filter: blur(16px);
   }
 
+  .desktop-primary-nav {
+    display: none;
+  }
+
   .mobile-bottom-nav button {
     position: relative;
     display: grid;
@@ -4815,6 +4829,15 @@ dd {
 .coach-targets span { padding: 4px 7px; border-radius: 6px; color: var(--text); background: var(--surface-control); font-size: 0.73rem; }
 .coach-fallback { font-size: 0.78rem; }
 .coach-actual { display: flex; align-items: center; gap: 6px; color: #75dfb7 !important; }
+.coach-session-edit { display: inline-flex; align-items: center; gap: 6px; margin-top: 5px; padding: 6px 8px; color: var(--accent-strong); border: 1px solid var(--border); border-radius: 6px; background: var(--surface-control); font: inherit; font-size: 0.72rem; font-weight: 730; cursor: pointer; }
+.coach-session-edit-form { display: grid; grid-template-columns: 140px minmax(0, 1fr) 100px; gap: 9px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-soft); }
+.coach-session-edit-form label { display: grid; gap: 4px; color: var(--muted); font-size: 0.7rem; font-weight: 700; }
+.coach-session-edit-form input,
+.coach-session-edit-form textarea { min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface-control); font: inherit; }
+.coach-session-purpose { grid-column: 1 / -1; }
+.coach-session-edit-form > div { grid-column: 1 / -1; display: flex; gap: 7px; }
+.coach-session-edit-form button { display: inline-flex; align-items: center; gap: 5px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); background: var(--surface-control); font: inherit; font-size: 0.72rem; font-weight: 730; cursor: pointer; }
+.coach-session-edit-form > p { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: 0.72rem; }
 
 .coach-adaptations { display: grid; gap: 10px; padding: 18px; border: 1px solid var(--warning-border); border-radius: 12px; background: var(--warning-soft); }
 .coach-adaptations > header { display: flex; gap: 10px; }
@@ -4888,4 +4911,348 @@ dd {
   .coach-stat-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .coach-stat-row > span { padding: 9px 7px; }
   .coach-stat-row strong { font-size: 1rem; }
+  .coach-session-edit-form { grid-template-columns: minmax(0, 1fr); }
+  .coach-session-purpose,
+  .coach-session-edit-form > div,
+  .coach-session-edit-form > p { grid-column: 1; }
+}
+
+/* Simplified Log / Progress / Plan product shell. */
+.utility-menu-button,
+.map-back-to-log {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--surface-control);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 740;
+  cursor: pointer;
+}
+
+.surface-loading {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  padding: 24px;
+  color: var(--muted);
+  font-weight: 720;
+}
+
+.map-back-to-log {
+  position: absolute;
+  z-index: 20;
+  top: 14px;
+  left: 14px;
+  color: var(--text-strong);
+  background: rgba(17, 22, 29, 0.92);
+  backdrop-filter: blur(12px);
+}
+
+.progress-view {
+  display: grid;
+  gap: 16px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.progress-page-head {
+  padding-bottom: 4px;
+}
+
+.progress-page-head h2 {
+  max-width: 760px;
+  margin-bottom: 8px;
+  font-size: clamp(2.1rem, 5vw, 4.3rem);
+}
+
+.progress-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  gap: 14px;
+}
+
+.progress-read-card,
+.progress-week-card {
+  display: grid;
+  gap: 9px;
+  align-content: start;
+}
+
+.progress-read-card {
+  border-left: 4px solid var(--green);
+}
+
+.progress-read-card.tone-hard { border-left-color: var(--warning); }
+.progress-read-card.tone-danger { border-left-color: var(--danger); }
+.progress-read-card.tone-muted { border-left-color: var(--subtle); }
+
+.progress-read-card > span,
+.progress-week-card > span {
+  color: var(--subtle);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.progress-read-card h3,
+.progress-week-card h3 {
+  margin: 0;
+  font-size: 1.8rem;
+}
+
+.progress-read-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.progress-week-card > div {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.progress-bests-panel > header > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.progress-advanced-analysis,
+.training-advanced-summary,
+.week-analysis-disclosure,
+.plan-legacy-editor,
+.coach-post-run-disclosure,
+.coach-advanced-settings,
+.preview-advanced-detail {
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  background: var(--surface-soft);
+}
+
+.progress-advanced-analysis > summary,
+.training-advanced-summary > summary,
+.week-analysis-disclosure > summary,
+.plan-legacy-editor > summary,
+.coach-post-run-disclosure > summary,
+.coach-advanced-settings > summary,
+.preview-advanced-detail > summary {
+  padding: 14px 16px;
+  color: var(--muted);
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.progress-advanced-analysis[open] > summary,
+.training-advanced-summary[open] > summary,
+.plan-legacy-editor[open] > summary,
+.coach-post-run-disclosure[open] > summary,
+.coach-advanced-settings[open] > summary,
+.preview-advanced-detail[open] > summary {
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-strong);
+}
+
+.progress-advanced-analysis .analysis-chart-stack,
+.training-advanced-summary > :not(summary),
+.coach-post-run-disclosure > :not(summary),
+.coach-advanced-settings > :not(summary),
+.preview-advanced-detail > :not(summary) {
+  margin: 14px;
+}
+
+.training-advanced-summary {
+  margin: 0 0 14px;
+}
+
+.training-additional-info-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.week-at-a-glance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 13px;
+}
+
+.week-at-a-glance span {
+  padding: 5px 8px;
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--surface-control);
+  font-size: 0.73rem;
+  font-weight: 700;
+}
+
+.week-analysis-disclosure {
+  margin-top: 10px;
+}
+
+.calendar-run-note {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.calendar-run-note-empty {
+  color: var(--accent-strong);
+  font-style: normal;
+}
+
+.activity-note-editor {
+  display: grid;
+  gap: 9px;
+  padding: 14px;
+  border: 1px solid rgba(91, 124, 250, 0.35);
+  border-radius: 10px;
+  background: rgba(91, 124, 250, 0.06);
+}
+
+.activity-note-editor header,
+.activity-note-editor header span,
+.activity-note-editor > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.activity-note-editor header {
+  justify-content: space-between;
+}
+
+.activity-note-editor header span {
+  color: var(--text-strong);
+  font-weight: 780;
+}
+
+.activity-note-editor header small {
+  color: var(--subtle);
+}
+
+.activity-note-editor textarea {
+  width: 100%;
+  min-height: 86px;
+  padding: 10px 11px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface-control);
+  font: inherit;
+  line-height: 1.45;
+}
+
+.activity-note-editor button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--surface-control);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 730;
+  cursor: pointer;
+}
+
+.activity-note-editor button:first-child:not(:disabled) {
+  border-color: rgba(34, 185, 130, 0.45);
+  color: var(--green);
+}
+
+.activity-note-editor button:disabled { opacity: 0.45; cursor: default; }
+.activity-note-editor > p { margin: 0; color: var(--danger); font-size: 0.75rem; }
+
+.preview-primary-stats {
+  margin: 12px 0;
+}
+
+.plan-legacy-editor {
+  padding: 0;
+}
+
+.plan-legacy-editor-intro {
+  margin: 14px 16px 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.plan-legacy-editor .plan-editor-card {
+  margin: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.coach-post-run-disclosure,
+.coach-advanced-settings {
+  padding: 0;
+}
+
+@media (max-width: 760px) {
+  .mobile-bottom-nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .mobile-bottom-nav span {
+    font-size: 0.7rem;
+  }
+
+  .progress-view {
+    gap: 13px;
+  }
+
+  .progress-page-head h2,
+  .plan-editor-page-head h2 {
+    font-size: clamp(2rem, 10vw, 2.75rem);
+    line-height: 0.98;
+  }
+
+  .progress-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .progress-week-card > div,
+  .training-additional-info-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .progress-bests-panel > header {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .progress-bests-panel > header .mini-toggle {
+    width: 100%;
+  }
+
+  .progress-bests-panel > header .mini-toggle button {
+    flex: 1;
+  }
+
+  .training-toolbar {
+    padding-top: 10px;
+  }
+
+  .training-toolbar h2 {
+    font-size: clamp(1.8rem, 9vw, 2.4rem);
+  }
+
+  .map-back-to-log {
+    top: 8px;
+    left: 8px;
+  }
 }

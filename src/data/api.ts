@@ -21,6 +21,7 @@ import type {
   CoachPhase,
   CoachProfileRecord,
   CriticalPowerDraft,
+  StoredPlannedSession,
 } from './coachTypes';
 
 const BASE = ((import.meta.env.VITE_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
@@ -128,6 +129,14 @@ export function getActivity(id: string): Promise<ActivityDetail> {
   return getJson<ActivityDetail>(`/api/activities/${encodeURIComponent(id)}`);
 }
 
+export async function saveActivityNote(id: string, note: string): Promise<{ note: string; updatedAt: string }> {
+  return mutationJson<{ note: string; updatedAt: string }>(
+    `/api/activities/${encodeURIComponent(id)}/note`,
+    'PATCH',
+    { note },
+  );
+}
+
 export async function getBestEfforts(range?: DateRange): Promise<BestEffortDistance[]> {
   const data = await getJson<{ distances: BestEffortDistance[] }>(`/api/best-efforts${rangeQuery(range)}`);
   return data.distances;
@@ -174,6 +183,19 @@ export function acceptCoachBlock(decisionId: string, expectedProfileVersion: num
     decisionId,
     expectedProfileVersion,
   });
+}
+
+export async function updateCoachSession(
+  id: string,
+  patch: { plannedDate?: string; title?: string; plannedDurationMin?: number; purpose?: string },
+  expectedRevision: number,
+): Promise<StoredPlannedSession> {
+  const payload = await mutationJson<{ session: StoredPlannedSession }>(
+    `/api/coach/sessions/${encodeURIComponent(id)}`,
+    'PATCH',
+    { ...patch, expectedRevision },
+  );
+  return payload.session;
 }
 
 export async function saveCoachFeedback(activityId: string, draft: CoachFeedbackDraft): Promise<CoachFeedbackRecord> {

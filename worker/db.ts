@@ -181,6 +181,7 @@ interface ActivityRow {
   summary_polyline: string | null;
   has_streams: number;
   decoupling_pct: number | null;
+  activity_note?: string | null;
 }
 
 function rowToActivity(row: ActivityRow): StoredActivity {
@@ -207,6 +208,7 @@ function rowToActivity(row: ActivityRow): StoredActivity {
     summaryPolyline: row.summary_polyline ?? undefined,
     hasStreams: row.has_streams === 1,
     decouplingPct: row.decoupling_pct ?? undefined,
+    activityNote: row.activity_note || undefined,
   };
 }
 
@@ -218,22 +220,36 @@ export async function getActivities(
   const binds: string[] = [];
   if (opts.from) {
     binds.push(opts.from);
-    clauses.push(`start_date >= ?${binds.length}`);
+    clauses.push(`a.start_date >= ?${binds.length}`);
   }
   if (opts.to) {
     binds.push(opts.to);
-    clauses.push(`start_date <= ?${binds.length}`);
+    clauses.push(`a.start_date <= ?${binds.length}`);
   }
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const result = await db
-    .prepare(`SELECT * FROM activities ${where} ORDER BY start_date ASC`)
+    .prepare(
+      `SELECT a.*, NULLIF(f.note, '') AS activity_note
+       FROM activities a
+       LEFT JOIN activity_feedback f ON f.activity_id = a.id
+       ${where}
+       ORDER BY a.start_date ASC`,
+    )
     .bind(...binds)
     .all<ActivityRow>();
   return (result.results ?? []).map(rowToActivity);
 }
 
 export async function getActivity(db: D1Database, id: string): Promise<StoredActivity | null> {
-  const row = await db.prepare('SELECT * FROM activities WHERE id = ?1').bind(id).first<ActivityRow>();
+  const row = await db
+    .prepare(
+      `SELECT a.*, NULLIF(f.note, '') AS activity_note
+       FROM activities a
+       LEFT JOIN activity_feedback f ON f.activity_id = a.id
+       WHERE a.id = ?1`,
+    )
+    .bind(id)
+    .first<ActivityRow>();
   return row ? rowToActivity(row) : null;
 }
 
@@ -1549,6 +1565,28 @@ export async function getActivityFeedback(db: D1Database, activityId: string): P
     .bind(activityId)
     .first<ActivityFeedbackRow>();
   return row ? rowToActivityFeedback(row) : null;
+}
+
+/** Update only the runner's ordinary activity note without disturbing coach feedback fields. */
+export async function patchActivityNote(db: D1Database, activityId: string, note: string): Promise<ActivityFeedback> {
+  const now = new Date().toISOString();
+  await db
+    .prepare(
+      `INSERT INTO activity_feedback (
+         activity_id, altered_gait, note, version, created_at, updated_at
+       ) VALUES (?1, 0, ?2, 1, ?3, ?3)
+       ON CONFLICT(activity_id) DO UPDATE SET
+         note=excluded.note,
+         version=activity_feedback.version+1,
+         updated_at=excluded.updated_at`,
+    )
+    .bind(activityId, note, now)
+    .run();
+  const saved = await getActivityFeedback(db, activityId);
+  if (!saved) {
+    throw new Error(`Activity note ${activityId} was not saved.`);
+  }
+  return saved;
 }
 
 export async function getActivityFeedbackBatch(

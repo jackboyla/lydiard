@@ -7,6 +7,7 @@ import {
   Check,
   Gauge,
   HeartPulse,
+  Pencil,
   RefreshCw,
   Route,
   Save,
@@ -38,6 +39,12 @@ export interface CoachPanelProps {
   onApplyDecision: (decisionId: string, expectedVersion: number) => Promise<void>;
   onRejectDecision: (decisionId: string) => Promise<void>;
   onOpenActivity: (activityId: string) => void;
+  currentRead: { status: string; tone: string; summary: string };
+  onUpdateSession: (
+    id: string,
+    patch: { plannedDate?: string; title?: string; plannedDurationMin?: number; purpose?: string },
+    expectedRevision: number,
+  ) => Promise<void>;
 }
 
 const PHASES: Array<{ value: CoachPhase; label: string }> = [
@@ -94,103 +101,26 @@ export function CoachPanel(props: CoachPanelProps) {
   const canonicalCp = context.physiology.canonicalCriticalPower;
 
   return (
-    <section className="coach-shell" aria-label="Stateful Lydiard coach">
-      <header className={`coach-hero coach-state-${context.observedState.state}`}>
+    <section className="coach-shell coach-shell-simple" aria-label="Training plan and coach">
+      <header className={`coach-hero coach-read-${props.currentRead.tone}`}>
         <div>
-          <p className="eyebrow"><Sparkles size={15} aria-hidden="true" /> Stateful Lydiard coach</p>
-          <h2>{stateHeadline(context.observedState.state)}</h2>
-          <p>{stateExplanation(context)}</p>
+          <p className="eyebrow"><Sparkles size={15} aria-hidden="true" /> Current recommendation</p>
+          <h2>{props.currentRead.status}</h2>
+          <p>{props.currentRead.summary}</p>
         </div>
         <div className="coach-hero-actions">
-          <span className={`coach-state-pill ${context.observedState.state}`}>{context.observedState.state}</span>
           <button type="button" onClick={() => void props.onReload(context.currentWeek.weekStart)} disabled={Boolean(working)}>
-            <RefreshCw size={15} aria-hidden="true" /> Refresh evidence
+            <RefreshCw size={15} aria-hidden="true" /> Refresh
           </button>
         </div>
       </header>
 
       {(props.error || actionError) && <p className="coach-action-error" role="alert">{actionError || props.error}</p>}
 
-      <div className="coach-roadmap" aria-label="Goal roadmap">
-        <RoadmapStep index="1" title="Durable healthy training" detail="Continuity, knees/Achilles, strength, and absorbed aerobic density." active />
-        <ArrowRight size={18} aria-hidden="true" />
-        <RoadmapStep index="2" title={`Sub-${context.goals.firstMilestone.target} 5K`} detail="First performance milestone · 3:00/km." />
-        <ArrowRight size={18} aria-hidden="true" />
-        <RoadmapStep index="3" title="~31:00 10K" detail="Bridge the threshold-duration gap." />
-        <ArrowRight size={18} aria-hidden="true" />
-        <RoadmapStep index="4" title={`Sub-${context.goals.laterMilestone.target} 10K`} detail="Later, materially harder milestone." />
-      </div>
-
-      <div className="coach-overview-grid">
-        <article className="product-card coach-phase-card">
-          <header><span>Current phase</span><small>Version {context.profile.version}</small></header>
-          <label>
-            <span>Explicit Lydiard phase</span>
-            <select
-              value={context.profile.currentPhase}
-              disabled={Boolean(working)}
-              onChange={(event) => void act('phase', async () => {
-                await props.onUpdatePhase(event.target.value as CoachPhase, context.profile.version);
-              })}
-            >
-              {PHASES.map((phase) => <option key={phase.value} value={phase.value}>{phase.label}</option>)}
-            </select>
-          </label>
-          <p>{phaseDescription(context.profile.currentPhase)}</p>
-        </article>
-
-        <article className="product-card coach-load-card">
-          <header><span>Background load</span><small>Power-first where dated CP exists</small></header>
-          <div className="coach-stat-row">
-            <CoachStat label="7-day" value={context.backgroundLoad.sevenDayStress.toFixed(1)} />
-            <CoachStat label="42-day" value={context.backgroundLoad.fortyTwoDayStress.toFixed(1)} />
-            <CoachStat label="Balance" value={signed(context.backgroundLoad.stressBalance)} />
-          </div>
-          <p>{context.backgroundLoad.explanation}</p>
-        </article>
-
-        <article className="product-card coach-cp-card">
-          <header><span>Critical Power authority</span><small>Date-effective history</small></header>
-          {canonicalCp ? (
-            <div className="coach-cp-current">
-              <strong>{Math.round(canonicalCp.watts)} W</strong>
-              <span>{confidenceLabel(canonicalCp.confidence)} · {canonicalCp.source === 'platform_estimate' ? 'prospective platform model' : canonicalCp.source.replaceAll('_', ' ')}</span>
-              <small>Effective {formatDate(canonicalCp.effectiveFrom)}</small>
-            </div>
-          ) : (
-            <p className="coach-missing">No canonical dated CP. Power is not silently scored against a guessed current value.</p>
-          )}
-          <form
-            className="coach-cp-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const watts = Number(cpWatts);
-              if (!Number.isFinite(watts) || watts <= 0) return;
-              void act('cp', async () => {
-                await props.onAddCriticalPower({
-                  criticalPowerWatts: watts,
-                  effectiveFrom: `${cpEffective}T00:00:00.000Z`,
-                  source: 'stryd_manual',
-                  device: 'Stryd',
-                  confidence: 0.9,
-                });
-                setCpWatts('');
-              });
-            }}
-          >
-            <label><span>Current CP (W)</span><input inputMode="numeric" value={cpWatts} onChange={(e) => setCpWatts(e.target.value)} placeholder="e.g. 320" /></label>
-            <label><span>Effective from</span><input type="date" value={cpEffective} onChange={(e) => setCpEffective(e.target.value)} /></label>
-            <button type="submit" disabled={working === 'cp' || !cpWatts}><Save size={14} /> Save CP</button>
-          </form>
-        </article>
-      </div>
-
-      <PhysiologyPanel context={context} />
-
       <section className="product-card coach-block-planner">
         <header>
-          <div><span>Future training block</span><h3>Plan the next 1–3 weeks</h3></div>
-          <small>Later weeks stay contingent on absorbing the earlier ones.</small>
+          <div><span>Future plan</span><h3>Build the next 1–3 weeks</h3></div>
+          <small>Review the draft before accepting it.</small>
         </header>
         <div className="coach-block-controls">
           <label><span>First Monday</span><input type="date" value={startWeek} onChange={(e) => setStartWeek(e.target.value)} /></label>
@@ -212,10 +142,10 @@ export function CoachPanel(props: CoachPanelProps) {
             ><Check size={16} /> Accept proposal</button>
           )}
         </div>
-        <p className="coach-block-rule">No missed run is crammed forward. Weeks 2–3 are provisional, and a post-run adaptation changes only affected future sessions.</p>
+        <p className="coach-block-rule">Later weeks stay provisional. A post-run change only adjusts the future sessions it affects.</p>
       </section>
 
-      <UpcomingPlan sessions={context.upcomingPlan.sessions} context={context} />
+      <UpcomingPlan sessions={context.upcomingPlan.sessions} context={context} onUpdateSession={props.onUpdateSession} />
 
       {pendingAdaptations.length > 0 && (
         <section className="coach-adaptations" aria-label="Pending plan adaptations">
@@ -232,14 +162,46 @@ export function CoachPanel(props: CoachPanelProps) {
         </section>
       )}
 
-      <RecentResponsePanel {...props} working={working} act={act} />
+      <details className="product-card coach-post-run-disclosure">
+        <summary>Post-run feedback and plan adjustments</summary>
+        <RecentResponsePanel {...props} working={working} act={act} />
+      </details>
 
-      {context.limitations.length > 0 && (
-        <details className="product-card coach-limitations">
-          <summary>Model limitations and withheld claims</summary>
-          <ul>{context.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
-        </details>
-      )}
+      <details className="product-card coach-advanced-settings">
+        <summary>Advanced coaching settings and evidence</summary>
+        <div className="coach-roadmap" aria-label="Goal roadmap">
+          <RoadmapStep index="1" title="Durable healthy training" detail="Continuity, knees/Achilles, strength, and absorbed aerobic density." active />
+          <ArrowRight size={18} aria-hidden="true" />
+          <RoadmapStep index="2" title={`Sub-${context.goals.firstMilestone.target} 5K`} detail="First performance milestone · 3:00/km." />
+          <ArrowRight size={18} aria-hidden="true" />
+          <RoadmapStep index="3" title="~31:00 10K" detail="Bridge the threshold-duration gap." />
+          <ArrowRight size={18} aria-hidden="true" />
+          <RoadmapStep index="4" title={`Sub-${context.goals.laterMilestone.target} 10K`} detail="Later, materially harder milestone." />
+        </div>
+        <div className="coach-overview-grid">
+          <article className="product-card coach-phase-card">
+            <header><span>Current phase</span><small>Version {context.profile.version}</small></header>
+            <label><span>Lydiard phase</span><select value={context.profile.currentPhase} disabled={Boolean(working)} onChange={(event) => void act('phase', () => props.onUpdatePhase(event.target.value as CoachPhase, context.profile.version))}>{PHASES.map((phase) => <option key={phase.value} value={phase.value}>{phase.label}</option>)}</select></label>
+            <p>{phaseDescription(context.profile.currentPhase)}</p>
+          </article>
+          <article className="product-card coach-load-card">
+            <header><span>Background load</span><small>Power-first where dated CP exists</small></header>
+            <div className="coach-stat-row"><CoachStat label="7-day" value={context.backgroundLoad.sevenDayStress.toFixed(1)} /><CoachStat label="42-day" value={context.backgroundLoad.fortyTwoDayStress.toFixed(1)} /><CoachStat label="Balance" value={signed(context.backgroundLoad.stressBalance)} /></div>
+            <p>{context.backgroundLoad.explanation}</p>
+          </article>
+          <article className="product-card coach-cp-card">
+            <header><span>Critical Power</span><small>Date-effective history</small></header>
+            {canonicalCp ? <div className="coach-cp-current"><strong>{Math.round(canonicalCp.watts)} W</strong><span>{confidenceLabel(canonicalCp.confidence)} · {canonicalCp.source.replaceAll('_', ' ')}</span><small>Effective {formatDate(canonicalCp.effectiveFrom)}</small></div> : <p className="coach-missing">No canonical dated CP is stored.</p>}
+            <form className="coach-cp-form" onSubmit={(event) => { event.preventDefault(); const watts = Number(cpWatts); if (!Number.isFinite(watts) || watts <= 0) return; void act('cp', async () => { await props.onAddCriticalPower({ criticalPowerWatts: watts, effectiveFrom: `${cpEffective}T00:00:00.000Z`, source: 'stryd_manual', device: 'Stryd', confidence: 0.9 }); setCpWatts(''); }); }}>
+              <label><span>Current CP (W)</span><input inputMode="numeric" value={cpWatts} onChange={(e) => setCpWatts(e.target.value)} placeholder="e.g. 320" /></label>
+              <label><span>Effective from</span><input type="date" value={cpEffective} onChange={(e) => setCpEffective(e.target.value)} /></label>
+              <button type="submit" disabled={working === 'cp' || !cpWatts}><Save size={14} /> Save CP</button>
+            </form>
+          </article>
+        </div>
+        <PhysiologyPanel context={context} />
+        {context.limitations.length > 0 && <div className="coach-limitations"><strong>Limitations</strong><ul>{context.limitations.map((item) => <li key={item}>{item}</li>)}</ul></div>}
+      </details>
     </section>
   );
 }
@@ -260,9 +222,17 @@ function PhysiologyPanel({ context }: { context: CoachContextData }) {
   );
 }
 
-function UpcomingPlan({ sessions, context }: { sessions: StoredPlannedSession[]; context: CoachContextData }) {
+function UpcomingPlan({
+  sessions,
+  context,
+  onUpdateSession,
+}: {
+  sessions: StoredPlannedSession[];
+  context: CoachContextData;
+  onUpdateSession: CoachPanelProps['onUpdateSession'];
+}) {
   const weeks = useMemo(() => groupSessionsByWeek(sessions), [sessions]);
-  if (sessions.length === 0) return <section className="product-card coach-empty-plan"><CalendarRange size={22} /><div><strong>No structured future block yet</strong><p>Generate a proposal above. Your imported free-text plan remains below and is never overwritten.</p></div></section>;
+  if (sessions.length === 0) return <section className="product-card coach-empty-plan"><CalendarRange size={22} /><div><strong>No future block yet</strong><p>Generate a draft above. Nothing changes until you accept it.</p></div></section>;
   return (
     <section className="coach-future-weeks" aria-label="Upcoming structured training plan">
       {[...weeks.entries()].map(([weekStart, weekSessions], index) => {
@@ -272,7 +242,7 @@ function UpcomingPlan({ sessions, context }: { sessions: StoredPlannedSession[];
         return (
           <article key={weekStart} className="product-card coach-future-week">
             <header><div><span>Week {index + 1} · {formatDateRange(weekStart, addDays(weekStart, 6))}</span><h3>{accepted ? 'Accepted' : 'Proposed'} · {Math.round(minutes)} min</h3></div><small>{index > 0 ? 'Contingent on prior-week absorption' : 'Current evidence'}</small></header>
-            <div className="coach-session-list">{weekSessions.map((session) => <SessionCard key={session.id} session={session} context={context} />)}</div>
+            <div className="coach-session-list">{weekSessions.map((session) => <SessionCard key={session.id} session={session} context={context} onUpdateSession={onUpdateSession} />)}</div>
           </article>
         );
       })}
@@ -280,9 +250,44 @@ function UpcomingPlan({ sessions, context }: { sessions: StoredPlannedSession[];
   );
 }
 
-function SessionCard({ session, context }: { session: StoredPlannedSession; context: CoachContextData }) {
+function SessionCard({
+  session,
+  context,
+  onUpdateSession,
+}: {
+  session: StoredPlannedSession;
+  context: CoachContextData;
+  onUpdateSession: CoachPanelProps['onUpdateSession'];
+}) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(session.title);
+  const [date, setDate] = useState(session.plannedDate);
+  const [minutes, setMinutes] = useState(String(Math.round((session.plannedDurationSec ?? 0) / 60)));
+  const [purpose, setPurpose] = useState(session.purpose);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const links = context.upcomingPlan.activityLinks.filter((link) => link.plannedSessionId === session.id);
   const actual = links.map((link) => context.recentRuns.find((run) => run.id === link.activityId)).filter(Boolean);
+  const editable = ['proposed', 'accepted', 'planned'].includes(session.status);
+  const save = async () => {
+    const duration = Number(minutes);
+    if (!title.trim() || !Number.isFinite(duration) || duration < 0) return;
+    setSaving(true);
+    setError('');
+    try {
+      await onUpdateSession(session.id, {
+        plannedDate: date,
+        title: title.trim(),
+        plannedDurationMin: Math.round(duration),
+        purpose,
+      }, session.revision);
+      setEditing(false);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not update this session.');
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
     <article className={`coach-session-card status-${session.status}`}>
       <div className="coach-session-date"><strong>{weekday(session.plannedDate)}</strong><span>{formatShortDate(session.plannedDate)}</span></div>
@@ -298,6 +303,17 @@ function SessionCard({ session, context }: { session: StoredPlannedSession; cont
         </div>
         {session.fallbackPlan && <p className="coach-fallback"><strong>Fallback:</strong> {session.fallbackPlan}</p>}
         {actual.length > 0 && <p className="coach-actual"><Check size={13} /> Actual linked · {actual.map((run) => run?.name).join(', ')}</p>}
+        {editable && !editing && <button type="button" className="coach-session-edit" onClick={() => setEditing(true)}><Pencil size={13} /> Edit session</button>}
+        {editing && (
+          <form className="coach-session-edit-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+            <label><span>Date</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+            <label><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+            <label><span>Minutes</span><input type="number" min="0" max="600" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>
+            <label className="coach-session-purpose"><span>Purpose / note</span><textarea rows={2} value={purpose} onChange={(event) => setPurpose(event.target.value)} /></label>
+            <div><button type="submit" disabled={saving || !title.trim()}><Save size={13} /> {saving ? 'Saving…' : 'Save'}</button><button type="button" disabled={saving} onClick={() => setEditing(false)}>Cancel</button></div>
+            {error && <p role="alert">{error}</p>}
+          </form>
+        )}
       </div>
     </article>
   );
@@ -331,7 +347,7 @@ function RunFeedbackCard({ run, sessions, busy, onOpen, onSubmit }: { run: NonNu
   const [legs, setLegs] = useState<CoachFeedbackDraft['legCondition']>('normal');
   const [pain, setPain] = useState<CoachFeedbackDraft['pain']>('none');
   const [feel, setFeel] = useState<CoachFeedbackDraft['sessionFeel']>('as_expected');
-  const [note, setNote] = useState('');
+  const [note, setNote] = useState(run.feedback?.note ?? '');
   const sameDaySessions = sessions.filter((session) =>
     session.plannedDate === (run.startDateLocal ?? run.startDate).slice(0, 10) &&
     ['accepted', 'planned', 'completed', 'partial'].includes(session.status),
@@ -339,14 +355,23 @@ function RunFeedbackCard({ run, sessions, busy, onOpen, onSubmit }: { run: NonNu
   const plannedSessionId = run.plannedSessionIds[0]
     ?? sameDaySessions.find((session) => !['rest', 'strength'].includes(session.sessionType))?.id
     ?? sameDaySessions.find((session) => session.sessionType === 'rest')?.id;
+  const hasCoachResponse = Boolean(
+    run.feedback && (
+      run.feedback.sessionFeel ||
+      run.feedback.energy !== undefined ||
+      run.feedback.legCondition ||
+      run.feedback.painDuring !== undefined ||
+      run.feedback.painAfter !== undefined
+    ),
+  );
   return (
     <article className="coach-run-response">
       <button type="button" className="coach-run-summary" onClick={onOpen}>
         <Activity size={16} /><span><strong>{run.name}</strong><small>{formatDate(run.startDateLocal ?? run.startDate)} · {run.distanceKm.toFixed(1)} km · {Math.round(run.movingTimeSec / 60)} min</small></span>
       </button>
       <div className="coach-run-cost"><span>{run.assessment.externalStress.source}</span><strong>{run.assessment.externalStress.totalStress?.toFixed(1) ?? '-'}</strong><small>stress</small></div>
-      {run.feedback ? (
-        <div className="coach-feedback-saved"><ShieldCheck size={15} /><span>{run.verdict?.replaceAll('_', ' ') || run.feedback.sessionFeel?.replaceAll('_', ' ') || 'Response saved'}</span><button type="button" onClick={() => setOpen((value) => !value)}>Edit</button></div>
+      {hasCoachResponse ? (
+        <div className="coach-feedback-saved"><ShieldCheck size={15} /><span>{run.verdict?.replaceAll('_', ' ') || run.feedback?.sessionFeel?.replaceAll('_', ' ') || 'Response saved'}</span><button type="button" onClick={() => setOpen((value) => !value)}>Edit</button></div>
       ) : <button type="button" className="coach-feedback-open" onClick={() => setOpen((value) => !value)}>Add response</button>}
       {open && (
         <form className="coach-feedback-form" onSubmit={(event) => { event.preventDefault(); void onSubmit({ plannedSessionId, energy, legCondition: legs, pain, sessionFeel: feel, note }); }}>
