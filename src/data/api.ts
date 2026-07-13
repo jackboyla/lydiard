@@ -142,6 +142,15 @@ export async function getBestEfforts(range?: DateRange): Promise<BestEffortDista
   return data.distances;
 }
 
+export function setBestEffortRejection(input: {
+  distanceLabel: string;
+  activityId: string;
+  rejected: boolean;
+  reason?: string;
+}): Promise<{ distanceLabel: string; activityId: string; rejected: boolean }> {
+  return mutationJson('/api/best-efforts/rejections', 'PATCH', input);
+}
+
 export async function getGymSessions(range?: DateRange): Promise<GymSession[]> {
   const data = await getJson<{ sessions: GymSession[] }>(`/api/gym${rangeQuery(range)}`);
   return data.sessions;

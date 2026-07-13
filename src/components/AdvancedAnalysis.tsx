@@ -4,6 +4,8 @@ import { IndicatorList } from './IndicatorList';
 import { LoadStory } from './LoadStory';
 import { TrainingLoadChart } from './TrainingLoadChart';
 import { TrendPanel } from './TrendPanel';
+import { AerobicEfficiencyChart } from './AerobicEfficiencyChart';
+import { HeartRateByPaceChart } from './HeartRateByPaceChart';
 
 export interface AdvancedAnalysisProps {
   loadModel: TrainingLoadModel;
@@ -24,6 +26,8 @@ export default function AdvancedAnalysis({
 }: AdvancedAnalysisProps) {
   return (
     <div className="analysis-chart-stack">
+      <AerobicEfficiencyChart loadModel={loadModel} />
+      <HeartRateByPaceChart loadModel={loadModel} />
       <TrainingLoadChart daily={loadModel.daily} />
       {analyses.length > 0 && (
         <TrendPanel

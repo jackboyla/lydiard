@@ -11,6 +11,7 @@ import {
   getCounts,
   getDateRange,
   getGymSessions,
+  getBestEffortRejections,
   getStreams,
   getSyncState,
   getTrainingPlanDay,
@@ -18,6 +19,7 @@ import {
   getWeeklyFeatures,
   patchTrainingPlanDay,
   patchActivityNote,
+  setBestEffortRejection,
   TrainingPlanConflictError,
 } from '../db';
 import { normalizeFrom, normalizeTo } from '../http';
@@ -94,6 +96,37 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
       to: normalizeTo(c.req.query('to')),
     });
     return c.json({ distances });
+  });
+
+  app.patch('/best-efforts/rejections', async (c) => {
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json({ error: 'Request body must be JSON.' }, 400);
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return c.json({ error: 'Request body must be an object.' }, 400);
+    }
+    const body = payload as Record<string, unknown>;
+    const distanceLabel = body.distanceLabel;
+    const activityId = body.activityId;
+    const rejected = body.rejected;
+    const reason = body.reason ?? '';
+    if (typeof distanceLabel !== 'string' || !BEST_EFFORT_TARGETS.some((target) => target.label === distanceLabel)) {
+      return c.json({ error: 'distanceLabel must be a supported best-effort distance.' }, 400);
+    }
+    if (typeof activityId !== 'string' || activityId.length === 0 || typeof rejected !== 'boolean') {
+      return c.json({ error: 'activityId and rejected are required.' }, 400);
+    }
+    if (typeof reason !== 'string' || reason.length > 500) {
+      return c.json({ error: 'reason must be a string no longer than 500 characters.' }, 400);
+    }
+    if (rejected && !(await getActivity(c.env.lydiard, activityId))) {
+      return c.json({ error: 'Activity not found' }, 404);
+    }
+    await setBestEffortRejection(c.env.lydiard, { distanceLabel, activityId, rejected, reason });
+    return c.json({ distanceLabel, activityId, rejected });
   });
 
   app.get('/activities/:id', async (c) => {
@@ -347,7 +380,7 @@ async function computeBestEfforts(
     clauses.push(`a.start_date <= ?${binds.length}`);
   }
 
-  const rows = await db
+  const [rows, rejections] = await Promise.all([db
     .prepare(
       `SELECT a.id, a.name, a.start_date, a.start_date_local, a.distance_km, a.moving_time_s,
               s.time_s, s.distance_m
@@ -357,13 +390,15 @@ async function computeBestEfforts(
         ORDER BY a.start_date DESC`,
     )
     .bind(...binds)
-    .all<BestEffortRow>();
+    .all<BestEffortRow>(), getBestEffortRejections(db)]);
   const activities = rows.results ?? [];
+  const rejected = new Set(rejections.map((item) => `${item.distanceLabel}\u0000${item.activityId}`));
 
   return BEST_EFFORT_TARGETS.map((target) => {
     const efforts = activities
       .map((row) => effortForTarget(row, target.distanceKm))
       .filter((effort): effort is Omit<BestEffortEntry, 'rank'> => Boolean(effort))
+      .filter((effort) => !rejected.has(`${target.label}\u0000${effort.activityId}`))
       .sort((a, b) => a.seconds - b.seconds)
       .slice(0, 5)
       .map((effort, index) => ({ ...effort, rank: index + 1 }));

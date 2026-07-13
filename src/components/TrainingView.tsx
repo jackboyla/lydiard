@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Activity,
+  ArrowLeft,
   BookOpen,
   CalendarDays,
   Dumbbell,
@@ -11,7 +12,6 @@ import {
   ShieldAlert,
   Timer,
   TrendingUp,
-  X,
   Zap,
 } from 'lucide-react';
 import { formatPace } from '../analysis/fatigue';
@@ -24,9 +24,13 @@ import {
 } from '../analysis/loadModel';
 import type { PhysiologyEstimate, PracticalZone } from '../analysis/coachEngine';
 import { getActivity } from '../data/api';
-import { activityPaceSecPerKm, decodePolyline, toWeekIdUtc } from '../data/mapRoutes';
+import { buildActivityLaps, buildDerivedKilometreLaps, type ActivityLapView } from '../data/activityLaps';
+import { activityPaceSecPerKm, toWeekIdUtc } from '../data/mapRoutes';
 import type { ActivityDetail, ActivitySummary, GymSession, TrainingPlanDay, WeeklyAnalysis } from '../types';
 import { MetricInfo, MetricsGuide, type MetricKey } from './MetricInfo';
+
+const LazyActivityRouteMap = lazy(() => import('./ActivityRouteMap'));
+const LazyActivityRunCharts = lazy(() => import('./ActivityRunCharts').then((module) => ({ default: module.ActivityRunCharts })));
 
 const GUIDE_METRICS: MetricKey[] = [
   'load',
@@ -67,7 +71,9 @@ interface TrainingViewProps {
   onJumpApi?: (api: TrainingJumpApi | null) => void;
   activityFocus?: { id: string; request: number } | null;
   onSaveActivityNote: (activityId: string, note: string) => Promise<string>;
+  onSaveDayNote: (date: string, note: string, expectedUpdatedAt: string | null) => Promise<TrainingPlanDay>;
   onRequestFullHistory: () => Promise<void>;
+  allHistoryLoaded?: boolean;
 }
 
 // A week in the log is either a scored run week (with any gym that week attached)
@@ -90,7 +96,6 @@ interface CalendarDay {
   planDay?: TrainingPlanDay;
 }
 
-type RangeKey = '3m' | '6m' | '12m' | '10y' | 'all';
 type MetricTone = 'easy' | 'moderate' | 'hard' | 'danger' | 'muted';
 type RunKind = 'easy' | 'steady' | 'long' | 'session';
 
@@ -98,7 +103,6 @@ interface RunClassification {
   key: RunKind;
   label: string;
   tone: MetricTone;
-  summary: string;
   reasons: string[];
 }
 
@@ -123,15 +127,6 @@ interface TrainingZoneModel {
   physiologyBacked: boolean;
 }
 
-interface LapSplit {
-  label: string;
-  distanceKm: number;
-  durationSec: number;
-  paceSecPerKm: number;
-  averageHeartRate?: number;
-  averagePower?: number;
-}
-
 interface HrZoneTotal {
   zone: TrainingZone;
   seconds: number;
@@ -148,14 +143,8 @@ interface ZoneTemplate {
   hrMaxRatio?: number;
 }
 
-const RANGE_OPTIONS: Array<{ key: RangeKey; label: string; months?: number }> = [
-  { key: '3m', label: '3m', months: 3 },
-  { key: '12m', label: '12m', months: 12 },
-  { key: 'all', label: 'All' },
-];
-
 const INITIAL_WEEK_COUNT = 12;
-const WEEK_CHUNK = 10;
+const WEEK_CHUNK = 6;
 // Weeks rendered below a jump target so the scroller can bring it to the top.
 const JUMP_BUFFER_WEEKS = 10;
 const DAY_MS = 86_400_000;
@@ -179,10 +168,10 @@ export function TrainingView({
   onJumpApi,
   activityFocus,
   onSaveActivityNote,
+  onSaveDayNote,
   onRequestFullHistory,
+  allHistoryLoaded = false,
 }: TrainingViewProps) {
-  const [range, setRange] = useState<RangeKey>('3m');
-  const [showGuide, setShowGuide] = useState(false);
   const [visibleWeekCount, setVisibleWeekCount] = useState(INITIAL_WEEK_COUNT);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewDetail, setPreviewDetail] = useState<ActivityDetail | null>(null);
@@ -190,13 +179,19 @@ export function TrainingView({
   const [pendingJump, setPendingJump] = useState<string | null>(null);
   const detailCache = useRef(new Map<string, ActivityDetail>());
   const scrollerRef = useRef<HTMLElement | null>(null);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const weekListRef = useRef<HTMLDivElement | null>(null);
+  const historyExpansionPending = useRef(false);
+  const logScrollTop = useRef(0);
+  const logScrollLeft = useRef(0);
+  const logAnchorId = useRef<string | null>(null);
+  const logAnchorOffset = useRef<number | null>(null);
+  const restoreLogScroll = useRef(false);
 
   const loadModel = useMemo(
     () => buildTrainingLoadModel(activities, canonicalMetrics),
     [activities, canonicalMetrics],
   );
-  const scoped = useMemo(() => scopeLoadModel(loadModel, range, gymSessions), [loadModel, range, gymSessions]);
+  const scoped = useMemo(() => scopeLoadModel(loadModel, gymSessions), [loadModel, gymSessions]);
   const trainingZoneModel = useMemo(
     () => buildTrainingZoneModel(physiology, loadModel.thresholds),
     [physiology, loadModel.thresholds],
@@ -217,11 +212,74 @@ export function TrainingView({
   const gymCount = scoped.gymCount;
   const hrCount = scoped.sessions.filter((session) => session.activity.averageHeartRate).length;
   const powerCount = scoped.sessions.filter((session) => session.activity.averageWatts).length;
+
+  useEffect(() => {
+    if (activities.length > 0 && !allHistoryLoaded) void onRequestFullHistory();
+  }, [activities.length, allHistoryLoaded, onRequestFullHistory]);
+  const loadDetail = useCallback((activityId: string) => {
+    const cached = detailCache.current.get(activityId);
+    if (cached) return Promise.resolve(cached);
+    return getActivity(activityId).then((detail) => {
+      detailCache.current.set(activityId, detail);
+      return detail;
+    });
+  }, []);
+  const prefetchDetail = useCallback((activityId: string) => {
+    void loadDetail(activityId).catch(() => undefined);
+  }, [loadDetail]);
   const openPreview = useCallback((activityId: string) => {
+    const root = scrollerRef.current;
+    logScrollTop.current = root?.scrollTop ?? 0;
+    logScrollLeft.current = weekListRef.current?.scrollLeft ?? 0;
+    const anchor = root?.querySelector<HTMLElement>(`[data-activity-id="${CSS.escape(activityId)}"]`);
+    logAnchorId.current = activityId;
+    logAnchorOffset.current = root && anchor
+      ? anchor.getBoundingClientRect().top - root.getBoundingClientRect().top
+      : null;
     setPreviewId(activityId);
     if (new URLSearchParams(window.location.search).get('view') === 'log') {
-      window.history.pushState(null, '', `/?view=log&activity=${encodeURIComponent(activityId)}`);
+      const currentState = {
+        ...(window.history.state ?? {}),
+        logScrollTop: logScrollTop.current,
+        logScrollLeft: logScrollLeft.current,
+        logAnchorId: logAnchorId.current,
+        logAnchorOffset: logAnchorOffset.current,
+      };
+      window.history.replaceState(currentState, '', window.location.href);
+      window.history.pushState({
+        activityPage: true,
+        logScrollTop: logScrollTop.current,
+        logScrollLeft: logScrollLeft.current,
+        logAnchorId: logAnchorId.current,
+        logAnchorOffset: logAnchorOffset.current,
+      }, '', `/?view=log&activity=${encodeURIComponent(activityId)}`);
     }
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!previewId || !scrollerRef.current) return;
+    const root = scrollerRef.current;
+    const behavior = root.style.scrollBehavior;
+    root.style.scrollBehavior = 'auto';
+    root.scrollTop = 0;
+    root.scrollLeft = 0;
+    root.style.scrollBehavior = behavior;
+  }, [previewId]);
+
+  const closeActivityPage = useCallback(() => {
+    if (window.history.state?.activityPage) {
+      window.history.back();
+      return;
+    }
+    restoreLogScroll.current = true;
+    setPreviewId(null);
+    window.history.replaceState({
+      ...(window.history.state ?? {}),
+      logScrollTop: logScrollTop.current,
+      logScrollLeft: logScrollLeft.current,
+      logAnchorId: logAnchorId.current,
+      logAnchorOffset: logAnchorOffset.current,
+    }, '', '/?view=log');
   }, []);
 
   // Month/year jump. Week blocks are lazily rendered, so a naive #anchor link
@@ -310,35 +368,89 @@ export function TrainingView({
   }, [activityFocus?.id, activityFocus?.request, loadModel.sessionsById, scoped.weekEntries]);
 
   useEffect(() => {
-    const onPopState = () => {
+    const onPopState = (event: PopStateEvent) => {
       const activityId = new URLSearchParams(window.location.search).get('activity');
+      if (!activityId) {
+        const savedScroll = event.state?.logScrollTop;
+        const savedHorizontalScroll = event.state?.logScrollLeft;
+        const savedAnchorId = event.state?.logAnchorId;
+        const savedAnchorOffset = event.state?.logAnchorOffset;
+        if (typeof savedScroll === 'number') logScrollTop.current = savedScroll;
+        if (typeof savedHorizontalScroll === 'number') logScrollLeft.current = savedHorizontalScroll;
+        if (typeof savedAnchorId === 'string') logAnchorId.current = savedAnchorId;
+        if (typeof savedAnchorOffset === 'number') logAnchorOffset.current = savedAnchorOffset;
+        restoreLogScroll.current = true;
+      }
       setPreviewId(activityId);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  useEffect(() => {
-    setVisibleWeekCount(INITIAL_WEEK_COUNT);
-  }, [range, loadModel.sessions.length]);
+  useLayoutEffect(() => {
+    if (previewId || !restoreLogScroll.current) return;
+    restoreLogScroll.current = false;
+    let frame = 0;
+    let cancelled = false;
+    const targetTop = logScrollTop.current;
+    const targetLeft = logScrollLeft.current;
+    const anchorId = logAnchorId.current;
+    const anchorOffset = logAnchorOffset.current;
+    const root = scrollerRef.current;
+    if (!root) return;
+    const behavior = root.style.scrollBehavior;
+    root.style.scrollBehavior = 'auto';
+    const restore = () => {
+      if (cancelled) return;
+      if (frame === 0) root.scrollTop = targetTop;
+      if (weekListRef.current) weekListRef.current.scrollLeft = targetLeft;
+      if (anchorId && anchorOffset !== null) {
+        const anchor = root.querySelector<HTMLElement>(`[data-activity-id="${CSS.escape(anchorId)}"]`);
+        if (anchor) {
+          const currentOffset = anchor.getBoundingClientRect().top - root.getBoundingClientRect().top;
+          root.scrollTop += currentOffset - anchorOffset;
+        }
+      }
+      frame += 1;
+      // Hold the position while content-visibility, fonts, focus restoration,
+      // and mobile browser history anchoring finish settling the diary layout.
+      if (frame < 18) {
+        requestAnimationFrame(restore);
+      } else {
+        root.style.scrollBehavior = behavior;
+      }
+    };
+    restore();
+    return () => {
+      cancelled = true;
+      root.style.scrollBehavior = behavior;
+    };
+  }, [previewId]);
 
   useEffect(() => {
-    const root = scrollerRef.current;
-    const sentinel = sentinelRef.current;
-    if (!root || !sentinel || visibleWeekCount >= scoped.weekEntries.length) {
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setVisibleWeekCount((current) => Math.min(scoped.weekEntries.length, current + WEEK_CHUNK));
-        }
-      },
-      { root, rootMargin: '420px 0px 420px 0px' },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
+    setVisibleWeekCount(INITIAL_WEEK_COUNT);
+  }, [loadModel.sessions.length]);
+
+  const revealHistoryAhead = useCallback((root: HTMLElement) => {
+    if (historyExpansionPending.current || visibleWeekCount >= scoped.weekEntries.length) return;
+    const remainingPx = root.scrollHeight - root.scrollTop - root.clientHeight;
+    // Keep several phone screens already rendered below the viewport. This is
+    // driven by the actual scroll position, so nested horizontal overflow can
+    // never strand the diary at an arbitrary month as an observer sentinel can.
+    if (remainingPx > 4_800) return;
+    historyExpansionPending.current = true;
+    startTransition(() => {
+      setVisibleWeekCount((current) => Math.min(scoped.weekEntries.length, current + WEEK_CHUNK));
+    });
   }, [scoped.weekEntries.length, visibleWeekCount]);
+
+  useEffect(() => {
+    historyExpansionPending.current = false;
+    const root = scrollerRef.current;
+    if (!root) return;
+    const frame = requestAnimationFrame(() => revealHistoryAhead(root));
+    return () => cancelAnimationFrame(frame);
+  }, [revealHistoryAhead, visibleWeekCount]);
 
   useEffect(() => {
     if (!previewId) {
@@ -355,7 +467,7 @@ export function TrainingView({
     let cancelled = false;
     setPreviewDetail(null);
     setPreviewLoading(true);
-    getActivity(previewId)
+    loadDetail(previewId)
       .then((detail) => {
         detailCache.current.set(previewId, detail);
         if (!cancelled) {
@@ -375,7 +487,7 @@ export function TrainingView({
     return () => {
       cancelled = true;
     };
-  }, [previewId]);
+  }, [loadDetail, previewId]);
 
   const savePreviewNote = useCallback(async (activityId: string, note: string) => {
     const savedNote = await onSaveActivityNote(activityId, note);
@@ -390,116 +502,80 @@ export function TrainingView({
   }, [onSaveActivityNote]);
 
   return (
-    <main ref={scrollerRef} className="training-view training-log-view" aria-label="Training history">
-      <section className="training-toolbar" aria-label="Training range">
+    <main
+      ref={scrollerRef}
+      className={`training-view training-log-view${previewId ? ' activity-page-open' : ''}`}
+      aria-label={previewId ? 'Activity detail' : 'Training history'}
+      onScroll={(event) => {
+        if (!previewId) {
+          logScrollTop.current = event.currentTarget.scrollTop;
+          revealHistoryAhead(event.currentTarget);
+        }
+      }}
+    >
+      {previewId ? (
+        previewSession ? (
+          <ActivityDetailPage
+            detail={previewDetail}
+            session={previewSession}
+            loading={previewLoading}
+            zones={trainingZoneModel.zones}
+            thresholdPaceSecPerKm={loadModel.thresholds.thresholdPaceSecPerKm}
+            planDay={previewPlanDay}
+            onBack={closeActivityPage}
+            onSaveNote={savePreviewNote}
+          />
+        ) : (
+          <section className="activity-detail-page activity-detail-loading">
+            <button type="button" className="activity-page-back" onClick={closeActivityPage}>
+              <ArrowLeft size={17} aria-hidden="true" /> Back
+            </button>
+            <div className="surface-loading">Loading this run…</div>
+          </section>
+        )
+      ) : (
+        <>
+      <section className="training-toolbar log-history-hero" aria-label="All training history">
         <div>
           <p className="eyebrow">
             <Activity size={15} aria-hidden="true" />
             Training log
           </p>
           <h2>Your runs and notes</h2>
+          <small>{allHistoryLoaded ? 'All recorded activities' : 'Loading your full history…'}</small>
         </div>
-        <div className="training-range-controls">
-          <div className="segmented compact-segmented" role="group" aria-label="Training range">
-            {RANGE_OPTIONS.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                className={range === option.key ? 'active' : ''}
-                aria-pressed={range === option.key}
-                onClick={() => {
-                  setRange(option.key);
-                  if (option.key === 'all') void onRequestFullHistory();
-                }}
-              >
-                {option.label}
-              </button>
-            ))}
+        <div className="log-history-totals" aria-label="All-time totals">
+          <div className="log-history-total distance">
+            <span>Distance</span>
+            <strong>{Math.round(scoped.distanceKm).toLocaleString()}<small> km</small></strong>
           </div>
-          {scoped.months.length > 0 && (
-            <label className="training-inline-jump">
-              <span>
-                <CalendarDays size={14} aria-hidden="true" />
-                Jump
-              </span>
-              <select
-                aria-label="Jump to month"
-                value=""
-                onChange={(event) => {
-                  const monthId = event.target.value;
-                  if (monthId) {
-                    jumpToMonth(monthId);
-                  }
-                }}
-              >
-                <option value="">Month...</option>
-                {scoped.months.map((month) => (
-                  <option key={month.id} value={month.id}>
-                    {month.label} ({month.count})
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+          <div className="log-history-total time">
+            <span>Time</span>
+            <strong>{formatLifetimeDuration(scoped.durationSec)}</strong>
+          </div>
+          <div className="log-history-total runs">
+            <span>Runs</span>
+            <strong>{runCount.toLocaleString()}</strong>
+          </div>
         </div>
       </section>
 
-      <details className="training-advanced-summary">
-        <summary>Training zones and load model</summary>
-        <button
-          type="button"
-          className={`guide-toggle${showGuide ? ' active' : ''}`}
-          aria-pressed={showGuide}
-          aria-expanded={showGuide}
-          onClick={() => setShowGuide((current) => !current)}
-        >
-          <BookOpen size={15} aria-hidden="true" /> Metrics guide
-        </button>
-        {showGuide && <MetricsGuide metrics={GUIDE_METRICS} />}
-        <ZoneSummary model={trainingZoneModel} />
-
-        <aside className="training-kpis training-kpis-wide" aria-label="Current training metrics">
-          <TrainingKpi
-            icon={<Timer size={18} />}
-            label="Latest load"
-            info="load"
-            value={latestSession ? latestSession.load.toFixed(1) : '-'}
-            detail={latestSession ? formatRunDate(latestSession.activity.startDateLocal || latestSession.activity.startDate) : 'no runs'}
-          />
-          <TrainingKpi
-            icon={<ShieldAlert size={18} />}
-            label="7-day fatigue"
-            info="atl"
-            value={latestDaily ? latestDaily.fatigue.toFixed(1) : '-'}
-            detail="ATL"
-          />
-          <TrainingKpi
-            icon={<TrendingUp size={18} />}
-            label="42-day fitness"
-            info="ctl"
-            value={latestDaily ? latestDaily.fitness.toFixed(1) : '-'}
-            detail="CTL"
-          />
-          <TrainingKpi
-            icon={<Gauge size={18} />}
-            label="Ramp"
-            info="acwr"
-            value={latestDaily ? latestDaily.acwr.toFixed(2) : '-'}
-            detail="ATL / CTL"
-          />
-        </aside>
-
-        <div className="training-additional-info-grid">
-          <Metric label="Runs" value={String(runCount)} />
-          <Metric label="Distance" value={`${Math.round(scoped.distanceKm)} km`} />
-          <Metric label="Gym" value={String(gymCount)} />
-          <Metric label="HR coverage" value={`${hrCount}/${runCount}`} />
-          <Metric label="Power coverage" value={`${powerCount}/${runCount}`} />
-        </div>
-      </details>
+      {scoped.months.length > 0 && (
+        <label className="training-inline-jump log-history-jump">
+          <span><CalendarDays size={14} aria-hidden="true" /> Jump to</span>
+          <select aria-label="Jump to month" value="" onChange={(event) => event.target.value && jumpToMonth(event.target.value)}>
+            <option value="">Month…</option>
+            {scoped.months.map((month) => <option key={month.id} value={month.id}>{month.label} ({month.count})</option>)}
+          </select>
+        </label>
+      )}
 
       <section className="training-log-shell" aria-label="Activity log">
-        <div className="training-week-list">
+        <div
+          ref={weekListRef}
+          className="training-week-list"
+          onScroll={(event) => { logScrollLeft.current = event.currentTarget.scrollLeft; }}
+        >
           {visibleWeeks.length > 0 ? (
             visibleWeeks.map((entry, index) => {
               const previous = visibleWeeks[index - 1];
@@ -507,7 +583,12 @@ export function TrainingView({
               const showMonthAnchor = !previous || monthIdFromEntry(previous) !== currentMonth;
               return (
                 <div key={entry.weekId} className="training-week-block-wrap" data-week={entry.weekId}>
-                  {showMonthAnchor && <span id={`month-${currentMonth}`} className="month-anchor" />}
+                  {showMonthAnchor && (
+                    <div id={`month-${currentMonth}`} className="training-month-divider">
+                      <span>{formatMonthLabel(`${currentMonth}-01`)}</span>
+                      <small>{scoped.months.find((month) => month.id === currentMonth)?.count ?? 0} runs</small>
+                    </div>
+                  )}
                   {entry.week ? (
                     <WeekBlock
                       week={entry.week}
@@ -516,9 +597,16 @@ export function TrainingView({
                       planByDate={planByDate}
                       previewId={previewId}
                       onPreview={openPreview}
+                      onPrefetch={prefetchDetail}
+                      onSaveDayNote={onSaveDayNote}
                     />
                   ) : (
-                    <GymOnlyBlock weekId={entry.weekId} gym={entry.gym} planByDate={planByDate} />
+                    <NoRunWeekBlock
+                      weekId={entry.weekId}
+                      gym={entry.gym}
+                      planByDate={planByDate}
+                      onSaveDayNote={onSaveDayNote}
+                    />
                   )}
                 </div>
               );
@@ -529,33 +617,12 @@ export function TrainingView({
               <h3>{usingSample ? 'Import Garmin data for run rows' : 'No runs in this range'}</h3>
             </div>
           )}
-          {visibleWeekCount < scoped.weekEntries.length && <div ref={sentinelRef} className="training-scroll-sentinel" />}
+          {visibleWeekCount < scoped.weekEntries.length && <div className="training-scroll-sentinel" aria-hidden="true" />}
         </div>
 
-        {previewSession && (
-          <div className="training-floating-preview" aria-label="Activity preview">
-            <button
-              type="button"
-              className="floating-preview-close"
-              aria-label="Close activity preview"
-              onClick={() => {
-                setPreviewId(null);
-                if (new URLSearchParams(window.location.search).get('view') === 'log') window.history.replaceState(null, '', '/?view=log');
-              }}
-            >
-              <X size={16} aria-hidden="true" />
-            </button>
-            <ActivityPreview
-              detail={previewDetail}
-              session={previewSession}
-              loading={previewLoading}
-              zones={trainingZoneModel.zones}
-              planDay={previewPlanDay}
-              onSaveNote={savePreviewNote}
-            />
-          </div>
-        )}
       </section>
+        </>
+      )}
     </main>
   );
 }
@@ -567,6 +634,8 @@ function WeekBlock({
   planByDate,
   previewId,
   onPreview,
+  onPrefetch,
+  onSaveDayNote,
 }: {
   week: WeekLoadSummary;
   gym: GymSession[];
@@ -574,25 +643,30 @@ function WeekBlock({
   planByDate: Map<string, TrainingPlanDay>;
   previewId: string | null;
   onPreview: (id: string) => void;
+  onPrefetch: (id: string) => void;
+  onSaveDayNote: TrainingViewProps['onSaveDayNote'];
 }) {
   const days = buildWeekCalendarDays(week.weekId, week.sessions, gym, planByDate);
   return (
     <article className={`training-week-block ${week.severity}`}>
       <header className="training-week-head">
-        <div>
+        <div className="training-week-heading-content">
           <p>{week.label}</p>
+          <WeekTotalReadout
+            label={week.label}
+            distanceKm={week.distanceKm}
+            durationHours={week.durationHours}
+            runCount={week.activityCount}
+          />
           <h3>{week.status}</h3>
         </div>
       </header>
-      <div className="week-at-a-glance">
-        <span>{week.activityCount} runs</span>
-        <span>{week.distanceKm.toFixed(1)} km</span>
-        <span>{week.durationHours.toFixed(1)} h</span>
-      </div>
       <WeekCalendar
         days={days}
         previewId={previewId}
         onPreview={onPreview}
+        onPrefetch={onPrefetch}
+        onSaveDayNote={onSaveDayNote}
         ariaLabel={`${week.label} training calendar`}
       />
       <details className="week-analysis-disclosure">
@@ -616,6 +690,20 @@ function WeekBlock({
       </details>
     </article>
   );
+}
+
+export function TrainingZoneSummary({
+  loadModel,
+  physiology,
+}: {
+  loadModel: TrainingLoadModel;
+  physiology?: PhysiologyEstimate;
+}) {
+  const model = useMemo(
+    () => buildTrainingZoneModel(physiology, loadModel.thresholds),
+    [loadModel.thresholds, physiology],
+  );
+  return <ZoneSummary model={model} />;
 }
 
 function ZoneSummary({ model }: { model: TrainingZoneModel }) {
@@ -672,31 +760,58 @@ function ZoneSummary({ model }: { model: TrainingZoneModel }) {
   );
 }
 
-// A week with gym but no runs still shows, so gym history is never hidden.
-function GymOnlyBlock({
+function WeekTotalReadout({
+  label,
+  distanceKm,
+  durationHours,
+  runCount,
+}: {
+  label: string;
+  distanceKm: number;
+  durationHours: number;
+  runCount: number;
+}) {
+  return (
+    <div className="week-total-readout" aria-label={`${label} totals`}>
+      <div><span>Distance</span><strong>{distanceKm.toFixed(1)} km</strong></div>
+      <div><span>Time</span><strong>{formatHoursMinutes(durationHours)}</strong></div>
+      <small>{runCount} {runCount === 1 ? 'run' : 'runs'}</small>
+    </div>
+  );
+}
+
+// The diary is a continuous calendar. Gym-only and fully empty weeks retain
+// the same seven weekday columns so weekday-to-weekday comparison never jumps.
+function NoRunWeekBlock({
   weekId,
   gym,
   planByDate,
+  onSaveDayNote,
 }: {
   weekId: string;
   gym: GymSession[];
   planByDate: Map<string, TrainingPlanDay>;
+  onSaveDayNote: TrainingViewProps['onSaveDayNote'];
 }) {
   const days = buildWeekCalendarDays(weekId, [], gym, planByDate);
+  const label = `Week of ${formatWeekIdLabel(weekId)}`;
   return (
-    <article className="training-week-block gym-only">
+    <article className={`training-week-block ${gym.length > 0 ? 'gym-only' : 'empty-week'}`}>
       <header className="training-week-head">
-        <div>
-          <p>Week of {formatWeekIdLabel(weekId)}</p>
-          <h3>Gym week</h3>
-        </div>
-        <div className="week-gym-count">
-          <Dumbbell size={16} aria-hidden="true" />
-          <strong>{gym.length}</strong>
-          <small>gym {gym.length === 1 ? 'session' : 'sessions'}</small>
+        <div className="training-week-heading-content">
+          <p>{label}</p>
+          <WeekTotalReadout label={label} distanceKm={0} durationHours={0} runCount={0} />
+          <h3>{gym.length > 0 ? 'Gym week' : 'No runs'}</h3>
+          {gym.length > 0 && (
+            <div className="week-gym-count">
+              <Dumbbell size={16} aria-hidden="true" />
+              <strong>{gym.length}</strong>
+              <small>gym {gym.length === 1 ? 'session' : 'sessions'}</small>
+            </div>
+          )}
         </div>
       </header>
-      <WeekCalendar days={days} ariaLabel={`Week of ${formatWeekIdLabel(weekId)} gym calendar`} />
+      <WeekCalendar days={days} onSaveDayNote={onSaveDayNote} ariaLabel={`${label} calendar`} />
     </article>
   );
 }
@@ -705,11 +820,15 @@ function WeekCalendar({
   days,
   previewId,
   onPreview,
+  onPrefetch,
+  onSaveDayNote,
   ariaLabel,
 }: {
   days: CalendarDay[];
   previewId?: string | null;
   onPreview?: (id: string) => void;
+  onPrefetch?: (id: string) => void;
+  onSaveDayNote: TrainingViewProps['onSaveDayNote'];
   ariaLabel: string;
 }) {
   return (
@@ -720,6 +839,8 @@ function WeekCalendar({
           day={day}
           previewId={previewId ?? null}
           onPreview={onPreview}
+          onPrefetch={onPrefetch}
+          onSaveDayNote={onSaveDayNote}
         />
       ))}
     </div>
@@ -730,10 +851,14 @@ function CalendarDayColumn({
   day,
   previewId,
   onPreview,
+  onPrefetch,
+  onSaveDayNote,
 }: {
   day: CalendarDay;
   previewId: string | null;
   onPreview?: (id: string) => void;
+  onPrefetch?: (id: string) => void;
+  onSaveDayNote: TrainingViewProps['onSaveDayNote'];
 }) {
   const hasRun = day.sessions.length > 0;
   const hasGym = day.gym.length > 0;
@@ -764,14 +889,15 @@ function CalendarDayColumn({
             session={session}
             active={previewId === session.activity.id}
             onPreview={onPreview}
+            onPrefetch={onPrefetch}
             note={note}
           />
         ))}
         {day.gym.map((session) => (
           <GymSessionPill key={session.id} session={session} />
         ))}
-        {hasNote && !hasRun && <CalendarDayNote note={note as string} />}
         {!hasRun && !hasGym && !hasNote && <span className="week-rest-label">Rest</span>}
+        <DayNoteEditor dayId={day.dayId} planDay={day.planDay} onSave={onSaveDayNote} />
       </div>
     </section>
   );
@@ -781,14 +907,15 @@ function CalendarRunCard({
   session,
   active,
   onPreview,
+  onPrefetch,
   note,
 }: {
   session: SessionLoad;
   active: boolean;
   onPreview?: (id: string) => void;
+  onPrefetch?: (id: string) => void;
   note?: string;
 }) {
-  const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const activity = session.activity;
   const effortTone = toneForEffort(session.externalIntensityFactor);
   const runKind = classifyRun(session);
@@ -796,36 +923,11 @@ function CalendarRunCard({
   return (
     <button
       type="button"
+      data-activity-id={activity.id}
       className={`calendar-run-card tone-${effortTone} run-${runKind.key}${active ? ' active' : ''}${session.hardLoad > 0 ? ' hard' : ''}`}
-      onPointerDown={(event) => {
-        event.stopPropagation();
-        pointerStart.current = { x: event.clientX, y: event.clientY };
-      }}
-      onPointerUp={(event) => {
-        event.stopPropagation();
-        const start = pointerStart.current;
-        pointerStart.current = null;
-        if (!start) {
-          return;
-        }
-        const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
-        if (moved <= 8) {
-          openPreview();
-        }
-      }}
-      onPointerCancel={() => {
-        pointerStart.current = null;
-      }}
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          openPreview();
-        }
-      }}
+      onPointerEnter={() => onPrefetch?.(activity.id)}
+      onFocus={() => onPrefetch?.(activity.id)}
+      onClick={openPreview}
     >
       <span className="calendar-run-title-row">
         <span className="calendar-run-title">
@@ -840,9 +942,9 @@ function CalendarRunCard({
         {calendarRunSummary(runKind.key)}
       </span>
       {(activity.activityNote || note) && (
-        <span className="calendar-run-note" title={note}>
+        <span className="calendar-run-note">
           <MessageSquareText size={12} aria-hidden="true" />
-          {activity.activityNote || note}
+          {notePreview(activity.activityNote || note || '')}
         </span>
       )}
       {!activity.activityNote && !note && (
@@ -865,12 +967,78 @@ function CalendarRunCard({
   );
 }
 
-function CalendarDayNote({ note }: { note: string }) {
+function DayNoteEditor({
+  dayId,
+  planDay,
+  onSave,
+}: {
+  dayId: string;
+  planDay?: TrainingPlanDay;
+  onSave: TrainingViewProps['onSaveDayNote'];
+}) {
+  const note = planDay?.notes ?? '';
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(note);
+  const [saved, setSaved] = useState(note);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setDraft(note);
+    setSaved(note);
+    setError('');
+  }, [dayId, note]);
+
+  const save = async () => {
+    if (saving || draft === saved) return;
+    setSaving(true);
+    setError('');
+    try {
+      const next = await onSave(dayId, draft, planDay?.updatedAt ?? null);
+      setSaved(next.notes);
+      setDraft(next.notes);
+      setEditing(false);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save this day note.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className={`calendar-day-note-trigger${saved ? ' has-note' : ''}`}
+        onClick={() => setEditing(true)}
+        aria-label={`${saved ? 'Edit' : 'Add'} note for ${dayId}`}
+      >
+        <MessageSquareText size={12} aria-hidden="true" />
+        <span>{saved ? notePreview(saved) : 'Add day note'}</span>
+      </button>
+    );
+  }
+
   return (
-    <details className="calendar-day-note">
-      <summary>Day note</summary>
-      <p>{note}</p>
-    </details>
+    <section className="calendar-day-note-editor" aria-label={`Note for ${dayId}`}>
+      <textarea
+        rows={3}
+        value={draft}
+        disabled={saving}
+        autoFocus
+        placeholder="How did today feel?"
+        onChange={(event) => setDraft(event.target.value)}
+      />
+      <div>
+        <button type="button" disabled={saving || draft === saved} onClick={() => void save()}>
+          <Save size={12} aria-hidden="true" /> {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button type="button" disabled={saving} onClick={() => { setDraft(saved); setEditing(false); setError(''); }}>
+          Cancel
+        </button>
+      </div>
+      {error && <p role="alert">{error}</p>}
+    </section>
   );
 }
 
@@ -890,74 +1058,215 @@ function GymSessionPill({ session }: { session: GymSession }) {
   );
 }
 
-function ActivityPreview({
+function ActivityDetailPage({
   detail,
   session,
   loading,
   zones,
+  thresholdPaceSecPerKm,
   planDay,
+  onBack,
   onSaveNote,
 }: {
   detail: ActivityDetail | null;
   session: SessionLoad;
   loading: boolean;
   zones: TrainingZone[];
+  thresholdPaceSecPerKm: number;
   planDay?: TrainingPlanDay;
+  onBack: () => void;
   onSaveNote: (activityId: string, note: string) => Promise<string>;
 }) {
   const activity = detail ?? session.activity;
   const split = detail ? splitPaces(detail) : undefined;
-  const lapSplits = detail ? buildLapSplits(detail) : [];
+  const lapSplits = detail ? buildActivityLaps(detail, thresholdPaceSecPerKm) : [];
+  const recordedLapSplits = lapSplits.filter((lap) => lap.source === 'recorded');
+  const kilometreSplits = detail ? buildDerivedKilometreLaps(detail, thresholdPaceSecPerKm) : [];
   const hrZoneTotals = detail ? buildHrZoneTotals(detail, zones) : undefined;
   const runKind = classifyRun(session);
+  const plannedText = planDay?.plannedText.trim() || planDay?.legacyPlannedText.trim();
 
   return (
-    <div className="training-hover-preview">
-      <div className="preview-head">
-        <div>
-          <p>{formatRunDate(activity.startDateLocal || activity.startDate)}</p>
-          <h3>{activity.name}</h3>
+    <section className="activity-detail-page">
+      <button type="button" className="activity-page-back" onClick={onBack}>
+        <ArrowLeft size={17} aria-hidden="true" /> Back to your log
+      </button>
+      <article className="activity-detail-card">
+        <header className="activity-detail-heading">
+          <div>
+            <p>
+              {formatRunDate(activity.startDateLocal || activity.startDate)}
+              <span aria-hidden="true">·</span>
+              {formatRunTime(activity.startDateLocal || activity.startDate)}
+              <span aria-hidden="true">·</span>
+              {activity.sportType.replaceAll('_', ' ')}
+            </p>
+            <h2>{activity.name}</h2>
+          </div>
+          <span className={`activity-kind-pill tone-${runKind.tone}`}>{runKind.label}</span>
+          {loading && <small>Loading stream data…</small>}
+        </header>
+
+        <div className="activity-detail-layout">
+          <div className="activity-detail-main">
+            <section className="activity-route-panel" aria-label="Activity route">
+              <Suspense fallback={<div className="activity-route-map-empty">Loading route map…</div>}>
+                <LazyActivityRouteMap activity={detail ?? session.activity} />
+              </Suspense>
+            </section>
+            <ActivityEffortStrip totals={hrZoneTotals} loading={loading} />
+            <section className="activity-analysis-panel" aria-labelledby="activity-analysis-heading">
+              <header className="activity-analysis-heading">
+                <div><span>Run data</span><h2 id="activity-analysis-heading">Splits and load analysis</h2></div>
+                <small>Stream and model detail</small>
+              </header>
+              <Suspense fallback={<div className="surface-loading">Loading run charts…</div>}>
+                <LazyActivityRunCharts detail={detail} loading={loading} laps={lapSplits} />
+              </Suspense>
+              {recordedLapSplits.length > 0 && (
+                <LapSplitsTable
+                  splits={recordedLapSplits}
+                  loading={loading}
+                  title="Device-recorded laps"
+                  sourceLabel="Garmin lap button / auto lap"
+                  showStrideDefinition
+                />
+              )}
+              <LapSplitsTable
+                splits={kilometreSplits}
+                loading={loading}
+                title="Kilometre splits"
+                sourceLabel="Derived from continuous distance"
+              />
+              <div className="preview-stat-grid">
+                <Metric label="Session stress" value={session.load.toFixed(1)} />
+                <Metric label="External fallback" value={session.paceFallbackLoad.toFixed(1)} />
+                <Metric label="HR response" value={formatHrCostResidual(session.hrCostResidualBpm)} />
+                <Metric label="LPS" value={formatLydiardPowerStress(session)} />
+              </div>
+              <div className="preview-stat-grid">
+                <Metric label="Pace IF" value={session.externalIntensityFactor.toFixed(2)} />
+                <Metric label="Load source" value={formatLoadSource(session.loadSource)} />
+                <Metric label="W/bpm" value={session.powerHrRatio?.toFixed(2) ?? '-'} />
+                <Metric label="Split" value={split ? `${formatPace(split.first)} / ${formatPace(split.second)}` : formatDecoupling(activity.decouplingPct)} />
+              </div>
+              {session.flags.length > 0 && <div className="preview-flags">{session.flags.map((flag) => <span key={flag}>{flag}</span>)}</div>}
+            </section>
+          </div>
+
+          <aside className="activity-detail-sidebar">
+            {plannedText && (
+              <section className="activity-plan-match" aria-label="Planned and completed session">
+                <div>
+                  <small>Planned</small>
+                  <strong>{plannedText}</strong>
+                </div>
+                <span aria-hidden="true">→</span>
+                <div>
+                  <small>Completed</small>
+                  <strong>{runKind.label} run</strong>
+                </div>
+              </section>
+            )}
+            <RunRead classification={runKind} session={session} />
+            <div className="preview-stat-grid preview-primary-stats">
+              <Metric label="Distance" value={`${activity.distanceKm.toFixed(1)} km`} />
+              <Metric label="Moving time" value={formatDuration(activity.movingTimeSec)} />
+              <Metric label="Avg pace" value={formatPace(activityPaceSecPerKm(activity))} />
+              <Metric label="Avg HR" value={activity.averageHeartRate ? `${Math.round(activity.averageHeartRate)} bpm` : '-'} />
+              <Metric label="Elevation" value={`${Math.round(activity.elevationGainM)} m`} />
+              <Metric label="Load" value={session.load.toFixed(1)} />
+            </div>
+            {planDay?.notes && planDay.notes.length > 0 && (
+              <section className="preview-plan-note" aria-label="Day note">
+                <header>
+                  <span>Day note</span>
+                  <small>{planDay.source === 'legacy-google-sheet' ? 'Imported from RUNMASTER' : 'Plan'}</small>
+                </header>
+                <p>{planDay.notes}</p>
+              </section>
+            )}
+            <ActivityNoteEditor activityId={activity.id} note={activity.activityNote ?? ''} onSave={onSaveNote} />
+          </aside>
         </div>
-        {loading && <span>loading</span>}
-      </div>
-      <ActivityNoteEditor activityId={activity.id} note={activity.activityNote ?? ''} onSave={onSaveNote} />
-      <div className="preview-stat-grid preview-primary-stats">
-        <Metric label="Distance" value={`${activity.distanceKm.toFixed(1)} km`} />
-        <Metric label="Time" value={formatDuration(activity.movingTimeSec)} />
-        <Metric label="Pace" value={formatPace(activityPaceSecPerKm(activity))} />
-        <Metric label="Heart rate" value={activity.averageHeartRate ? `${Math.round(activity.averageHeartRate)} bpm` : '-'} />
-      </div>
-      {planDay?.notes && planDay.notes.length > 0 && (
-        <section className="preview-plan-note" aria-label="Day note">
-          <header>
-            <span>Day note</span>
-            <small>{planDay.source === 'legacy-google-sheet' ? 'Imported from RUNMASTER' : 'Plan'}</small>
-          </header>
-          <p>{planDay.notes}</p>
-        </section>
+      </article>
+    </section>
+  );
+}
+
+function RunRead({ classification, session }: { classification: RunClassification; session: SessionLoad }) {
+  const tags = [classification.label, formatLoadSource(session.loadSource), ...session.flags].slice(0, 3);
+  return (
+    <section className={`activity-run-read tone-${classification.tone}`} aria-label="Run classification">
+      <header>
+        <span>Run read</span>
+        <strong>{runReadHeadline(classification.key)}</strong>
+      </header>
+      <p>{runReadCopy(classification.key, session)}</p>
+      <div>{tags.map((tag) => <span key={tag}>{tag}</span>)}</div>
+    </section>
+  );
+}
+
+function runReadHeadline(kind: RunKind): string {
+  switch (kind) {
+    case 'session': return 'Quality session';
+    case 'long': return 'Long aerobic load';
+    case 'steady': return 'Controlled aerobic';
+    case 'easy': return 'Easy aerobic';
+  }
+}
+
+function runReadCopy(kind: RunKind, session: SessionLoad): string {
+  const pacePct = Math.round(session.externalIntensityFactor * 100);
+  const hrRead = session.heartRateIntensityFactor
+    ? ` Average heart rate sat at ${Math.round(session.heartRateIntensityFactor * 100)}% of estimated threshold.`
+    : '';
+  switch (kind) {
+    case 'session':
+      return `This registered as quality work, with pace at ${pacePct}% of estimated threshold speed.${hrRead} The load model recorded ${session.load.toFixed(1)} stress from the available run evidence.`;
+    case 'long':
+      return `This registered as a long aerobic run: load reached ${session.load.toFixed(1)} without crossing a quality-work intensity threshold. Pace averaged ${pacePct}% of estimated threshold speed.${hrRead}`;
+    case 'steady':
+      return `This was controlled aerobic work. Pace averaged ${pacePct}% of estimated threshold speed and the session load was ${session.load.toFixed(1)}.${hrRead}`;
+    case 'easy':
+      return `This stayed in the easy aerobic range. Pace averaged ${pacePct}% of estimated threshold speed and the session load was ${session.load.toFixed(1)}.${hrRead}`;
+  }
+}
+
+function ActivityEffortStrip({ totals, loading }: { totals?: HrZoneTotal[]; loading: boolean }) {
+  const totalSeconds = totals?.reduce((total, item) => total + item.seconds, 0) ?? 0;
+  const activeTotals = totals?.filter((item) => item.seconds > 0) ?? [];
+  return (
+    <section className="activity-effort-strip" aria-label="Heart rate zone distribution">
+      <header>
+        <span>Where your effort landed</span>
+        <small>{totalSeconds > 0 ? formatDuration(totalSeconds) : loading ? 'Loading HR…' : 'No HR stream'}</small>
+      </header>
+      {totalSeconds > 0 ? (
+        <>
+          <div className="activity-effort-bar" aria-hidden="true">
+            {activeTotals.map((item) => (
+              <i
+                key={item.zone.key}
+                className={`tone-${item.zone.tone}`}
+                style={{ width: `${(item.seconds / totalSeconds) * 100}%` }}
+              />
+            ))}
+          </div>
+          <div className="activity-effort-legend">
+            {activeTotals.map((item) => (
+              <span key={item.zone.key} className={`tone-${item.zone.tone}`}>
+                <i aria-hidden="true" />
+                {item.zone.name} <strong>{Math.round((item.seconds / totalSeconds) * 100)}%</strong>
+              </span>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p>{loading ? 'Loading heart-rate stream.' : 'Heart-rate distribution is unavailable for this run.'}</p>
       )}
-      <RoutePreview detail={detail ?? session.activity} />
-      <details className="preview-advanced-detail">
-        <summary>Splits, zones and load analysis</summary>
-        <RunKindExplanation classification={runKind} />
-        <SplitsPreview detail={detail} />
-        <HrZoneBreakdown totals={hrZoneTotals} loading={loading} />
-        <LapSplitsTable splits={lapSplits} loading={loading} />
-        <div className="preview-stat-grid">
-          <Metric label="Session stress" value={session.load.toFixed(1)} />
-          <Metric label="External fallback" value={session.paceFallbackLoad.toFixed(1)} />
-          <Metric label="HR response" value={formatHrCostResidual(session.hrCostResidualBpm)} />
-          <Metric label="LPS" value={formatLydiardPowerStress(session)} />
-        </div>
-        <div className="preview-stat-grid">
-          <Metric label="Pace IF" value={session.externalIntensityFactor.toFixed(2)} />
-          <Metric label="Load source" value={formatLoadSource(session.loadSource)} />
-          <Metric label="W/bpm" value={session.powerHrRatio?.toFixed(2) ?? '-'} />
-          <Metric label="Split" value={split ? `${formatPace(split.first)} / ${formatPace(split.second)}` : formatDecoupling(activity.decouplingPct)} />
-        </div>
-        {session.flags.length > 0 && <div className="preview-flags">{session.flags.map((flag) => <span key={flag}>{flag}</span>)}</div>}
-      </details>
-    </div>
+    </section>
   );
 }
 
@@ -1021,58 +1330,24 @@ function ActivityNoteEditor({
   );
 }
 
-function RunKindExplanation({ classification }: { classification: RunClassification }) {
+function LapSplitsTable({
+  splits,
+  loading,
+  title,
+  sourceLabel,
+  showStrideDefinition = false,
+}: {
+  splits: ActivityLapView[];
+  loading: boolean;
+  title: string;
+  sourceLabel: string;
+  showStrideDefinition?: boolean;
+}) {
   return (
-    <section className={`preview-label-reasons tone-${classification.tone}`} aria-label={`Why this run is labelled ${classification.label}`}>
+    <section className="preview-lap-splits" aria-label={title}>
       <header>
-        <span>{classification.label}</span>
-        <strong>{classification.summary}</strong>
-      </header>
-      <ul>
-        {classification.reasons.map((reason) => (
-          <li key={reason}>{reason}</li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function HrZoneBreakdown({ totals, loading }: { totals?: HrZoneTotal[]; loading: boolean }) {
-  const totalSeconds = totals?.reduce((total, item) => total + item.seconds, 0) ?? 0;
-  return (
-    <section className="preview-zone-breakdown" aria-label="Heart rate zone time">
-      <header>
-        <span>HR zones</span>
-        <small>{totalSeconds > 0 ? formatDuration(totalSeconds) : loading ? 'loading' : 'no HR stream'}</small>
-      </header>
-      {totalSeconds > 0 && totals ? (
-        <div className="preview-zone-bars">
-          {totals.map((item) => {
-            const pct = totalSeconds > 0 ? (item.seconds / totalSeconds) * 100 : 0;
-            return (
-              <div key={item.zone.key} className={`preview-zone-row tone-${item.zone.tone}`}>
-                <span>{item.zone.label}</span>
-                <div className="zone-bar" aria-hidden="true">
-                  <i style={{ width: `${Math.max(2, pct)}%` }} />
-                </div>
-                <strong>{formatDuration(item.seconds)}</strong>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="split-placeholder compact">{loading ? 'Loading heart-rate stream.' : 'No heart-rate stream for this run.'}</div>
-      )}
-    </section>
-  );
-}
-
-function LapSplitsTable({ splits, loading }: { splits: LapSplit[]; loading: boolean }) {
-  return (
-    <section className="preview-lap-splits" aria-label="Lap splits">
-      <header>
-        <span>Splits</span>
-        <small>{splits.length > 0 ? '1 km laps' : loading ? 'loading' : 'distance stream unavailable'}</small>
+        <span>{title}</span>
+        <small>{splits.length > 0 ? sourceLabel : loading ? 'loading' : 'data unavailable'}</small>
       </header>
       {splits.length > 0 ? (
         <div className="lap-split-table-wrap">
@@ -1083,7 +1358,9 @@ function LapSplitsTable({ splits, loading }: { splits: LapSplit[]; loading: bool
                 <th>Dist</th>
                 <th>Time</th>
                 <th>Pace</th>
-                <th>HR</th>
+                <th>HR avg</th>
+                <th>HR max</th>
+                <th>Zone</th>
                 <th>W</th>
               </tr>
             </thead>
@@ -1095,6 +1372,8 @@ function LapSplitsTable({ splits, loading }: { splits: LapSplit[]; loading: bool
                   <td>{formatDuration(split.durationSec)}</td>
                   <td>{formatCompactPace(split.paceSecPerKm)}</td>
                   <td>{split.averageHeartRate ? Math.round(split.averageHeartRate) : '-'}</td>
+                  <td>{split.maxHeartRate ? Math.round(split.maxHeartRate) : '-'}</td>
+                  <td><span className={`lap-zone zone-${split.zone.key}`}>{split.zone.label}</span></td>
                   <td>{split.averagePower ? Math.round(split.averagePower) : '-'}</td>
                 </tr>
               ))}
@@ -1102,46 +1381,10 @@ function LapSplitsTable({ splits, loading }: { splits: LapSplit[]; loading: bool
           </table>
         </div>
       ) : (
-        <div className="split-placeholder compact">{loading ? 'Loading distance stream.' : 'No distance stream for lap splits.'}</div>
+        <div className="split-placeholder compact">{loading ? `Loading ${title.toLowerCase()}.` : `${title} are unavailable for this run.`}</div>
       )}
+      {showStrideDefinition && splits.length > 0 && <p className="lap-zone-definition">Strides are recorded laps under 200 m at a distinctly faster pace than the run average.</p>}
     </section>
-  );
-}
-
-function RoutePreview({ detail }: { detail: ActivityDetail | ActivitySummary }) {
-  const points = routePoints(detail);
-  const path = pointsToPath(points, 320, 154);
-  return (
-    <div className="route-preview" aria-hidden="true">
-      {path ? (
-        <svg viewBox="0 0 320 154" role="img">
-          <path d={path} />
-        </svg>
-      ) : (
-        <span>No route stream</span>
-      )}
-    </div>
-  );
-}
-
-function SplitsPreview({ detail }: { detail: ActivityDetail | null }) {
-  const path = paceStreamPath(detail, 320, 116);
-  const split = detail ? splitPaces(detail) : undefined;
-  return (
-    <div className="splits-preview" aria-label="Pace over time">
-      <div className="splits-head">
-        <span>Pace over time</span>
-        <small>{split ? `${formatPace(split.first)} / ${formatPace(split.second)}` : 'stream pending'}</small>
-      </div>
-      {path ? (
-        <svg viewBox="0 0 320 116" role="img">
-          <line x1="0" y1="58" x2="320" y2="58" />
-          <path d={path} />
-        </svg>
-      ) : (
-        <div className="split-placeholder">Click detail is loading or this run has no speed stream.</div>
-      )}
-    </div>
   );
 }
 
@@ -1192,20 +1435,14 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function scopeLoadModel(model: TrainingLoadModel, range: RangeKey, gymSessions: GymSession[]) {
-  const option = RANGE_OPTIONS.find((item) => item.key === range);
-  const latestMs = model.sessions[model.sessions.length - 1]
-    ? new Date(model.sessions[model.sessions.length - 1].activity.startDate).getTime()
-    : Date.now();
-  const fromMs = option?.months ? subtractMonths(latestMs, option.months) : -Infinity;
-  const sessionsAsc = model.sessions.filter((session) => new Date(session.activity.startDate).getTime() >= fromMs);
+function scopeLoadModel(model: TrainingLoadModel, gymSessions: GymSession[]) {
+  const sessionsAsc = model.sessions;
   const sessions = [...sessionsAsc].reverse();
   const weekIds = new Set(sessionsAsc.map((session) => session.weekId));
   const weeks = model.weeks.filter((week) => weekIds.has(week.weekId)).reverse();
-  const days = new Set(sessionsAsc.map((session) => session.day));
-  const daily = model.daily.filter((point) => new Date(`${point.day}T00:00:00Z`).getTime() >= fromMs || days.has(point.day));
+  const daily = model.daily;
   // Gym rides alongside runs: grouped by the same ISO week but never scored.
-  const gymInRange = gymSessions.filter((session) => new Date(session.startDate).getTime() >= fromMs);
+  const gymInRange = gymSessions;
   const gymByWeek = new Map<string, GymSession[]>();
   for (const session of gymInRange) {
     const weekId = toWeekIdUtc(session.startDate);
@@ -1226,6 +1463,15 @@ function scopeLoadModel(model: TrainingLoadModel, range: RangeKey, gymSessions: 
       entriesById.set(weekId, { weekId, gym });
     }
   }
+  const occupiedWeekIds = [...entriesById.keys()].sort();
+  if (occupiedWeekIds.length > 0) {
+    const oldestWeekMs = new Date(`${occupiedWeekIds[0]}T00:00:00Z`).getTime();
+    const newestWeekMs = new Date(`${occupiedWeekIds[occupiedWeekIds.length - 1]}T00:00:00Z`).getTime();
+    for (let weekMs = oldestWeekMs; weekMs <= newestWeekMs; weekMs += 7 * DAY_MS) {
+      const weekId = new Date(weekMs).toISOString().slice(0, 10);
+      if (!entriesById.has(weekId)) entriesById.set(weekId, { weekId, gym: [] });
+    }
+  }
   const weekEntries = [...entriesById.values()].sort((a, b) => b.weekId.localeCompare(a.weekId));
 
   return {
@@ -1233,24 +1479,25 @@ function scopeLoadModel(model: TrainingLoadModel, range: RangeKey, gymSessions: 
     weeks,
     weekEntries,
     daily,
-    months: buildMonthNav(sessions),
+    months: buildMonthNav(sessions, weekEntries),
     distanceKm: sessions.reduce((total, session) => total + session.activity.distanceKm, 0),
+    durationSec: sessions.reduce((total, session) => total + session.activity.movingTimeSec, 0),
     gymCount: gymInRange.length,
   };
 }
 
-function buildMonthNav(sessions: SessionLoad[]) {
-  const months = new Map<string, { id: string; label: string; count: number }>();
+function buildMonthNav(sessions: SessionLoad[], weekEntries: WeekEntry[]) {
+  const runCountByMonth = new Map<string, number>();
   for (const session of sessions) {
     const id = session.day.slice(0, 7);
-    const existing = months.get(id);
-    if (existing) {
-      existing.count += 1;
-    } else {
-      months.set(id, { id, label: formatMonthLabel(session.day), count: 1 });
-    }
+    runCountByMonth.set(id, (runCountByMonth.get(id) ?? 0) + 1);
   }
-  return [...months.values()];
+  const monthIds = new Set(weekEntries.map((entry) => monthIdFromEntry(entry)));
+  return [...monthIds].map((id) => ({
+    id,
+    label: formatMonthLabel(`${id}-01`),
+    count: runCountByMonth.get(id) ?? 0,
+  }));
 }
 
 function monthIdFromEntry(entry: WeekEntry): string {
@@ -1614,15 +1861,7 @@ function classifyRun(session: SessionLoad): RunClassification {
   }
 
   if (sessionReasons.length > 0) {
-    const summary =
-      paceIf >= 0.85
-        ? `Pace IF ${paceIf.toFixed(2)} >= 0.85`
-        : (hrIf ?? 0) >= 0.92
-          ? `HR IF ${formatOptionalIf(hrIf)} >= 0.92`
-          : (powerIf ?? 0) >= 0.88
-            ? `Power IF ${formatOptionalIf(powerIf)} >= 0.88`
-            : 'Quality-load flag';
-    return { key: 'session', label: 'Session', tone: 'danger', summary, reasons: sessionReasons };
+    return { key: 'session', label: 'Session', tone: 'danger', reasons: sessionReasons };
   }
 
   if (session.load >= 70) {
@@ -1630,7 +1869,6 @@ function classifyRun(session: SessionLoad): RunClassification {
       key: 'long',
       label: 'Long easy',
       tone: 'hard',
-      summary: `Load ${session.load.toFixed(1)} >= 70`,
       reasons: [
         `Session load ${session.load.toFixed(1)} is >= 70, which marks a long aerobic stress day.`,
         `No session threshold was crossed: pace IF ${paceIf.toFixed(2)}, HR IF ${formatOptionalIf(hrIf)}, power IF ${formatOptionalIf(powerIf)}.`,
@@ -1643,7 +1881,6 @@ function classifyRun(session: SessionLoad): RunClassification {
       key: 'steady',
       label: 'Steady',
       tone: 'moderate',
-      summary: `Pace IF ${paceIf.toFixed(2)} in steady band`,
       reasons: [
         `Pace IF ${paceIf.toFixed(2)} is between 0.76 and 0.84, the steady training band.`,
         `Session load ${session.load.toFixed(1)} is below 70, so this is not labelled as a long run.`,
@@ -1655,7 +1892,6 @@ function classifyRun(session: SessionLoad): RunClassification {
     key: 'easy',
     label: 'Easy',
     tone: 'easy',
-    summary: `Pace IF ${paceIf.toFixed(2)} < 0.76`,
     reasons: [
       `Pace IF ${paceIf.toFixed(2)} is below 0.76, the steady threshold.`,
       `No HR, power, or combined-load flag crossed the session thresholds.`,
@@ -1696,74 +1932,6 @@ function formatLydiardPowerStress(session: SessionLoad): string {
 
 function formatLoadSource(source: string): string {
   return source.replaceAll('_', ' ').replaceAll('-', ' ');
-}
-
-function routePoints(detail: ActivityDetail | ActivitySummary): Array<[number, number]> {
-  if ('streams' in detail && detail.streams?.latlng?.length) {
-    return detail.streams.latlng;
-  }
-  if (detail.summaryPolyline) {
-    return decodePolyline(detail.summaryPolyline).map(([lng, lat]) => [lat, lng]);
-  }
-  return [];
-}
-
-function pointsToPath(points: Array<[number, number]>, width: number, height: number): string {
-  if (points.length < 2) {
-    return '';
-  }
-  const latitudes = points.map(([lat]) => lat);
-  const longitudes = points.map(([, lng]) => lng);
-  const minLat = Math.min(...latitudes);
-  const maxLat = Math.max(...latitudes);
-  const minLng = Math.min(...longitudes);
-  const maxLng = Math.max(...longitudes);
-  const pad = 14;
-  const usableWidth = width - pad * 2;
-  const usableHeight = height - pad * 2;
-  return points
-    .map(([lat, lng], index) => {
-      const x = pad + ((lng - minLng) / Math.max(maxLng - minLng, 0.000001)) * usableWidth;
-      const y = pad + ((maxLat - lat) / Math.max(maxLat - minLat, 0.000001)) * usableHeight;
-      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
-    })
-    .join(' ');
-}
-
-function paceStreamPath(detail: ActivityDetail | null, width: number, height: number): string {
-  const time = detail?.streams?.timeSec;
-  const velocity = detail?.streams?.velocity;
-  if (!time || !velocity) {
-    return '';
-  }
-  const n = Math.min(time.length, velocity.length);
-  const points: Array<[number, number]> = [];
-  for (let index = 0; index < n; index += 1) {
-    const pace = velocity[index] > 0 ? 1000 / velocity[index] : 0;
-    if (Number.isFinite(pace) && pace >= 140 && pace <= 720) {
-      points.push([time[index], pace]);
-    }
-  }
-  if (points.length < 2) {
-    return '';
-  }
-  const stride = Math.max(1, Math.ceil(points.length / 180));
-  const sampled = points.filter((_, index) => index % stride === 0 || index === points.length - 1);
-  const minTime = sampled[0][0];
-  const maxTime = sampled[sampled.length - 1][0];
-  const paces = sampled.map(([, pace]) => pace);
-  const fast = percentile(paces, 0.08) ?? Math.min(...paces);
-  const slow = percentile(paces, 0.92) ?? Math.max(...paces);
-  const pad = 10;
-  const usableWidth = width - pad * 2;
-  const usableHeight = height - pad * 2;
-  return sampled
-    .map(([seconds, pace], index) => {
-      const x = pad + ((seconds - minTime) / Math.max(maxTime - minTime, 1)) * usableWidth;
-      const y = pad + ((pace - fast) / Math.max(slow - fast, 1)) * usableHeight;
-      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
-    })
-    .join(' ');
 }
 
 function splitPaces(detail: ActivityDetail): { first: number; second: number } | undefined {
@@ -1827,134 +1995,8 @@ function isHeartRateInZone(value: number, zone: TrainingZone): boolean {
   return aboveMin && belowMax;
 }
 
-function buildLapSplits(detail: ActivityDetail): LapSplit[] {
-  const time = detail.streams?.timeSec;
-  const distance = detail.streams?.distanceM;
-  if (!time || !distance) {
-    return [];
-  }
-  const n = Math.min(time.length, distance.length);
-  if (n < 3) {
-    return [];
-  }
-  const startDistance = firstFinite(distance);
-  const endDistance = lastFinite(distance);
-  if (startDistance === undefined || endDistance === undefined || endDistance <= startDistance) {
-    return [];
-  }
-  const streamDistanceM = endDistance - startDistance;
-  const totalDistanceM = streamDistanceM;
-  if (totalDistanceM < 200) {
-    return [];
-  }
-
-  const boundaries = [0];
-  for (let marker = 1000; marker < totalDistanceM - 50; marker += 1000) {
-    boundaries.push(marker);
-  }
-  boundaries.push(totalDistanceM);
-
-  const splits: LapSplit[] = [];
-  for (let index = 1; index < boundaries.length; index += 1) {
-    const startM = boundaries[index - 1];
-    const endM = boundaries[index];
-    const startTime = timeAtDistance(time, distance, startDistance + startM);
-    const endTime = timeAtDistance(time, distance, startDistance + endM);
-    if (startTime === undefined || endTime === undefined || endTime <= startTime) {
-      continue;
-    }
-    const distanceKm = (endM - startM) / 1000;
-    const durationSec = endTime - startTime;
-    if (distanceKm <= 0 || durationSec <= 0) {
-      continue;
-    }
-    splits.push({
-      label: String(index),
-      distanceKm,
-      durationSec,
-      paceSecPerKm: durationSec / distanceKm,
-      averageHeartRate: weightedAverageStream(time, detail.streams?.heartrate, startTime, endTime, isUsefulPreviewHeartRate),
-      averagePower: weightedAverageStream(time, detail.streams?.power, startTime, endTime, isUsefulPower),
-    });
-  }
-  return splits;
-}
-
-function timeAtDistance(time: number[], distance: number[], targetM: number): number | undefined {
-  const n = Math.min(time.length, distance.length);
-  if (n === 0) {
-    return undefined;
-  }
-  if (targetM <= distance[0]) {
-    return time[0];
-  }
-  for (let index = 1; index < n; index += 1) {
-    const prevDistance = distance[index - 1];
-    const nextDistance = distance[index];
-    const prevTime = time[index - 1];
-    const nextTime = time[index];
-    if (
-      !Number.isFinite(prevDistance) ||
-      !Number.isFinite(nextDistance) ||
-      !Number.isFinite(prevTime) ||
-      !Number.isFinite(nextTime)
-    ) {
-      continue;
-    }
-    if (nextDistance >= targetM) {
-      const ratio = nextDistance === prevDistance ? 0 : (targetM - prevDistance) / (nextDistance - prevDistance);
-      return prevTime + (nextTime - prevTime) * Math.min(1, Math.max(0, ratio));
-    }
-  }
-  return time[n - 1];
-}
-
-function weightedAverageStream(
-  time: number[],
-  values: number[] | undefined,
-  startTime: number,
-  endTime: number,
-  isUseful: (value: number) => boolean,
-): number | undefined {
-  if (!values) {
-    return undefined;
-  }
-  const n = Math.min(time.length, values.length);
-  let weighted = 0;
-  let duration = 0;
-  for (let index = 1; index < n; index += 1) {
-    const segmentStart = Math.max(startTime, time[index - 1]);
-    const segmentEnd = Math.min(endTime, time[index]);
-    const dt = segmentEnd - segmentStart;
-    const value = values[index - 1];
-    if (!Number.isFinite(dt) || dt <= 0 || !isUseful(value)) {
-      continue;
-    }
-    weighted += value * dt;
-    duration += dt;
-  }
-  return duration > 0 ? weighted / duration : undefined;
-}
-
-function firstFinite(values: number[]): number | undefined {
-  return values.find((value) => Number.isFinite(value));
-}
-
-function lastFinite(values: number[]): number | undefined {
-  for (let index = values.length - 1; index >= 0; index -= 1) {
-    if (Number.isFinite(values[index])) {
-      return values[index];
-    }
-  }
-  return undefined;
-}
-
 function isUsefulPreviewHeartRate(value: number): boolean {
   return Number.isFinite(value) && value >= 80 && value <= 220;
-}
-
-function isUsefulPower(value: number): boolean {
-  return Number.isFinite(value) && value > 0 && value < 1200;
 }
 
 function subtractMonths(anchorMs: number, months: number): number {
@@ -1969,6 +2011,10 @@ function formatRunDate(iso: string): string {
 
 function formatRunTime(iso: string): string {
   return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+}
+
+function notePreview(note: string): string {
+  return note.length > 100 ? `${note.slice(0, 100)}…` : note;
 }
 
 function formatCompactPace(totalSeconds: number): string {
@@ -2009,6 +2055,17 @@ function formatDuration(totalSeconds: number): string {
     return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   }
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatLifetimeDuration(totalSeconds: number): string {
+  const totalHours = Math.round(totalSeconds / 3600);
+  if (totalHours < 1000) return `${totalHours.toLocaleString()}h`;
+  return `${(totalHours / 1000).toFixed(totalHours >= 10_000 ? 0 : 1)}k h`;
+}
+
+function formatHoursMinutes(hours: number): string {
+  const minutes = Math.round(hours * 60);
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
 }
 
 function formatDecoupling(value?: number): string {

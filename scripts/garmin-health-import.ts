@@ -1,6 +1,6 @@
 import polyline from '@mapbox/polyline';
 import { normalizeStreams, simplifyLatLng } from '../worker/streams';
-import type { ActivityStreams, ActivitySummary } from '../src/types';
+import type { ActivityLap, ActivityStreams, ActivitySummary } from '../src/types';
 import { sqliteJson } from './lib/sqlite';
 
 interface GarminActivityRow {
@@ -42,6 +42,18 @@ interface MetricRow {
   altitude: number | null;
   distance_m: number | null;
   power: number | null;
+}
+
+interface LapMetricRow {
+  lap_idx: number;
+  distance_m: number | null;
+  duration_sec: number | null;
+  elapsed_sec: number | null;
+  average_hr: number | null;
+  max_hr: number | null;
+  average_power: number | null;
+  max_power: number | null;
+  average_speed_mps: number | null;
 }
 
 interface IngestActivity {
@@ -153,7 +165,11 @@ const stats = {
 let batch: IngestActivity[] = [];
 let sentAnyBatch = false;
 for (const [index, row] of candidates.entries()) {
-  const streams = await loadStreams(row.activity_id);
+  let streams = await loadStreams(row.activity_id);
+  const laps = await loadLaps(row.activity_id);
+  if (laps.length > 0) {
+    streams = { ...streams, laps };
+  }
   const activity = toIngestActivity(row, streams);
   recordActivityStats(activity);
   batch.push(activity);
@@ -292,7 +308,7 @@ function recordActivityStats(activity: IngestActivity): void {
   stats.activities += 1;
   stats.withHr += activity.summary.averageHeartRate ? 1 : 0;
   stats.withPower += activity.summary.averageWatts ? 1 : 0;
-  stats.withStreams += activity.streams?.timeSec?.length ? 1 : 0;
+  stats.withStreams += activity.streams?.timeSec?.length || activity.streams?.laps?.length ? 1 : 0;
   stats.first ??= activity.summary.startDateLocal;
   stats.last = activity.summary.startDateLocal;
 }
@@ -347,6 +363,50 @@ async function loadStreams(activityId: number): Promise<ActivityStreams | undefi
   });
 }
 
+async function loadLaps(activityId: number): Promise<ActivityLap[]> {
+  const rows = await sqliteJson<LapMetricRow>(
+    dbPath,
+    `
+    SELECT
+      lap_idx,
+      MAX(CASE WHEN name = 'total_distance' THEN value END) AS distance_m,
+      MAX(CASE WHEN name = 'total_timer_time' THEN value END) AS duration_sec,
+      MAX(CASE WHEN name = 'total_elapsed_time' THEN value END) AS elapsed_sec,
+      MAX(CASE WHEN name = 'avg_heart_rate' THEN value END) AS average_hr,
+      MAX(CASE WHEN name = 'max_heart_rate' THEN value END) AS max_hr,
+      COALESCE(
+        MAX(CASE WHEN name = 'Lap Power' THEN value END),
+        MAX(CASE WHEN name = 'avg_power' THEN value END)
+      ) AS average_power,
+      MAX(CASE WHEN name = 'max_power' THEN value END) AS max_power,
+      COALESCE(
+        MAX(CASE WHEN name = 'enhanced_avg_speed' THEN value END),
+        MAX(CASE WHEN name = 'avg_speed' THEN value END)
+      ) AS average_speed_mps
+    FROM activity_lap_metric
+    WHERE activity_id = ${activityId}
+    GROUP BY lap_idx
+    ORDER BY lap_idx ASC
+    `,
+  );
+  return rows.flatMap((row) => {
+    const distanceM = positiveNumber(row.distance_m);
+    const durationSec = positiveNumber(row.duration_sec);
+    if (!distanceM || !durationSec) return [];
+    return [{
+      index: positiveInteger(row.lap_idx) ?? 1,
+      distanceM,
+      durationSec,
+      elapsedSec: positiveNumber(row.elapsed_sec),
+      averageHeartRate: usefulHr(row.average_hr),
+      maxHeartRate: usefulHr(row.max_hr),
+      averagePower: positiveNumber(row.average_power),
+      maxPower: positiveNumber(row.max_power),
+      averageSpeedMps: positiveNumber(row.average_speed_mps),
+    }];
+  });
+}
+
 function toIngestActivity(row: GarminActivityRow, streams?: ActivityStreams): IngestActivity {
   const path = parsePath(row.path_json);
   const summaryPath = simplifyLatLng(path.length > 1 ? path : streams?.latlng, 0.00003, 800);
@@ -379,7 +439,7 @@ function toIngestActivity(row: GarminActivityRow, streams?: ActivityStreams): In
     endLat: finiteNumber(row.end_latitude) ?? summaryPath?.[summaryPath.length - 1]?.[0],
     endLng: finiteNumber(row.end_longitude) ?? summaryPath?.[summaryPath.length - 1]?.[1],
     summaryPolyline: summaryPath && summaryPath.length > 1 ? polyline.encode(summaryPath) : undefined,
-    hasStreams: Boolean(streams?.timeSec?.length || streams?.latlng?.length),
+    hasStreams: Boolean(streams?.timeSec?.length || streams?.latlng?.length || streams?.laps?.length),
   };
 
   return { summary, streams };

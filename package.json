@@ -12,6 +12,7 @@
     "d1:migrate": "wrangler d1 migrations apply lydiard --remote",
     "garmin:audit": "tsx scripts/garmin-health-audit.ts",
     "garmin:import-db": "tsx scripts/garmin-health-import.ts",
+    "garmin:backfill-laps": "tsx scripts/garmin-laps-backfill.ts",
     "garmin:import-gym": "tsx scripts/garmin-gym-import.ts",
     "plan:import": "tsx scripts/import-plan-csv.ts",
     "garmin:sync": "npm run garmin:import-db",

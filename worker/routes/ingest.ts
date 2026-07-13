@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { ActivityStreams, ActivitySummary, GymSession } from '../../src/types';
+import type { ActivityLap, ActivityStreams, ActivitySummary, GymSession } from '../../src/types';
 import type { Env } from '../env';
 import {
   getActivitiesByLocalDateRange,
@@ -10,6 +10,7 @@ import {
   saveStreams,
   updateSyncState,
   replaceGymSessions,
+  saveActivityLaps,
   upsertGymSessions,
   type TrainingPlanImportInput,
 } from '../db';
@@ -33,6 +34,13 @@ interface GymIngestPayload {
   source?: string;
   replace?: boolean;
   sessions?: GymSession[];
+}
+
+interface LapIngestPayload {
+  activities?: Array<{
+    activityId: string;
+    laps: ActivityLap[];
+  }>;
 }
 
 interface PlanIngestPayload {
@@ -129,6 +137,35 @@ export function ingestRoutes(): Hono<{ Bindings: Env }> {
     }
 
     return c.json({ ok: true, ...result });
+  });
+
+  // Historical device laps can be backfilled without replacing summaries or
+  // high-resolution streams. The activity must already exist (enforced by D1).
+  app.post('/laps', async (c) => {
+    let payload: LapIngestPayload;
+    try {
+      payload = (await c.req.json()) as LapIngestPayload;
+    } catch {
+      return c.json({ error: 'Request body must be JSON.' }, 400);
+    }
+
+    const activities = payload.activities ?? [];
+    if (activities.length === 0 || activities.length > 100) {
+      return c.json({ error: 'Provide between 1 and 100 activities.' }, 400);
+    }
+    for (const activity of activities) {
+      if (!activity.activityId?.trim()) return c.json({ error: 'Every activity requires an activityId.' }, 400);
+      if (!Array.isArray(activity.laps) || activity.laps.length === 0 || activity.laps.length > 500) {
+        return c.json({ error: `${activity.activityId} must contain between 1 and 500 laps.` }, 400);
+      }
+      const invalidLap = activity.laps.find((lap) => !validActivityLap(lap));
+      if (invalidLap) return c.json({ error: `${activity.activityId} contains an invalid lap.` }, 400);
+    }
+
+    for (const activity of activities) {
+      await saveActivityLaps(c.env.lydiard, activity.activityId, activity.laps);
+    }
+    return c.json({ ok: true, activitiesUpdated: activities.length, finishedAt: new Date().toISOString() });
   });
 
   // Gym / strength sessions live in a separate table and never touch the run
@@ -304,6 +341,17 @@ export function ingestRoutes(): Hono<{ Bindings: Env }> {
   });
 
   return app;
+}
+
+function validActivityLap(lap: ActivityLap): boolean {
+  if (!lap || !Number.isInteger(lap.index) || lap.index < 1) return false;
+  if (!finiteInRange(lap.distanceM, 0, 1_000_000) || !finiteInRange(lap.durationSec, 0, 604_800)) return false;
+  return [lap.elapsedSec, lap.averageHeartRate, lap.maxHeartRate, lap.averagePower, lap.maxPower, lap.averageSpeedMps]
+    .every((value) => value === undefined || (Number.isFinite(value) && value >= 0));
+}
+
+function finiteInRange(value: number, minExclusive: number, maxInclusive: number): boolean {
+  return Number.isFinite(value) && value > minExclusive && value <= maxInclusive;
 }
 
 function validateGymSession(session: GymSession | undefined): string | null {

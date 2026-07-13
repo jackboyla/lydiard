@@ -27,7 +27,8 @@ import {
 } from './analysis/loadModel';
 import { CoachPanel } from './components/CoachPanel';
 import { PlanView } from './components/PlanView';
-import { TrainingView, type TrainingJumpApi } from './components/TrainingView';
+import { ProgressZoneBreakdown } from './components/ProgressZoneBreakdown';
+import { TrainingView, TrainingZoneSummary, type TrainingJumpApi } from './components/TrainingView';
 import {
   getActivities,
   getActivity,
@@ -42,6 +43,7 @@ import {
   setSiteKey,
   savePlanDay,
   saveActivityNote,
+  setBestEffortRejection,
   saveCoachPhase,
   addCoachCriticalPower,
   proposeCoachBlock,
@@ -77,6 +79,15 @@ type RangePreset = '4w' | '12w' | '6mo' | '1y' | 'all';
 type ViewMode = 'log' | 'progress' | 'plan';
 type LogMode = 'list' | 'map';
 type BestEffortScope = 'all' | 'season';
+type ProgressRange = '1m' | '3m' | '6m' | '12m' | 'all';
+
+const PROGRESS_RANGES: Array<{ key: ProgressRange; label: string; months?: number }> = [
+  { key: '1m', label: '1m', months: 1 },
+  { key: '3m', label: '3m', months: 3 },
+  { key: '6m', label: '6m', months: 6 },
+  { key: '12m', label: '12m', months: 12 },
+  { key: 'all', label: 'All' },
+];
 
 const RANGE_DAYS: Record<RangePreset, number> = {
   '4w': 28,
@@ -130,6 +141,7 @@ export default function App() {
   const [bestEffortGroups, setBestEffortGroups] = useState<BestEffortDistance[]>([]);
   const [bestEffortsLoading, setBestEffortsLoading] = useState(false);
   const [bestEffortsError, setBestEffortsError] = useState('');
+  const [bestEffortsRefresh, setBestEffortsRefresh] = useState(0);
   const [banner, setBanner] = useState('');
   const [loadError, setLoadError] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -238,6 +250,24 @@ export default function App() {
     setMenuOpen(false);
     window.history.pushState(null, '', appUrl('log', { mode: 'map' }));
   }, [confirmPlanNavigation]);
+
+  const rejectBestEffort = useCallback(async (distanceLabel: string, effort: BestEffortEntry, reason: string) => {
+    await setBestEffortRejection({
+      distanceLabel,
+      activityId: effort.activityId,
+      rejected: true,
+      reason,
+    });
+    setBestEffortGroups((groups) => groups.map((group) => group.label === distanceLabel
+      ? {
+          ...group,
+          efforts: group.efforts
+            .filter((candidate) => candidate.activityId !== effort.activityId)
+            .map((candidate, index) => ({ ...candidate, rank: index + 1 })),
+        }
+      : group));
+    setBestEffortsRefresh((value) => value + 1);
+  }, []);
 
   const handleSaveActivityNote = useCallback(async (activityId: string, note: string) => {
     const saved = await saveActivityNote(activityId, note);
@@ -357,6 +387,20 @@ export default function App() {
     [],
   );
 
+  const handleSaveLogDayNote = useCallback(
+    async (date: string, note: string, expectedUpdatedAt: string | null) => {
+      // A very fast edit can beat the initial Log note fetch. Resolve only the
+      // missing token before saving; subsequent edits keep normal conflict checks.
+      let token = expectedUpdatedAt;
+      if (token === null) {
+        const [existing] = await getPlanDays({ from: date, to: date });
+        token = existing?.updatedAt ?? null;
+      }
+      return handleSavePlanDay(date, { notes: note, expectedUpdatedAt: token });
+    },
+    [handleSavePlanDay],
+  );
+
   const handleReloadPlanDay = useCallback(async (date: string) => {
     const [fresh] = await getPlanDays({ from: date, to: date });
     setPlanDays((current) => {
@@ -416,9 +460,8 @@ export default function App() {
       setSiteKey(value.trim());
       setNeedsPassword(false);
       await loadData();
-      if (view === 'plan') {
-        await Promise.all([loadPlanData(), loadCoachData()]);
-      }
+      if (view === 'plan') await Promise.all([loadPlanData(), loadCoachData()]);
+      if (view === 'progress') await loadCoachData();
     },
     [loadCoachData, loadData, loadPlanData, view],
   );
@@ -434,8 +477,15 @@ export default function App() {
     if (view === 'plan') {
       void loadPlanData();
       void loadCoachData();
+    } else if (view === 'progress') {
+      void loadCoachData();
+      if (activities.length > 0) void loadAllActivities();
+    } else if (view === 'log') {
+      // Day notes belong to the diary as well as the Plan editor. Loading them
+      // here also supplies the optimistic-concurrency token for rest-day edits.
+      void loadPlanData();
     }
-  }, [view, loadCoachData, loadPlanData]);
+  }, [activities.length, view, loadAllActivities, loadCoachData, loadPlanData]);
 
   useEffect(() => {
     if (view === 'log' && activityFocus && activities.length > 0 && !activities.some((activity) => activity.id === activityFocus.id)) {
@@ -494,7 +544,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [activities.length, bestEffortFrom, view]);
+  }, [activities.length, bestEffortFrom, bestEffortsRefresh, view]);
 
   useEffect(() => {
     setSelectedIndex(Math.max(0, analyses.length - 1));
@@ -788,10 +838,12 @@ export default function App() {
           bestEffortScope={bestEffortScope}
           onBestEffortScopeChange={setBestEffortScope}
           onOpenActivity={openActivityInLog}
+          onRejectBestEffort={rejectBestEffort}
           metric={metric}
           selectedIndex={safeSelectedIndex}
           onMetricChange={setMetric}
           onWeekSelect={setSelectedIndex}
+          physiology={coachContext?.physiology}
         />
       ) : logMode === 'map' ? (
         <main className="map-stage">
@@ -857,7 +909,9 @@ export default function App() {
           onJumpApi={setTrainingJump}
           activityFocus={activityFocus}
           onSaveActivityNote={handleSaveActivityNote}
+          onSaveDayNote={handleSaveLogDayNote}
           onRequestFullHistory={loadAllActivities}
+          allHistoryLoaded={allActivitiesLoaded}
         />
       )}
 
@@ -925,10 +979,12 @@ function ProgressView({
   bestEffortScope,
   onBestEffortScopeChange,
   onOpenActivity,
+  onRejectBestEffort,
   metric,
   selectedIndex,
   onMetricChange,
   onWeekSelect,
+  physiology,
 }: {
   loadModel: TrainingLoadModel;
   analyses: WeeklyAnalysis[];
@@ -940,18 +996,28 @@ function ProgressView({
   bestEffortScope: BestEffortScope;
   onBestEffortScopeChange: (scope: BestEffortScope) => void;
   onOpenActivity: (activityId: string) => void;
+  onRejectBestEffort?: (distanceLabel: string, effort: BestEffortEntry, reason: string) => Promise<void>;
   metric: TrendMetricKey;
   selectedIndex: number;
   onMetricChange: (metric: TrendMetricKey) => void;
   onWeekSelect: (index: number) => void;
+  physiology?: PhysiologyEstimate;
 }) {
   const [loadMetric, setLoadMetric] = useState<'time' | 'distance'>('time');
   const [activeWeekId, setActiveWeekId] = useState<string | null>(null);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [progressRange, setProgressRange] = useState<ProgressRange>('3m');
   const latestWeek = lastItem(loadModel.weeks);
   const recentWeeks = loadModel.weeks.slice(-12);
   const maxValue = Math.max(1, ...recentWeeks.map((week) => homeLoadMetricValue(week, loadMetric)));
   const activeWeek = recentWeeks.find((week) => week.weekId === activeWeekId) ?? latestWeek;
+  const scopedProgress = useMemo(
+    () => scopeProgressData(loadModel, analyses, progressRange),
+    [analyses, loadModel, progressRange],
+  );
+  const scopedSelectedIndex = Math.max(0, Math.min(
+    selectedIndex - scopedProgress.analysisOffset,
+    scopedProgress.analyses.length - 1,
+  ));
 
   return (
     <main className="product-page progress-view">
@@ -1007,6 +1073,46 @@ function ProgressView({
         {activeWeek && <p>{activeWeek.label} · {activeWeek.activityCount} runs · {activeWeek.distanceKm.toFixed(1)} km</p>}
       </section>
 
+      <section className="progress-zones-section" aria-labelledby="progress-zones-heading">
+        <div className="progress-section-heading">
+          <div><span>Training zones</span><h2 id="progress-zones-heading">Your current intensity guide</h2></div>
+        </div>
+        <TrainingZoneSummary loadModel={loadModel} physiology={physiology} />
+      </section>
+
+      <section className="progress-analysis-section" aria-labelledby="progress-analysis-heading">
+        <div className="progress-section-heading">
+          <div>
+            <span>Trends</span>
+            <h2 id="progress-analysis-heading">Your training over time</h2>
+          </div>
+          <div className="segmented progress-range-control" role="group" aria-label="Progress chart range">
+            {PROGRESS_RANGES.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                className={progressRange === option.key ? 'active' : ''}
+                aria-pressed={progressRange === option.key}
+                onClick={() => setProgressRange(option.key)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <ProgressZoneBreakdown loadModel={scopedProgress.loadModel} />
+        <Suspense fallback={<div className="surface-loading">Loading charts…</div>}>
+          <LazyAdvancedAnalysis
+            loadModel={scopedProgress.loadModel}
+            analyses={scopedProgress.analyses}
+            metric={metric}
+            selectedIndex={scopedSelectedIndex}
+            onMetricChange={onMetricChange}
+            onWeekSelect={(index) => onWeekSelect(index + scopedProgress.analysisOffset)}
+          />
+        </Suspense>
+      </section>
+
       <section className="product-card performance-profile-panel progress-bests-panel">
         <header>
           <div><span>Personal bests</span><small>{bestEffortWindowLabel}</small></div>
@@ -1020,24 +1126,9 @@ function ProgressView({
           loading={bestEffortsLoading}
           error={bestEffortsError}
           onOpenActivity={onOpenActivity}
+          onRejectBestEffort={onRejectBestEffort}
         />
       </section>
-
-      <details className="progress-advanced-analysis" onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
-        <summary>Advanced analysis</summary>
-        {advancedOpen && (
-          <Suspense fallback={<div className="surface-loading">Loading advanced charts…</div>}>
-            <LazyAdvancedAnalysis
-              loadModel={loadModel}
-              analyses={analyses}
-              metric={metric}
-              selectedIndex={selectedIndex}
-              onMetricChange={onMetricChange}
-              onWeekSelect={onWeekSelect}
-            />
-          </Suspense>
-        )}
-      </details>
     </main>
   );
 }
@@ -1050,6 +1141,37 @@ function filterActivitiesByRange(activities: ActivitySummary[], range: RangePres
   const anchor = Math.max(...activities.map((activity) => new Date(activity.startDate).getTime()));
   const fromMs = anchor - days * 86400000;
   return activities.filter((activity) => new Date(activity.startDate).getTime() >= fromMs);
+}
+
+function scopeProgressData(
+  loadModel: TrainingLoadModel,
+  analyses: WeeklyAnalysis[],
+  range: ProgressRange,
+): { loadModel: TrainingLoadModel; analyses: WeeklyAnalysis[]; analysisOffset: number } {
+  const option = PROGRESS_RANGES.find((item) => item.key === range);
+  if (!option?.months) return { loadModel, analyses, analysisOffset: 0 };
+  const anchor = loadModel.sessions[loadModel.sessions.length - 1]?.activity.startDate
+    ?? `${analyses[analyses.length - 1]?.week.weekStart ?? new Date().toISOString().slice(0, 10)}T00:00:00Z`;
+  const from = new Date(anchor);
+  from.setUTCMonth(from.getUTCMonth() - option.months);
+  const fromMs = from.getTime();
+  const sessions = loadModel.sessions.filter((session) => new Date(session.activity.startDate).getTime() >= fromMs);
+  const daily = loadModel.daily.filter((point) => new Date(`${point.day}T00:00:00Z`).getTime() >= fromMs);
+  const weeks = loadModel.weeks.filter((week) => new Date(`${week.weekId}T00:00:00Z`).getTime() >= fromMs);
+  const scopedAnalyses = analyses.filter((analysis) => new Date(`${analysis.week.weekStart}T00:00:00Z`).getTime() >= fromMs);
+  return {
+    loadModel: {
+      ...loadModel,
+      sessions,
+      sessionsById: new Map(sessions.map((session) => [session.activity.id, session])),
+      daily,
+      dailyByDay: new Map(daily.map((point) => [point.day, point])),
+      weeks,
+      weeksById: new Map(weeks.map((week) => [week.weekId, week])),
+    },
+    analyses: scopedAnalyses,
+    analysisOffset: analyses.length - scopedAnalyses.length,
+  };
 }
 
 function formatRelative(iso: string | null): string {
@@ -1310,11 +1432,13 @@ function BestEffortsPanel({
   loading,
   error,
   onOpenActivity,
+  onRejectBestEffort,
 }: {
   groups: BestEffortDistance[];
   loading: boolean;
   error: string;
   onOpenActivity: (activityId: string) => void;
+  onRejectBestEffort?: (distanceLabel: string, effort: BestEffortEntry, reason: string) => Promise<void>;
 }) {
   if (loading && groups.length === 0) {
     return <p className="product-empty-note">Calculating fastest stream-backed segments...</p>;
@@ -1337,7 +1461,12 @@ function BestEffortsPanel({
             <ol>
               {group.efforts.slice(0, 3).map((effort) => (
                 <li key={`${group.label}-${effort.activityId}`}>
-                  <BestEffortButton effort={effort} onOpenActivity={onOpenActivity} />
+                  <BestEffortButton
+                    distanceLabel={group.label}
+                    effort={effort}
+                    onOpenActivity={onOpenActivity}
+                    onReject={onRejectBestEffort}
+                  />
                 </li>
               ))}
             </ol>
@@ -1351,22 +1480,62 @@ function BestEffortsPanel({
 }
 
 function BestEffortButton({
+  distanceLabel,
   effort,
   onOpenActivity,
+  onReject,
 }: {
+  distanceLabel: string;
   effort: BestEffortEntry;
   onOpenActivity: (activityId: string) => void;
+  onReject?: (distanceLabel: string, effort: BestEffortEntry, reason: string) => Promise<void>;
 }) {
+  const [confirming, setConfirming] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectError, setRejectError] = useState('');
   return (
-    <button type="button" onClick={() => onOpenActivity(effort.activityId)}>
-      <span>{effort.rank}</span>
-      <strong>{formatRaceTime(effort.seconds)}</strong>
-      <small>
-        {formatPace(effort.paceSecPerKm)} · {formatActivityDate(effort.startDateLocal || effort.startDate)}
-        {effort.source === 'stream' ? ' · observed segment' : ' · estimated from whole run'}
-      </small>
-      <em>{effort.activityName}</em>
-    </button>
+    <div className="best-effort-row">
+      <button className="best-effort-open" type="button" onClick={() => onOpenActivity(effort.activityId)}>
+        <span>{effort.rank}</span>
+        <strong>{formatRaceTime(effort.seconds)}</strong>
+        <small>
+          {formatPace(effort.paceSecPerKm)} · {formatActivityDate(effort.startDateLocal || effort.startDate)}
+          {effort.source === 'stream' ? ' · observed segment' : ' · estimated from whole run'}
+        </small>
+        <em>{effort.activityName}</em>
+      </button>
+      {onReject && <button
+        className="best-effort-reject"
+        type="button"
+        aria-label={`Reject ${distanceLabel} effort from ${effort.activityName}`}
+        title="Not a valid personal best"
+        disabled={rejecting}
+        aria-expanded={confirming}
+        onClick={() => setConfirming((value) => !value)}
+      >
+        <X size={14} aria-hidden="true" /><span>Not a PB</span>
+      </button>}
+      {confirming && onReject && (
+        <div className="best-effort-reject-confirm" role="group" aria-label={`Reject ${distanceLabel} result`}>
+          <span>Ignore this result?</span>
+          <button
+            type="button"
+            disabled={rejecting}
+            onClick={() => {
+              setRejecting(true);
+              setRejectError('');
+              void onReject(distanceLabel, effort, 'Garmin recording error')
+                .catch((error) => setRejectError(error instanceof Error ? error.message : 'Could not reject this result.'))
+                .finally(() => setRejecting(false));
+            }}
+          >
+            {rejecting ? 'Removing…' : 'Garmin error'}
+          </button>
+          <button type="button" disabled={rejecting} onClick={() => setConfirming(false)}>Cancel</button>
+          {rejectError && <small role="alert">{rejectError}</small>}
+        </div>
+      )}
+    </div>
   );
 }
 

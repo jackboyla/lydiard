@@ -1,5 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import type {
+  ActivityLap,
   ActivityStreams,
   ActivitySummary,
   GymSession,
@@ -26,6 +27,58 @@ export interface SyncStateRow {
   last_result: string | null;
   last_error: string | null;
   rate_limit: string | null;
+}
+
+export interface BestEffortRejection {
+  distanceLabel: string;
+  activityId: string;
+  reason: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface BestEffortRejectionRow {
+  distance_label: string;
+  activity_id: string;
+  reason: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getBestEffortRejections(db: D1Database): Promise<BestEffortRejection[]> {
+  const result = await db
+    .prepare('SELECT * FROM best_effort_rejections ORDER BY created_at DESC')
+    .all<BestEffortRejectionRow>();
+  return (result.results ?? []).map((row) => ({
+    distanceLabel: row.distance_label,
+    activityId: row.activity_id,
+    reason: row.reason,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
+export async function setBestEffortRejection(
+  db: D1Database,
+  input: { distanceLabel: string; activityId: string; rejected: boolean; reason?: string },
+): Promise<void> {
+  if (!input.rejected) {
+    await db
+      .prepare('DELETE FROM best_effort_rejections WHERE distance_label = ?1 AND activity_id = ?2')
+      .bind(input.distanceLabel, input.activityId)
+      .run();
+    return;
+  }
+  const now = new Date().toISOString();
+  await db
+    .prepare(
+      `INSERT INTO best_effort_rejections (distance_label, activity_id, reason, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?4)
+       ON CONFLICT(distance_label, activity_id) DO UPDATE SET
+         reason=excluded.reason, updated_at=excluded.updated_at`,
+    )
+    .bind(input.distanceLabel, input.activityId, input.reason ?? '', now)
+    .run();
 }
 
 export async function getAthlete(db: D1Database): Promise<AthleteRow | null> {
@@ -2305,11 +2358,12 @@ export async function saveStreams(
   await db.batch([
     db
       .prepare(
-        `INSERT INTO activity_streams (activity_id, latlng, time_s, heartrate, cadence, power, velocity, altitude, distance_m, point_count, fetched_at)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+        `INSERT INTO activity_streams (activity_id, latlng, time_s, heartrate, cadence, power, velocity, altitude, distance_m, laps, point_count, fetched_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
          ON CONFLICT(activity_id) DO UPDATE SET
            latlng=excluded.latlng, time_s=excluded.time_s, heartrate=excluded.heartrate, cadence=excluded.cadence,
            power=excluded.power, velocity=excluded.velocity, altitude=excluded.altitude, distance_m=excluded.distance_m,
+           laps=COALESCE(excluded.laps, activity_streams.laps),
            point_count=excluded.point_count, fetched_at=excluded.fetched_at`,
       )
       .bind(
@@ -2322,6 +2376,7 @@ export async function saveStreams(
         jsonOrNull(streams.velocity),
         jsonOrNull(streams.altitude),
         jsonOrNull(streams.distanceM),
+        jsonOrNull(streams.laps),
         pointCount,
         new Date().toISOString(),
       ),
@@ -2329,6 +2384,17 @@ export async function saveStreams(
       .prepare('UPDATE activities SET has_streams = 1, decoupling_pct = ?2, updated_at = ?3 WHERE id = ?1')
       .bind(activityId, decouplingPct ?? null, new Date().toISOString()),
   ]);
+}
+
+export async function saveActivityLaps(db: D1Database, activityId: string, laps: ActivityLap[]): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO activity_streams (activity_id, laps, point_count, fetched_at)
+       VALUES (?1, ?2, 0, ?3)
+       ON CONFLICT(activity_id) DO UPDATE SET laps=excluded.laps, fetched_at=excluded.fetched_at`,
+    )
+    .bind(activityId, JSON.stringify(laps), new Date().toISOString())
+    .run();
 }
 
 export async function getStreams(db: D1Database, activityId: string): Promise<ActivityStreams | null> {
@@ -2348,6 +2414,7 @@ export async function getStreams(db: D1Database, activityId: string): Promise<Ac
     velocity: parseJson(row.velocity),
     altitude: parseJson(row.altitude),
     distanceM: parseJson(row.distance_m),
+    laps: parseJson(row.laps),
   };
 }
 

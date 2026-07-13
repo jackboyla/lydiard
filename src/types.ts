@@ -144,6 +144,19 @@ export interface ActivityStreams {
   velocity?: number[];
   altitude?: number[];
   distanceM?: number[];
+  laps?: ActivityLap[];
+}
+
+export interface ActivityLap {
+  index: number;
+  distanceM: number;
+  durationSec: number;
+  elapsedSec?: number;
+  averageHeartRate?: number;
+  maxHeartRate?: number;
+  averagePower?: number;
+  maxPower?: number;
+  averageSpeedMps?: number;
 }
 
 export interface ActivityDetail extends ActivitySummary {
