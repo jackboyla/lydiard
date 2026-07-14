@@ -17,6 +17,7 @@
     "plan:import": "tsx scripts/import-plan-csv.ts",
     "garmin:sync": "npm run garmin:import-db",
     "coach:smoke": "tsx scripts/coach-engine-smoke.ts",
+    "best-efforts:smoke": "tsx scripts/best-efforts-smoke.ts",
     "product:smoke": "tsx scripts/product-journey-smoke.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
@@ -25,6 +26,7 @@
     "typecheck:scripts": "tsc -p tsconfig.scripts.json"
   },
   "dependencies": {
+    "@fontsource-variable/manrope": "^5.2.8",
     "@mapbox/polyline": "^1.2.1",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

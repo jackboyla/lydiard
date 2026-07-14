@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { D1Database } from '@cloudflare/workers-types';
 import type { ActivityDetail, BestEffortDistance, BestEffortEntry, SyncStatus, WeeklyAnalysis } from '../../src/types';
 import { analyzeWeeks } from '../../src/analysis/fatigue';
+import { BEST_EFFORT_TARGETS } from '../../src/analysis/bestEfforts';
 import type { Env } from '../env';
 import {
   clearAthleteConnection,
@@ -11,7 +12,6 @@ import {
   getCounts,
   getDateRange,
   getGymSessions,
-  getBestEffortRejections,
   getStreams,
   getSyncState,
   getTrainingPlanDay,
@@ -343,34 +343,27 @@ function requiredPlanDate(value: string): string | undefined {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date ? date : undefined;
 }
 
-const BEST_EFFORT_TARGETS = [
-  { label: '1K', distanceKm: 1 },
-  { label: 'Mile', distanceKm: 1.609344 },
-  { label: '3K', distanceKm: 3 },
-  { label: '5K', distanceKm: 5 },
-  { label: '10K', distanceKm: 10 },
-  { label: '15K', distanceKm: 15 },
-  { label: 'Half', distanceKm: 21.0975 },
-  { label: 'Marathon', distanceKm: 42.195 },
-];
-
-interface BestEffortRow {
-  id: string;
-  name: string;
+interface StoredBestEffortRow {
+  distance_label: string;
+  distance_km: number;
+  activity_id: string;
+  activity_name: string;
   start_date: string;
   start_date_local: string;
-  distance_km: number;
-  moving_time_s: number;
-  time_s: string | null;
-  distance_m: string | null;
+  seconds: number;
+  pace_sec_per_km: number;
+  source: BestEffortEntry['source'];
+  segment_start_sec: number | null;
+  segment_end_sec: number | null;
+  effort_rank: number;
 }
 
 async function computeBestEfforts(
   db: D1Database,
   opts: { from?: string; to?: string },
 ): Promise<BestEffortDistance[]> {
-  const clauses = ['a.distance_km >= ?1'];
-  const binds: Array<string | number> = [Math.min(...BEST_EFFORT_TARGETS.map((target) => target.distanceKm)) * 0.98];
+  const clauses: string[] = [];
+  const binds: string[] = [];
   if (opts.from) {
     binds.push(opts.from);
     clauses.push(`a.start_date >= ?${binds.length}`);
@@ -379,120 +372,46 @@ async function computeBestEfforts(
     binds.push(opts.to);
     clauses.push(`a.start_date <= ?${binds.length}`);
   }
-
-  const [rows, rejections] = await Promise.all([db
+  const where = clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : '';
+  const rows = await db
     .prepare(
-      `SELECT a.id, a.name, a.start_date, a.start_date_local, a.distance_km, a.moving_time_s,
-              s.time_s, s.distance_m
-         FROM activities a
-         LEFT JOIN activity_streams s ON s.activity_id = a.id
-        WHERE ${clauses.join(' AND ')}
-        ORDER BY a.start_date DESC`,
+      `SELECT * FROM (
+         SELECT e.distance_label, e.distance_km, e.activity_id, a.name AS activity_name,
+                a.start_date, a.start_date_local, e.seconds, e.pace_sec_per_km, e.source,
+                e.segment_start_sec, e.segment_end_sec,
+                ROW_NUMBER() OVER (
+                  PARTITION BY e.distance_label
+                  ORDER BY e.seconds ASC, a.start_date DESC, e.activity_id ASC
+                ) AS effort_rank
+           FROM activity_best_efforts e
+           JOIN activities a ON a.id = e.activity_id
+          WHERE NOT EXISTS (
+                  SELECT 1 FROM best_effort_rejections r
+                   WHERE r.distance_label = e.distance_label AND r.activity_id = e.activity_id
+                )
+                ${where}
+       ) ranked
+       WHERE effort_rank <= 5
+       ORDER BY distance_label, effort_rank`,
     )
     .bind(...binds)
-    .all<BestEffortRow>(), getBestEffortRejections(db)]);
-  const activities = rows.results ?? [];
-  const rejected = new Set(rejections.map((item) => `${item.distanceLabel}\u0000${item.activityId}`));
-
-  return BEST_EFFORT_TARGETS.map((target) => {
-    const efforts = activities
-      .map((row) => effortForTarget(row, target.distanceKm))
-      .filter((effort): effort is Omit<BestEffortEntry, 'rank'> => Boolean(effort))
-      .filter((effort) => !rejected.has(`${target.label}\u0000${effort.activityId}`))
-      .sort((a, b) => a.seconds - b.seconds)
-      .slice(0, 5)
-      .map((effort, index) => ({ ...effort, rank: index + 1 }));
-    return { ...target, efforts };
-  });
-}
-
-function effortForTarget(row: BestEffortRow, distanceKm: number): Omit<BestEffortEntry, 'rank'> | null {
-  if (row.distance_km < distanceKm * 0.98 || row.moving_time_s <= 0) {
-    return null;
+    .all<StoredBestEffortRow>();
+  const byLabel = new Map<string, BestEffortEntry[]>();
+  for (const row of rows.results ?? []) {
+    const efforts = byLabel.get(row.distance_label) ?? [];
+    efforts.push({
+      rank: row.effort_rank,
+      activityId: row.activity_id,
+      activityName: row.activity_name,
+      startDate: row.start_date,
+      startDateLocal: row.start_date_local,
+      seconds: row.seconds,
+      paceSecPerKm: row.pace_sec_per_km,
+      source: row.source,
+      segmentStartSec: row.segment_start_sec ?? undefined,
+      segmentEndSec: row.segment_end_sec ?? undefined,
+    });
+    byLabel.set(row.distance_label, efforts);
   }
-  const targetM = distanceKm * 1000;
-  const streamEffort = fastestStreamSegment(parseNumberArray(row.time_s), parseNumberArray(row.distance_m), targetM);
-  const seconds = streamEffort?.seconds ?? (row.moving_time_s * distanceKm) / Math.max(row.distance_km, 0.001);
-  if (!Number.isFinite(seconds) || seconds <= 0) {
-    return null;
-  }
-  return {
-    activityId: row.id,
-    activityName: row.name,
-    startDate: row.start_date,
-    startDateLocal: row.start_date_local,
-    seconds,
-    paceSecPerKm: seconds / distanceKm,
-    source: streamEffort ? 'stream' : 'whole_run',
-    segmentStartSec: streamEffort?.startSec,
-    segmentEndSec: streamEffort?.endSec,
-  };
-}
-
-function fastestStreamSegment(
-  timeValues: number[] | undefined,
-  distanceValues: number[] | undefined,
-  targetM: number,
-): { seconds: number; startSec: number; endSec: number } | null {
-  if (!timeValues || !distanceValues) {
-    return null;
-  }
-  const n = Math.min(timeValues.length, distanceValues.length);
-  if (n < 2) {
-    return null;
-  }
-
-  const points: Array<{ time: number; distance: number }> = [];
-  let lastTime = -Infinity;
-  let lastDistance = -Infinity;
-  for (let index = 0; index < n; index += 1) {
-    const time = timeValues[index];
-    const distance = distanceValues[index];
-    if (!Number.isFinite(time) || !Number.isFinite(distance) || time <= lastTime || distance < lastDistance) {
-      continue;
-    }
-    points.push({ time, distance });
-    lastTime = time;
-    lastDistance = distance;
-  }
-  if (points.length < 2 || points[points.length - 1].distance - points[0].distance < targetM * 0.98) {
-    return null;
-  }
-
-  let best: { seconds: number; startSec: number; endSec: number } | null = null;
-  let end = 1;
-  for (let start = 0; start < points.length - 1; start += 1) {
-    if (end <= start) {
-      end = start + 1;
-    }
-    const targetDistance = points[start].distance + targetM;
-    while (end < points.length && points[end].distance < targetDistance) {
-      end += 1;
-    }
-    if (end >= points.length) {
-      break;
-    }
-    const previous = points[Math.max(start, end - 1)];
-    const current = points[end];
-    const distanceDelta = current.distance - previous.distance;
-    const ratio = distanceDelta > 0 ? (targetDistance - previous.distance) / distanceDelta : 0;
-    const endSec = previous.time + Math.max(0, Math.min(1, ratio)) * (current.time - previous.time);
-    const seconds = endSec - points[start].time;
-    if (seconds > 0 && (!best || seconds < best.seconds)) {
-      best = { seconds, startSec: points[start].time, endSec };
-    }
-  }
-  return best;
-}
-
-function parseNumberArray(value: string | null): number[] | undefined {
-  if (!value) {
-    return undefined;
-  }
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? parsed.filter((item): item is number => typeof item === 'number' && Number.isFinite(item)) : undefined;
-  } catch {
-    return undefined;
-  }
+  return BEST_EFFORT_TARGETS.map((target) => ({ ...target, efforts: byLabel.get(target.label) ?? [] }));
 }

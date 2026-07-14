@@ -32,7 +32,8 @@ run in **both** the Worker and the browser.
   activity-specific note, see its ordinary facts and route, then expand splits, zones, and load
   diagnostics only when useful.
 - **Progress and personal bests:** one 12-week time/distance view, one consistent current-load read,
-  and explicit All time / Season best-effort scopes for 1K through marathon.
+  explicit All time / Season best-effort scopes for 200m through marathon, and fastest measured
+  distance segments on each individual run.
 - **One visible future plan:** the deterministic coach proposes an approval-gated 1–3 week block in
   the same Plan surface where sessions can be reviewed and edited. Legacy RUNMASTER rows remain in a
   collapsed provenance/day-note editor rather than competing with the current plan.

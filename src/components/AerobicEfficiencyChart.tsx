@@ -58,7 +58,7 @@ export function AerobicEfficiencyChart({ loadModel }: { loadModel: TrainingLoadM
       <div className="aerobic-efficiency-chart">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 900, height: 280 }}>
           <LineChart data={model.points} margin={{ top: 16, right: 18, bottom: 4, left: 0 }}>
-            <CartesianGrid stroke="#2c3440" vertical={false} />
+            <CartesianGrid stroke="var(--border-soft)" vertical={false} />
             <XAxis
               dataKey="ts"
               type="number"
@@ -68,7 +68,7 @@ export function AerobicEfficiencyChart({ loadModel }: { loadModel: TrainingLoadM
               minTickGap={48}
               tickLine={false}
               axisLine={false}
-              tick={{ fill: '#92a0b3', fontSize: 12 }}
+              tick={{ fill: 'var(--subtle)', fontSize: 12 }}
             />
             <YAxis
               dataKey="pace"
@@ -77,26 +77,26 @@ export function AerobicEfficiencyChart({ loadModel }: { loadModel: TrainingLoadM
               tickFormatter={(value) => formatPace(Number(value)).replace('/km', '')}
               tickLine={false}
               axisLine={false}
-              tick={{ fill: '#92a0b3', fontSize: 12 }}
+              tick={{ fill: 'var(--subtle)', fontSize: 12 }}
               width={48}
             />
             <Tooltip
-              cursor={{ stroke: '#465365', strokeWidth: 1 }}
-              contentStyle={{ border: '1px solid #303946', borderRadius: 8, backgroundColor: '#171b21', color: '#edf2f7' }}
+              cursor={{ stroke: 'var(--border)', strokeWidth: 1 }}
+              contentStyle={{ border: '1px solid var(--border)', borderRadius: 10, backgroundColor: 'var(--surface)', color: 'var(--text)' }}
               formatter={(_, __, item) => [
                 `${formatPace(item.payload.pace)} · ${item.payload.runs} comparable ${item.payload.runs === 1 ? 'run' : 'runs'} · ${item.payload.averageHeartRate} bpm actual`,
                 'Aerobic pace',
               ]}
               labelFormatter={(value) => formatChartDate(Number(value))}
             />
-            <ReferenceLine y={best.pace} stroke="#f2c94c" strokeDasharray="5 5" />
+            <ReferenceLine y={best.pace} stroke="var(--warning)" strokeDasharray="5 5" />
             <Line
               type="monotone"
               dataKey="pace"
-              stroke="#6fa8ff"
+              stroke="var(--accent)"
               strokeWidth={3}
-              dot={{ r: 4, fill: '#6fa8ff', strokeWidth: 0 }}
-              activeDot={{ r: 6, fill: '#ffffff', stroke: '#6fa8ff', strokeWidth: 2 }}
+              dot={{ r: 4, fill: 'var(--accent)', strokeWidth: 0 }}
+              activeDot={{ r: 6, fill: 'var(--surface)', stroke: 'var(--accent)', strokeWidth: 2 }}
               isAnimationActive={false}
             />
           </LineChart>

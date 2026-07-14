@@ -389,6 +389,61 @@ def validate_transcript(
     }
 
 
+def repair_transcript_timestamps(
+    transcript: str,
+    expected_stamps: list[int] | None,
+) -> tuple[str, dict[str, Any]]:
+    import re
+
+    parsed: list[tuple[int, str]] = []
+    for line in (line for line in transcript.splitlines() if line.strip()):
+        match = re.match(r"^\[(\d{2}):(\d{2}):(\d{2})\]\s*(.*)$", line)
+        if not match:
+            raise RuntimeError("Cannot repair a transcript line without a timestamp")
+        hours, minutes, seconds = (int(value) for value in match.groups()[:3])
+        parsed.append((hours * 3600 + minutes * 60 + seconds, match.group(4).strip()))
+    if not parsed:
+        raise RuntimeError("Cannot repair an empty transcript")
+
+    if expected_stamps:
+        buckets: dict[int, list[str]] = {stamp: [] for stamp in expected_stamps}
+        for stamp, content in parsed:
+            nearest = min(expected_stamps, key=lambda candidate: abs(candidate - stamp))
+            if content:
+                buckets[nearest].append(content)
+        repaired_lines = [
+            f"{timestamp(stamp)} "
+            + (" ".join(buckets[stamp]) or "[no intelligible speech]")
+            for stamp in expected_stamps
+        ]
+        repaired_stamps = expected_stamps
+    else:
+        buckets: dict[int, list[str]] = {}
+        ordered_stamps: list[int] = []
+        for index, (stamp, content) in enumerate(parsed):
+            if index == 0:
+                stamp = 0
+            if stamp not in buckets:
+                ordered_stamps.append(stamp)
+                buckets[stamp] = []
+            if content:
+                buckets[stamp].append(content)
+        ordered_stamps.sort()
+        repaired_lines = [
+            f"{timestamp(stamp)} "
+            + (" ".join(buckets[stamp]) or "[no intelligible speech]")
+            for stamp in ordered_stamps
+        ]
+        repaired_stamps = ordered_stamps
+
+    return "\n".join(repaired_lines), {
+        "applied": True,
+        "original_line_count": len(parsed),
+        "repaired_line_count": len(repaired_lines),
+        "repaired_timestamp_count": len(repaired_stamps),
+    }
+
+
 def gemini_request(
     key: str,
     model: str,
@@ -665,9 +720,19 @@ def main() -> int:
             raw_path = raw_dir / f"{video.video_id}.json"
             atomic_json_write(raw_path, response)
             transcript = response_text(response)
-            transcript_validation = validate_transcript(
-                video, transcript, expected_stamps
-            )
+            transcript_repair: dict[str, Any] | None = None
+            try:
+                transcript_validation = validate_transcript(
+                    video, transcript, expected_stamps
+                )
+            except RuntimeError as validation_error:
+                transcript, transcript_repair = repair_transcript_timestamps(
+                    transcript, expected_stamps
+                )
+                transcript_repair["original_validation_error"] = str(validation_error)
+                transcript_validation = validate_transcript(
+                    video, transcript, expected_stamps
+                )
             transcript_path = transcripts_dir / f"{video.video_id}.md"
             temporary = transcript_path.with_suffix(".md.tmp")
             temporary.write_text(
@@ -687,6 +752,7 @@ def main() -> int:
                 "raw_response_path": str(raw_path),
                 "characters": len(transcript),
                 "transcript_validation": transcript_validation,
+                "transcript_repair": transcript_repair,
                 "usage_metadata": response.get("usageMetadata"),
             }
             print(f"  complete: {len(transcript):,} characters", flush=True)

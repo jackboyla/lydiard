@@ -91,15 +91,15 @@ export function HeartRateByPaceChart({ loadModel }: { loadModel: TrainingLoadMod
               <ComposedChart data={model.profile} margin={{ top: 14, right: 20, bottom: 16, left: 0 }}>
                 <defs>
                   <linearGradient id="heart-rate-pace-outer-fill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#6fa8ff" stopOpacity={0.18} />
-                    <stop offset="100%" stopColor="#6fa8ff" stopOpacity={0.06} />
+                    <stop offset="0%" stopColor="var(--green)" stopOpacity={0.16} />
+                    <stop offset="100%" stopColor="var(--green)" stopOpacity={0.045} />
                   </linearGradient>
                   <linearGradient id="heart-rate-pace-inner-fill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#6fa8ff" stopOpacity={0.42} />
-                    <stop offset="100%" stopColor="#5b7cfa" stopOpacity={0.22} />
+                    <stop offset="0%" stopColor="var(--green)" stopOpacity={0.34} />
+                    <stop offset="100%" stopColor="var(--accent)" stopOpacity={0.16} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="#2c3440" vertical={false} />
+                <CartesianGrid stroke="var(--border-soft)" vertical={false} />
                 <XAxis
                   dataKey="pace"
                   type="number"
@@ -109,11 +109,11 @@ export function HeartRateByPaceChart({ loadModel }: { loadModel: TrainingLoadMod
                   tickFormatter={(value) => formatPace(Number(value)).replace('/km', '')}
                   tickLine={false}
                   axisLine={false}
-                  tick={{ fill: '#92a0b3', fontSize: 12 }}
+                  tick={{ fill: 'var(--subtle)', fontSize: 12 }}
                   tickCount={7}
                   minTickGap={24}
                   height={48}
-                  label={{ value: 'Average pace (/km) · slower → faster', position: 'insideBottom', offset: -10, fill: '#92a0b3', fontSize: 12 }}
+                  label={{ value: 'Average pace (/km) · slower → faster', position: 'insideBottom', offset: -10, fill: 'var(--subtle)', fontSize: 12 }}
                 />
                 <YAxis
                   dataKey="heartRate"
@@ -121,10 +121,10 @@ export function HeartRateByPaceChart({ loadModel }: { loadModel: TrainingLoadMod
                   allowDataOverflow
                   tickLine={false}
                   axisLine={false}
-                  tick={{ fill: '#92a0b3', fontSize: 12 }}
+                  tick={{ fill: 'var(--subtle)', fontSize: 12 }}
                   width={54}
                   tickCount={6}
-                  label={{ value: 'bpm', angle: -90, position: 'insideLeft', fill: '#92a0b3', fontSize: 12 }}
+                  label={{ value: 'bpm', angle: -90, position: 'insideLeft', fill: 'var(--subtle)', fontSize: 12 }}
                 />
                 <Area
                   type="monotone"
@@ -149,7 +149,7 @@ export function HeartRateByPaceChart({ loadModel }: { loadModel: TrainingLoadMod
                   name="Run"
                   data={model.observations}
                   dataKey="heartRate"
-                  fill="#dce9ff"
+                  fill="var(--accent)"
                   fillOpacity={0.36}
                   isAnimationActive={false}
                 />
@@ -157,10 +157,10 @@ export function HeartRateByPaceChart({ loadModel }: { loadModel: TrainingLoadMod
                   type="monotone"
                   dataKey="median"
                   name="Median"
-                  stroke="#ffffff"
+                  stroke="var(--accent)"
                   strokeWidth={2.5}
                   dot={false}
-                  activeDot={{ r: 4, fill: '#ffffff', stroke: '#5b7cfa', strokeWidth: 2 }}
+                  activeDot={{ r: 4, fill: 'var(--surface)', stroke: 'var(--accent)', strokeWidth: 2 }}
                   isAnimationActive={false}
                 />
                 <PaceHoverLayer

@@ -33,6 +33,7 @@ await page.addInitScript((value) => localStorage.setItem('lydiard.siteKey', valu
 let editedActivityId = '';
 let originalNote = '';
 let bestEffortGroupCount = 0;
+let runBestEffortCount = 0;
 let dayNoteRoundTrip = false;
 
 try {
@@ -42,6 +43,13 @@ try {
   assert(await page.getByRole('heading', { name: 'Your runs and notes' }).isVisible(), 'Log heading is missing.');
   assert(await page.locator('.log-history-totals').isVisible(), 'All-history totals are missing from Log.');
   assert(await page.getByRole('group', { name: 'Training range' }).count() === 0, 'Log still exposes time-period filters.');
+  const duplicateDayNotePreviews = await page.locator('.week-day-cell.has-run.has-note').evaluateAll((days) => days.filter((day) => {
+    const dayPreview = day.querySelector('.calendar-day-note-trigger.has-note span')?.textContent?.trim();
+    if (!dayPreview) return false;
+    return [...day.querySelectorAll('.calendar-run-note:not(.calendar-run-note-empty)')]
+      .some((runNote) => runNote.textContent?.trim() === dayPreview);
+  }).length);
+  assert(duplicateDayNotePreviews === 0, `${duplicateDayNotePreviews} day-note previews are duplicated inside run cards.`);
 
   const initialVisibleWeeks = await page.locator('[data-week]').count();
   for (let attempt = 0; attempt < 8 && await page.locator('[data-week]').count() <= initialVisibleWeeks; attempt += 1) {
@@ -106,6 +114,13 @@ try {
   assert(await page.getByRole('heading', { name: 'Power over distance' }).isVisible(), 'Distance-aligned power chart is missing.');
   assert(await page.locator('.activity-distance-hr-chart .activity-chart-summary').isVisible(), 'HR average/maximum summary is missing.');
   assert(await page.locator('.activity-distance-power-chart .activity-chart-summary').isVisible(), 'Power average/maximum summary is missing.');
+  assert(await page.locator('.activity-best-efforts').isVisible(), 'Per-run best efforts are missing.');
+  const runBestEffortLabels = await page.locator('.activity-best-efforts article > span').allTextContents();
+  runBestEffortCount = runBestEffortLabels.length;
+  for (const label of ['200m', '400m', '800m']) {
+    assert(runBestEffortLabels.includes(label), `${label} per-run best effort is missing.`);
+  }
+  assert(await page.locator('.activity-best-efforts article > em').count() === runBestEffortCount, 'Per-run effort boundaries are missing.');
   assert(await page.locator('.activity-lap-profile .lap-profile-bar').count() > 0, 'Lap profile bars are missing.');
   assert(await page.locator('.splits-preview').count() === 0, 'The redundant Pace over time chart is still rendered.');
   assert(await page.locator('.lap-split-table th', { hasText: 'HR avg' }).first().isVisible(), 'Average HR split column is missing.');
@@ -150,10 +165,33 @@ try {
   await page.waitForSelector('.progress-view');
   assert(new URL(page.url()).searchParams.get('view') === 'progress', 'Progress URL state was not updated.');
   const progressRead = (await page.locator('.progress-read-card h3').textContent())?.trim();
-  await page.waitForFunction(() => document.querySelectorAll('.best-effort-group').length >= 8, undefined, { timeout: 20_000 });
+  await page.waitForFunction(() => document.querySelectorAll('.best-effort-group').length >= 11, undefined, { timeout: 20_000 });
   bestEffortGroupCount = await page.locator('.best-effort-group').count();
+  const bestEffortLabels = await page.locator('.best-effort-group > header > span').allTextContents();
+  for (const label of ['200m', '400m', '800m']) {
+    assert(bestEffortLabels.includes(label), `${label} best-effort section is missing.`);
+  }
   assert(await page.locator('.best-effort-reject').count() > 0, 'PB rejection controls are missing.');
   assert(await page.getByRole('button', { name: 'All time' }).getAttribute('class') === 'active', 'All-time PB scope should be the default.');
+  const groupsBeforeFailedRefresh = await page.locator('.best-effort-group').count();
+  const bestEffortRoute = '**/api/best-efforts**';
+  await page.route(bestEffortRoute, (route) => route.fulfill({
+    status: 503,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: 'Synthetic best-effort refresh failure.' }),
+  }));
+  const failedRefresh = page.waitForResponse((response) => response.url().includes('/api/best-efforts') && response.status() === 503);
+  await page.getByRole('button', { name: 'Season' }).click();
+  await failedRefresh;
+  await page.waitForTimeout(50);
+  assert(
+    await page.locator('.best-effort-group').count() === groupsBeforeFailedRefresh,
+    'A failed best-effort refresh cleared previously loaded groups.',
+  );
+  await page.unroute(bestEffortRoute);
+  const restoredRefresh = page.waitForResponse((response) => response.url().includes('/api/best-efforts') && response.status() === 200);
+  await page.getByRole('button', { name: 'All time' }).click();
+  await restoredRefresh;
   await page.waitForSelector('.aerobic-efficiency-card');
   await page.waitForSelector('.heart-rate-pace-card');
   assert(await page.locator('.training-zone-panel').isVisible(), 'Training zones are missing from Progress.');
@@ -188,6 +226,7 @@ try {
     noteRoundTrip: true,
     dayNoteRoundTrip,
     runStreamCharts: true,
+    runBestEfforts: runBestEffortCount,
     progressZoneLedger: true,
     bestEffortGroups: bestEffortGroupCount,
     canonicalRead: progressRead,

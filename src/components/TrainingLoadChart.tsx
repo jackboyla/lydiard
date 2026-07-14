@@ -41,7 +41,7 @@ export function TrainingLoadChart({ daily }: { daily: DailyLoadPoint[] }) {
           initialDimension={{ width: 900, height: 320 }}
         >
           <LineChart data={data} margin={{ top: 14, right: 20, bottom: 4, left: 0 }}>
-            <CartesianGrid stroke="#2c3440" vertical={false} />
+            <CartesianGrid stroke="var(--border-soft)" vertical={false} />
             <XAxis
               dataKey="ts"
               type="number"
@@ -51,26 +51,26 @@ export function TrainingLoadChart({ daily }: { daily: DailyLoadPoint[] }) {
               minTickGap={54}
               tickLine={false}
               axisLine={false}
-              tick={{ fill: '#92a0b3', fontSize: 12 }}
+              tick={{ fill: 'var(--subtle)', fontSize: 12 }}
             />
-            <YAxis tickLine={false} axisLine={false} tick={{ fill: '#92a0b3', fontSize: 12 }} width={46} />
+            <YAxis tickLine={false} axisLine={false} tick={{ fill: 'var(--subtle)', fontSize: 12 }} width={46} />
             <Tooltip
-              cursor={{ stroke: '#465365', strokeWidth: 1 }}
+              cursor={{ stroke: 'var(--border)', strokeWidth: 1 }}
               contentStyle={{
-                border: '1px solid #303946',
-                borderRadius: 8,
-                backgroundColor: '#171b21',
-                color: '#edf2f7',
-                boxShadow: '0 10px 30px rgba(0, 0, 0, 0.32)',
+                border: '1px solid var(--border)',
+                borderRadius: 10,
+                backgroundColor: 'var(--surface)',
+                color: 'var(--text)',
+                boxShadow: '0 10px 30px rgba(54, 47, 34, 0.14)',
               }}
               formatter={(value, name) => [`${Number(value).toFixed(1)}`, name]}
               labelFormatter={(value) => formatChartDate(Number(value))}
             />
-            <Legend verticalAlign="top" align="right" iconType="line" wrapperStyle={{ color: '#99a6b8' }} />
-            <ReferenceLine y={0} stroke="#465365" />
-            <Line type="monotone" dataKey="fitness" name="Fitness CTL" stroke="#22b982" strokeWidth={3} dot={false} isAnimationActive={false} />
-            <Line type="monotone" dataKey="fatigue" name="Fatigue ATL" stroke="#ff5a66" strokeWidth={3} dot={false} isAnimationActive={false} />
-            <Line type="monotone" dataKey="freshness" name="Freshness" stroke="#f2c94c" strokeWidth={2} dot={false} isAnimationActive={false} />
+            <Legend verticalAlign="top" align="right" iconType="line" wrapperStyle={{ color: 'var(--muted)' }} />
+            <ReferenceLine y={0} stroke="var(--border)" />
+            <Line type="monotone" dataKey="fitness" name="Fitness CTL" stroke="var(--green)" strokeWidth={3} dot={false} isAnimationActive={false} />
+            <Line type="monotone" dataKey="fatigue" name="Fatigue ATL" stroke="var(--danger)" strokeWidth={3} dot={false} isAnimationActive={false} />
+            <Line type="monotone" dataKey="freshness" name="Freshness" stroke="var(--warning)" strokeWidth={2} dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>

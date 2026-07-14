@@ -87,11 +87,11 @@ export function TrendPanel({ analyses, metric, selectedIndex, onMetricChange, on
             >
               <defs>
                 <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#22b982" stopOpacity={0.18} />
-                  <stop offset="100%" stopColor="#22b982" stopOpacity={0.02} />
+                  <stop offset="0%" stopColor="var(--green)" stopOpacity={0.2} />
+                  <stop offset="100%" stopColor="var(--green)" stopOpacity={0.025} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke="#2c3440" vertical={false} />
+              <CartesianGrid stroke="var(--border-soft)" vertical={false} />
               <XAxis
                 dataKey="ts"
                 type="number"
@@ -101,24 +101,24 @@ export function TrendPanel({ analyses, metric, selectedIndex, onMetricChange, on
                 minTickGap={54}
                 tickLine={false}
                 axisLine={false}
-                tick={{ fill: '#92a0b3', fontSize: 12 }}
+                tick={{ fill: 'var(--subtle)', fontSize: 12 }}
               />
               <YAxis
                 tickLine={false}
                 axisLine={false}
-                tick={{ fill: '#92a0b3', fontSize: 12 }}
+                tick={{ fill: 'var(--subtle)', fontSize: 12 }}
                 tickFormatter={(value) => axisLabelForMetric(value, metric)}
                 width={56}
                 domain={domainForMetric(metric)}
               />
               <Tooltip
-                cursor={{ stroke: '#465365', strokeWidth: 1 }}
+                cursor={{ stroke: 'var(--border)', strokeWidth: 1 }}
                 contentStyle={{
-                  border: '1px solid #303946',
-                  borderRadius: 8,
-                  backgroundColor: '#171b21',
-                  color: '#edf2f7',
-                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.32)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 10,
+                  backgroundColor: 'var(--surface)',
+                  color: 'var(--text)',
+                  boxShadow: '0 10px 30px rgba(54, 47, 34, 0.14)',
                 }}
                 formatter={(_, __, item) => [item.payload.display, title]}
                 labelFormatter={(value) => formatChartDate(Number(value))}
@@ -135,14 +135,14 @@ export function TrendPanel({ analyses, metric, selectedIndex, onMetricChange, on
               <Line
                 type="linear"
                 dataKey="value"
-                stroke="#22b982"
+                stroke="var(--green)"
                 strokeWidth={3}
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 connectNulls
                 isAnimationActive={false}
                 dot={(props) => <TrendDot {...props} selectedIndex={safeSelectedIndex} />}
-                activeDot={{ r: 7, fill: '#0d1015', stroke: '#ffffff', strokeWidth: 2 }}
+                activeDot={{ r: 7, fill: 'var(--surface)', stroke: 'var(--accent)', strokeWidth: 2 }}
               />
             </LineChart>
           </ResponsiveContainer>
@@ -183,7 +183,7 @@ function TrendDot(props: {
   }
 
   const color =
-    props.payload.severity === 'high' ? '#ff5a66' : props.payload.severity === 'watch' ? '#f2c94c' : '#22b982';
+    props.payload.severity === 'high' ? 'var(--danger)' : props.payload.severity === 'watch' ? 'var(--warning)' : 'var(--green)';
   const selected = props.payload.index === props.selectedIndex;
 
   return (
@@ -192,7 +192,7 @@ function TrendDot(props: {
       cy={props.cy}
       r={selected ? 6 : 5}
       fill={color}
-      stroke={selected ? '#0d1015' : '#ffffff'}
+      stroke={selected ? 'var(--accent)' : 'var(--surface)'}
       strokeWidth={selected ? 2 : 1.5}
     />
   );

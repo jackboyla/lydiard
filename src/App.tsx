@@ -532,7 +532,6 @@ export default function App() {
       })
       .catch((error) => {
         if (!cancelled) {
-          setBestEffortGroups([]);
           setBestEffortsError(error instanceof Error ? error.message : 'Could not calculate best efforts.');
         }
       })
@@ -1945,19 +1944,19 @@ function WeekSnapshot({
         <p>Routes colored by {colorBy === 'severity' ? 'weekly fatigue' : colorBy === 'pace' ? 'pace' : 'recency'}</p>
         {colorBy === 'severity' ? (
           <ul>
-            <li><i style={{ background: '#22b982' }} /> Steady</li>
-            <li><i style={{ background: '#f2c94c' }} /> Watch</li>
-            <li><i style={{ background: '#ff5a66' }} /> High</li>
+            <li><i style={{ background: 'var(--green)' }} /> Steady</li>
+            <li><i style={{ background: 'var(--warning)' }} /> Watch</li>
+            <li><i style={{ background: 'var(--danger)' }} /> High</li>
           </ul>
         ) : colorBy === 'pace' ? (
           <ul>
-            <li><i style={{ background: '#38d996' }} /> Faster</li>
-            <li><i style={{ background: '#ff5a66' }} /> Slower</li>
+            <li><i style={{ background: 'var(--green)' }} /> Faster</li>
+            <li><i style={{ background: 'var(--danger)' }} /> Slower</li>
           </ul>
         ) : (
           <ul>
-            <li><i style={{ background: '#3b4a5a' }} /> Older</li>
-            <li><i style={{ background: '#38d996' }} /> Recent</li>
+            <li><i style={{ background: '#9aa19a' }} /> Older</li>
+            <li><i style={{ background: 'var(--green)' }} /> Recent</li>
           </ul>
         )}
       </div>

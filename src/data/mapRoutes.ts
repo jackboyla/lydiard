@@ -16,14 +16,14 @@ export interface RouteProps {
 export type RouteCollection = FeatureCollection<LineString, RouteProps>;
 
 const SEVERITY_COLORS: Record<Severity, string> = {
-  steady: '#22b982',
-  watch: '#f2c94c',
-  high: '#ff5a66',
+  steady: '#16805a',
+  watch: '#a6631b',
+  high: '#b9443c',
 };
 
-const FAST = '#38d996'; // fast pace / recent
-const SLOW = '#ff5a66'; // slow pace
-const OLD = '#3b4a5a'; // muted, older run
+const FAST = '#16805a'; // fast pace / recent
+const SLOW = '#b9443c'; // slow pace
+const OLD = '#9aa19a'; // muted, older run
 
 /** Decode a Strava summary polyline to GeoJSON [lng, lat] coordinates. */
 export function decodePolyline(encoded: string): Array<[number, number]> {

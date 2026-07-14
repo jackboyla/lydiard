@@ -64,7 +64,7 @@ export function ActivityRunCharts({
           <div className="activity-chart-canvas">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 700, height: 270 }}>
               <LineChart data={heartRatePoints} margin={{ top: 12, right: 14, bottom: 20, left: 0 }}>
-                <CartesianGrid stroke="#2c3440" vertical={false} />
+                <CartesianGrid stroke="var(--border-soft)" vertical={false} />
                 <XAxis
                   dataKey="distanceKm"
                   type="number"
@@ -72,21 +72,21 @@ export function ActivityRunCharts({
                   tickFormatter={(value) => Number(value).toFixed(0)}
                   tickLine={false}
                   axisLine={false}
-                  tick={{ fill: '#92a0b3', fontSize: 11 }}
-                  label={{ value: 'Distance (km)', position: 'insideBottom', offset: -10, fill: '#92a0b3', fontSize: 11 }}
+                  tick={{ fill: 'var(--subtle)', fontSize: 11 }}
+                  label={{ value: 'Distance (km)', position: 'insideBottom', offset: -10, fill: 'var(--subtle)', fontSize: 11 }}
                 />
                 <YAxis
                   dataKey="heartRate"
                   domain={['dataMin - 5', 'dataMax + 5']}
                   tickLine={false}
                   axisLine={false}
-                  tick={{ fill: '#92a0b3', fontSize: 11 }}
+                  tick={{ fill: 'var(--subtle)', fontSize: 11 }}
                   width={42}
-                  label={{ value: 'bpm', angle: -90, position: 'insideLeft', fill: '#92a0b3', fontSize: 11 }}
+                  label={{ value: 'bpm', angle: -90, position: 'insideLeft', fill: 'var(--subtle)', fontSize: 11 }}
                 />
                 <Tooltip
-                  cursor={{ stroke: '#465365', strokeWidth: 1 }}
-                  contentStyle={{ border: '1px solid #303946', borderRadius: 8, backgroundColor: '#171b21', color: '#edf2f7' }}
+                  cursor={{ stroke: 'var(--border)', strokeWidth: 1 }}
+                  contentStyle={{ border: '1px solid var(--border)', borderRadius: 10, backgroundColor: 'var(--surface)', color: 'var(--text)' }}
                   labelFormatter={(value) => `${Number(value).toFixed(2)} km`}
                   formatter={(value) => [`${Math.round(Number(value))} bpm`, 'Heart rate']}
                 />
@@ -94,10 +94,10 @@ export function ActivityRunCharts({
                   type="linear"
                   dataKey="heartRate"
                   name="Heart rate"
-                  stroke="#ff6873"
+                  stroke="var(--danger)"
                   strokeWidth={2.5}
                   dot={false}
-                  activeDot={{ r: 4, fill: '#ffffff', stroke: '#ff6873', strokeWidth: 2 }}
+                  activeDot={{ r: 4, fill: 'var(--surface)', stroke: 'var(--danger)', strokeWidth: 2 }}
                   isAnimationActive={false}
                 />
               </LineChart>
@@ -118,7 +118,7 @@ export function ActivityRunCharts({
           <div className="activity-chart-canvas">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 700, height: 270 }}>
               <LineChart data={powerPoints} margin={{ top: 12, right: 14, bottom: 20, left: 0 }}>
-                <CartesianGrid stroke="#2c3440" vertical={false} />
+                <CartesianGrid stroke="var(--border-soft)" vertical={false} />
                 <XAxis
                   dataKey="distanceKm"
                   type="number"
@@ -126,21 +126,21 @@ export function ActivityRunCharts({
                   tickFormatter={(value) => Number(value).toFixed(0)}
                   tickLine={false}
                   axisLine={false}
-                  tick={{ fill: '#92a0b3', fontSize: 11 }}
-                  label={{ value: 'Distance (km)', position: 'insideBottom', offset: -10, fill: '#92a0b3', fontSize: 11 }}
+                  tick={{ fill: 'var(--subtle)', fontSize: 11 }}
+                  label={{ value: 'Distance (km)', position: 'insideBottom', offset: -10, fill: 'var(--subtle)', fontSize: 11 }}
                 />
                 <YAxis
                   dataKey="power"
                   domain={['dataMin - 10', 'dataMax + 10']}
                   tickLine={false}
                   axisLine={false}
-                  tick={{ fill: '#92a0b3', fontSize: 11 }}
+                  tick={{ fill: 'var(--subtle)', fontSize: 11 }}
                   width={48}
-                  label={{ value: 'watts', angle: -90, position: 'insideLeft', fill: '#92a0b3', fontSize: 11 }}
+                  label={{ value: 'watts', angle: -90, position: 'insideLeft', fill: 'var(--subtle)', fontSize: 11 }}
                 />
                 <Tooltip
-                  cursor={{ stroke: '#465365', strokeWidth: 1 }}
-                  contentStyle={{ border: '1px solid #303946', borderRadius: 8, backgroundColor: '#171b21', color: '#edf2f7' }}
+                  cursor={{ stroke: 'var(--border)', strokeWidth: 1 }}
+                  contentStyle={{ border: '1px solid var(--border)', borderRadius: 10, backgroundColor: 'var(--surface)', color: 'var(--text)' }}
                   labelFormatter={(value) => `${Number(value).toFixed(2)} km`}
                   formatter={(value) => [`${Math.round(Number(value))} W`, 'Power']}
                 />
@@ -148,10 +148,10 @@ export function ActivityRunCharts({
                   type="linear"
                   dataKey="power"
                   name="Power"
-                  stroke="#d495f4"
+                  stroke="var(--note)"
                   strokeWidth={2.5}
                   dot={false}
-                  activeDot={{ r: 4, fill: '#ffffff', stroke: '#d495f4', strokeWidth: 2 }}
+                  activeDot={{ r: 4, fill: 'var(--surface)', stroke: 'var(--note)', strokeWidth: 2 }}
                   isAnimationActive={false}
                 />
               </LineChart>

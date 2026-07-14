@@ -75,7 +75,7 @@ export default function ActivityRouteMap({ activity }: ActivityRouteMapProps) {
         type: 'line',
         source: 'activity-route',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#c75330', 'line-width': 4.5, 'line-opacity': 0.98 },
+        paint: { 'line-color': '#285c45', 'line-width': 4.5, 'line-opacity': 0.98 },
       });
       map.addSource('activity-route-points', {
         type: 'geojson',
@@ -93,7 +93,7 @@ export default function ActivityRouteMap({ activity }: ActivityRouteMapProps) {
         source: 'activity-route-points',
         paint: {
           'circle-radius': 6,
-          'circle-color': ['match', ['get', 'kind'], 'finish', '#109b70', '#c75330'],
+          'circle-color': ['match', ['get', 'kind'], 'finish', '#a6631b', '#285c45'],
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 2.5,
         },

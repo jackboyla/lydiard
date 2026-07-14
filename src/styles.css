@@ -1,36 +1,48 @@
+@font-face {
+  font-family: "Manrope Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 800;
+  src: url("@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2") format("woff2-variations");
+}
+
 :root {
   color-scheme: dark;
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #0d1015;
-  color: #edf2f7;
+  font-family: "Manrope Variable", Manrope, ui-sans-serif, system-ui, sans-serif;
+  background: #09271e;
+  color: #eef6f1;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --app-bg: #0d1015;
-  --app-bg-top: #151922;
-  --surface: #171b21;
-  --surface-raised: rgba(23, 27, 33, 0.96);
-  --surface-soft: #1e242c;
-  --surface-control: #202833;
-  --surface-muted: #11161d;
-  --border: #2b343f;
-  --border-soft: #242c35;
-  --text: #edf2f7;
+  --app-bg: #09271e;
+  --app-bg-top: #10362a;
+  --surface: #12382c;
+  --surface-raised: rgba(18, 56, 44, 0.97);
+  --surface-soft: #194536;
+  --surface-control: #214f3f;
+  --surface-muted: #0d3026;
+  --border: #3c6757;
+  --border-soft: #2b5545;
+  --text: #eef6f1;
   --text-strong: #ffffff;
-  --muted: #99a6b8;
-  --subtle: #7c899a;
-  --accent: #5b7cfa;
-  --accent-strong: #6fa8ff;
-  --green: #22b982;
-  --green-soft: #143027;
-  --danger: #ff5a66;
-  --danger-soft: #2a171d;
-  --danger-border: #76303b;
-  --warning: #f2c94c;
-  --warning-soft: #292512;
-  --warning-border: #665224;
-  --shadow: rgba(0, 0, 0, 0.32);
+  --muted: #c2d2ca;
+  --subtle: #9eb6aa;
+  --accent: #34795b;
+  --accent-strong: #92cfb0;
+  --green: #66c899;
+  --green-soft: #194a38;
+  --steady: #9bc5af;
+  --steady-soft: #214c3c;
+  --danger: #ff8b86;
+  --danger-soft: #512b2d;
+  --danger-border: #925052;
+  --warning: #f3c36e;
+  --warning-soft: #493a20;
+  --warning-border: #896b35;
+  --note: #d7b9ef;
+  --note-soft: #402f50;
+  --note-border: #74598a;
+  --shadow: rgba(0, 12, 8, 0.34);
 }
 
 * {
@@ -40,6 +52,7 @@
 body {
   margin: 0;
   min-width: 320px;
+  font-variant-numeric: tabular-nums;
   background:
     linear-gradient(180deg, var(--app-bg-top), var(--app-bg) 260px),
     var(--app-bg);
@@ -3152,7 +3165,7 @@ dd {
 .activity-detail-heading h2 {
   margin: 6px 0 0;
   overflow-wrap: anywhere;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: inherit;
   font-size: clamp(1.75rem, 3vw, 2.55rem);
   font-weight: 560;
   letter-spacing: -0.025em;
@@ -3269,7 +3282,7 @@ dd {
 .activity-plan-match strong {
   overflow: hidden;
   color: var(--text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: inherit;
   font-size: 0.9rem;
   font-weight: 500;
   line-height: 1.25;
@@ -3316,7 +3329,7 @@ dd {
 .activity-run-read p {
   margin: 0;
   color: #e7ddd3;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: inherit;
   font-size: 1rem;
   line-height: 1.55;
 }
@@ -3358,7 +3371,7 @@ dd {
 
 .activity-detail-sidebar .preview-primary-stats .compact-metric strong {
   margin-top: 8px;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: inherit;
   font-size: clamp(1rem, 1.55vw, 1.28rem);
   font-weight: 500;
   letter-spacing: -0.015em;
@@ -3438,6 +3451,92 @@ dd {
   font-weight: 760;
 }
 
+.activity-best-efforts {
+  display: grid;
+  gap: 13px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-raised);
+}
+
+.activity-best-efforts > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.activity-best-efforts > header div {
+  display: grid;
+  gap: 3px;
+}
+
+.activity-best-efforts > header span {
+  color: var(--subtle);
+  font-size: 0.66rem;
+  font-weight: 790;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.activity-best-efforts > header h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1rem;
+}
+
+.activity-best-efforts > header small,
+.activity-best-efforts > p {
+  margin: 0;
+  color: var(--subtle);
+  font-size: 0.7rem;
+}
+
+.activity-best-efforts > header small {
+  max-width: 230px;
+  text-align: right;
+}
+
+.activity-best-efforts > div {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.activity-best-efforts article {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+
+.activity-best-efforts article > span {
+  color: var(--green);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.activity-best-efforts article strong {
+  color: var(--text-strong);
+  font-size: 1.15rem;
+  line-height: 1.1;
+}
+
+.activity-best-efforts article small,
+.activity-best-efforts article em {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .activity-analysis-panel {
   display: grid;
   gap: 14px;
@@ -3473,7 +3572,7 @@ dd {
 .activity-stream-chart > header h3 {
   margin: 4px 0 0;
   color: var(--text-strong);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: inherit;
   font-weight: 520;
   letter-spacing: -0.015em;
 }
@@ -3537,7 +3636,7 @@ dd {
 .lap-profile-unit,
 .lap-profile-axis-title {
   fill: #92a0b3;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: "Manrope Variable", Manrope, ui-sans-serif, system-ui, sans-serif;
   font-size: 10px;
 }
 
@@ -3608,7 +3707,7 @@ dd {
 
 .activity-chart-summary strong {
   color: var(--text-strong);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: inherit;
   font-size: 1.08rem;
   font-weight: 520;
 }
@@ -5954,7 +6053,7 @@ dd {
 
 .progress-zone-ledger > header h2 {
   margin: 5px 0 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: inherit;
   font-size: clamp(1.45rem, 2.8vw, 2.1rem);
   font-weight: 540;
   letter-spacing: -0.025em;
@@ -5988,7 +6087,7 @@ dd {
 
 .progress-zone-total strong {
   color: var(--text-strong);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: inherit;
   font-size: 1.45rem;
   font-weight: 520;
 }
@@ -6841,6 +6940,21 @@ dd {
     gap: 7px 11px;
   }
 
+  .activity-best-efforts > header {
+    align-items: start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .activity-best-efforts > header small {
+    max-width: none;
+    text-align: left;
+  }
+
+  .activity-best-efforts > div {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .activity-analysis-panel {
     padding: 13px;
   }
@@ -6977,5 +7091,1215 @@ dd {
   .map-back-to-log {
     top: 8px;
     left: 8px;
+  }
+}
+
+/* ---------- 2026 calm training-journal visual system ---------- */
+
+html {
+  background: var(--app-bg);
+  background-color: var(--app-bg);
+}
+
+body {
+  color: var(--text);
+  background-color: var(--app-bg);
+  background:
+    radial-gradient(circle at 8% -8%, rgba(40, 92, 69, 0.075), transparent 30rem),
+    radial-gradient(circle at 96% 12%, rgba(166, 99, 27, 0.055), transparent 27rem),
+    linear-gradient(180deg, var(--app-bg-top), var(--app-bg) 32rem);
+}
+
+::selection {
+  color: #fffdf8;
+  background: var(--accent);
+}
+
+:where(button, a, input, textarea, select, summary):focus-visible {
+  outline: 3px solid rgba(40, 92, 69, 0.22);
+  outline-offset: 2px;
+}
+
+.app-shell.map-first {
+  padding: 18px clamp(18px, 3vw, 48px) 0;
+  gap: 16px;
+  background:
+    radial-gradient(circle at 8% -8%, rgba(40, 92, 69, 0.075), transparent 30rem),
+    radial-gradient(circle at 96% 12%, rgba(166, 99, 27, 0.055), transparent 27rem),
+    linear-gradient(180deg, var(--app-bg-top), var(--app-bg) 32rem);
+  background-color: var(--app-bg);
+}
+
+.topbar {
+  min-height: 52px;
+  border-radius: 12px;
+  background-color: var(--app-bg-top);
+}
+
+.brand .eyebrow {
+  color: var(--accent-strong);
+  letter-spacing: 0.11em;
+}
+
+.app-shell.map-first .topbar h1 {
+  margin-top: 5px;
+  color: var(--text-strong);
+  font-family: inherit;
+  font-size: clamp(1.55rem, 2.25vw, 2.1rem);
+  font-weight: 560;
+  letter-spacing: -0.035em;
+}
+
+.view-toggle,
+.source-switch,
+.segmented {
+  padding: 5px;
+  border-color: var(--border-soft);
+  border-radius: 12px;
+  background: rgba(236, 233, 223, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.view-toggle button,
+.source-switch button,
+.segmented button {
+  min-height: 36px;
+  border-radius: 8px;
+  color: var(--muted);
+  transition: color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+
+.view-toggle button:hover,
+.source-switch button:hover,
+.segmented button:hover {
+  color: var(--text-strong);
+  background: rgba(255, 253, 248, 0.7);
+}
+
+.view-toggle button.active,
+.source-switch button.active,
+.segmented button.active {
+  color: #fffdf8;
+  background: var(--accent);
+  box-shadow: 0 4px 12px rgba(40, 92, 69, 0.18);
+}
+
+.topbar-menu-toggle,
+.icon-button,
+.utility-menu-button,
+.map-back-to-log,
+.guide-toggle {
+  border-color: var(--border);
+  border-radius: 11px;
+  color: var(--muted);
+  background: rgba(255, 253, 248, 0.88);
+  box-shadow: 0 1px 2px var(--shadow);
+  transition: color 150ms ease, border-color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+
+.topbar-menu-toggle:hover,
+.icon-button:hover:not(:disabled),
+.utility-menu-button:hover,
+.map-back-to-log:hover,
+.guide-toggle:hover {
+  border-color: #b8c6bc;
+  color: var(--accent-strong);
+  background: var(--surface);
+  transform: translateY(-1px);
+}
+
+.topbar-controls {
+  border-top-color: var(--border-soft);
+}
+
+.connection-chip,
+.menu-jump {
+  border-color: var(--border);
+  border-radius: 11px;
+  background: rgba(255, 253, 248, 0.88);
+  box-shadow: 0 1px 2px var(--shadow);
+}
+
+.connection-chip[data-connected='true'] {
+  border-color: #abc8b8;
+  color: var(--text);
+  background: var(--green-soft);
+}
+
+.product-page,
+.training-view,
+.dashboard {
+  scrollbar-color: #b8b3a7 transparent;
+}
+
+.product-hero h2,
+.product-page-head h2,
+.training-toolbar h2,
+.progress-section-heading h2 {
+  color: var(--text-strong);
+  font-family: inherit;
+  font-weight: 540;
+  letter-spacing: -0.035em;
+}
+
+.product-page-head,
+.progress-page-head {
+  gap: 8px;
+  margin-bottom: 24px;
+  padding-top: 8px;
+}
+
+.eyebrow,
+.section-heading p,
+.chart-header p {
+  color: var(--accent-strong);
+  letter-spacing: 0.105em;
+}
+
+.product-card,
+.control-card,
+.fitness-direction-card,
+.chart-card,
+.risk-panel,
+.baseline-panel,
+.fitness-panel,
+.notebook-panel,
+.source-panel,
+.metric-tile,
+.indicator-row,
+.training-zone-panel,
+.training-kpi,
+.training-additional-info,
+.metrics-guide,
+.training-empty,
+.password-card {
+  border-color: var(--border);
+  border-radius: 15px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 28px var(--shadow), 0 1px 2px rgba(54, 47, 34, 0.045);
+}
+
+.product-card,
+.chart-card {
+  padding: clamp(17px, 2vw, 22px);
+}
+
+.product-pill {
+  letter-spacing: 0.045em;
+}
+
+.product-pill.tone-easy,
+.calendar-run-type.tone-easy {
+  color: #116a4a;
+  background: var(--green-soft);
+}
+
+.product-pill.tone-moderate,
+.product-pill.tone-muted,
+.calendar-run-type.tone-moderate {
+  color: var(--steady);
+  background: var(--steady-soft);
+}
+
+.product-pill.tone-hard,
+.calendar-run-type.tone-hard {
+  color: #895112;
+  background: var(--warning-soft);
+}
+
+.product-pill.tone-danger,
+.calendar-run-type.tone-danger {
+  color: #a23934;
+  background: var(--danger-soft);
+}
+
+.primary-button,
+.primary-action {
+  border-color: var(--accent);
+  border-radius: 11px;
+  color: #fffdf8;
+  background: var(--accent);
+  box-shadow: 0 5px 14px rgba(40, 92, 69, 0.18);
+}
+
+.secondary-action {
+  border-radius: 11px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px var(--shadow);
+}
+
+.training-log-view:not(.activity-page-open) {
+  background: transparent;
+}
+
+.log-history-hero {
+  align-items: center;
+  padding: clamp(20px, 2.8vw, 30px);
+  border-color: #c9d8ce;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(22, 128, 90, 0.09), transparent 27rem),
+    linear-gradient(135deg, #fffdf8 0%, #f2f4ec 100%);
+  box-shadow: 0 12px 34px rgba(54, 47, 34, 0.07);
+}
+
+.log-history-hero .eyebrow {
+  color: var(--accent-strong);
+}
+
+.log-history-total {
+  padding: 15px 16px;
+  border-color: rgba(40, 92, 69, 0.13);
+  border-radius: 13px;
+  background: rgba(255, 253, 248, 0.74);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.log-history-total.distance strong,
+.log-history-total.time strong {
+  color: var(--accent-strong);
+}
+
+.training-month-divider {
+  margin-top: 14px;
+}
+
+.training-month-divider::after {
+  background: linear-gradient(90deg, var(--border), transparent 90%);
+}
+
+.training-month-divider span {
+  font-family: inherit;
+  font-size: 1.25rem;
+  font-weight: 560;
+}
+
+.training-week-list {
+  gap: 16px;
+}
+
+.training-week-block {
+  border-color: var(--border);
+  border-radius: 15px;
+  background: var(--surface-raised);
+  box-shadow: 0 7px 22px rgba(54, 47, 34, 0.065);
+}
+
+.training-week-block::before {
+  width: 4px;
+  border-radius: 4px 0 0 4px;
+  background: var(--green);
+}
+
+.training-week-block:hover {
+  border-color: #bac9bf;
+  box-shadow: 0 12px 30px rgba(54, 47, 34, 0.09);
+  transform: translateY(-1px);
+}
+
+.training-week-head {
+  padding: 16px 18px;
+  background: linear-gradient(180deg, rgba(245, 242, 234, 0.45), transparent);
+}
+
+.week-total-readout > div,
+.compact-metric {
+  border-color: var(--border-soft);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.week-total-readout > div:first-child strong,
+.week-total-readout > div:nth-child(2) strong {
+  color: var(--accent-strong);
+}
+
+.week-calendar-grid {
+  border-top-color: var(--border-soft);
+  background: var(--surface-muted);
+}
+
+.week-day-cell,
+.week-day-cell.has-run,
+.week-day-cell.has-gym:not(.has-run) {
+  border-left-color: var(--border-soft);
+  background: rgba(255, 253, 248, 0.78);
+}
+
+.week-day-cell.has-run {
+  background: #faf8f2;
+}
+
+.week-day-cell.has-gym:not(.has-run) {
+  background: #f1f4ef;
+}
+
+.week-day-head {
+  border-bottom-color: var(--border-soft);
+}
+
+.week-day-head span {
+  color: var(--accent-strong);
+}
+
+.zone-card.tone-moderate,
+.week-day-cell.tone-moderate .week-day-head {
+  box-shadow: inset 0 3px 0 var(--steady);
+}
+
+.week-day-cell.tone-moderate .week-day-head small,
+.calendar-run-reason.tone-moderate,
+.calendar-run-card.tone-moderate .calendar-run-primary span,
+.calendar-run-metric.tone-moderate small,
+.calendar-run-metric.tone-moderate strong {
+  color: var(--steady);
+}
+
+.calendar-run-card {
+  border-color: var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 2px 7px rgba(54, 47, 34, 0.055);
+}
+
+.calendar-run-card.tone-moderate {
+  border-left-color: var(--steady);
+}
+
+.calendar-run-card.run-session {
+  background: linear-gradient(180deg, #fbefeb, var(--surface) 44%);
+}
+
+.calendar-run-card.run-long {
+  background: linear-gradient(180deg, #faf2df, var(--surface) 44%);
+}
+
+.calendar-run-card:hover,
+.calendar-run-card:focus-visible,
+.calendar-run-card.active {
+  border-color: #7ea690;
+  background: #eef5f1;
+  box-shadow: 0 5px 14px rgba(40, 92, 69, 0.11);
+}
+
+.calendar-run-note,
+.calendar-day-note-trigger.has-note,
+.calendar-day-note-editor,
+.preview-plan-note {
+  border-color: var(--note-border);
+  color: var(--note);
+  background: var(--note-soft);
+}
+
+.calendar-day-note-trigger:hover,
+.calendar-day-note-trigger:focus-visible,
+.preview-plan-note header span,
+.calendar-day-note-editor button:first-child:not(:disabled) {
+  border-color: var(--note);
+  color: var(--note);
+}
+
+.calendar-gym-pill {
+  border-color: #9ebdaf;
+  color: var(--accent-strong);
+  background: #eaf2ed;
+}
+
+.calendar-gym-pill > span {
+  color: var(--accent-strong);
+}
+
+.week-rest-label,
+.calendar-day-note-trigger {
+  border-color: var(--border);
+}
+
+.training-floating-preview,
+.metric-info-pop,
+.heart-rate-pace-tooltip {
+  border-color: var(--border);
+  border-radius: 14px;
+  color: var(--text);
+  background: rgba(255, 253, 248, 0.98);
+  box-shadow: 0 18px 46px rgba(54, 47, 34, 0.18);
+}
+
+.activity-page-open {
+  background:
+    radial-gradient(circle at 50% -10%, rgba(166, 99, 27, 0.08), transparent 36rem),
+    transparent;
+}
+
+.activity-page-back {
+  border-color: var(--border);
+  color: var(--muted);
+  background: rgba(255, 253, 248, 0.9);
+  box-shadow: 0 1px 3px var(--shadow);
+}
+
+.activity-detail-heading h2,
+.activity-plan-match strong,
+.activity-analysis-heading h2,
+.activity-stream-chart > header h3,
+.activity-detail-sidebar .preview-primary-stats .compact-metric strong,
+.activity-chart-summary strong {
+  color: var(--text-strong);
+}
+
+.activity-kind-pill.tone-easy { color: #116a4a; border-color: #9fc8b4; background: var(--green-soft); }
+.activity-kind-pill.tone-moderate { color: var(--steady); border-color: #b4c6cd; background: var(--steady-soft); }
+.activity-kind-pill.tone-hard { color: #895112; border-color: var(--warning-border); background: var(--warning-soft); }
+.activity-kind-pill.tone-danger { color: #a23934; border-color: var(--danger-border); background: var(--danger-soft); }
+
+.activity-route-panel {
+  border-color: #d1cec5;
+  box-shadow: 0 10px 28px rgba(54, 47, 34, 0.12);
+}
+
+.activity-plan-match,
+.activity-effort-strip,
+.activity-analysis-panel,
+.activity-stream-chart,
+.activity-note-editor,
+.preview-zone-breakdown,
+.preview-lap-splits,
+.route-preview,
+.splits-preview {
+  border-color: var(--border);
+  background: var(--surface-raised);
+}
+
+.activity-run-read {
+  border-color: #214b39;
+  color: #f8f5ec;
+  background:
+    radial-gradient(circle at 100% 0, rgba(214, 172, 104, 0.16), transparent 18rem),
+    linear-gradient(145deg, #173b2d, #234c3b);
+  box-shadow: 0 12px 28px rgba(35, 63, 49, 0.18);
+}
+
+.activity-run-read header span { color: #b9cbbf; }
+.activity-run-read header strong { color: #e7eee9; }
+.activity-run-read p { color: #f8f5ec; }
+.activity-run-read > div span {
+  border-color: rgba(255, 253, 248, 0.18);
+  color: #f0cf98;
+  background: rgba(16, 39, 30, 0.42);
+}
+
+.lap-profile-scroll {
+  background: #f5f2ea;
+  scrollbar-color: #aaa69a #e9e5da;
+}
+
+.lap-profile-grid line,
+.splits-preview line {
+  stroke: #ddd8cd;
+}
+
+.lap-profile-grid text,
+.lap-profile-label,
+.lap-profile-unit,
+.lap-profile-axis-title {
+  fill: #6f786f;
+}
+
+.lap-profile-label {
+  fill: #293229;
+}
+
+.lap-split-table th {
+  background: var(--surface-muted);
+}
+
+.plan-editor-card,
+.plan-legacy-editor .plan-editor-card {
+  border-color: var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.plan-editor-card > .plan-editor-toolbar {
+  background: linear-gradient(180deg, #edf3ee, #f8f7f1);
+}
+
+.plan-editor-day {
+  background: rgba(255, 253, 248, 0.62);
+}
+
+.plan-editor-day.is-today {
+  background: #eaf2ed;
+}
+
+.coach-hero {
+  border-color: #b9cbbf;
+  border-left-color: var(--green);
+  background:
+    radial-gradient(circle at 92% 0, rgba(40, 92, 69, 0.11), transparent 34%),
+    linear-gradient(135deg, #f3f7f2, #fffdf8);
+  box-shadow: 0 10px 28px rgba(54, 47, 34, 0.07);
+}
+
+.coach-state-pill.green,
+.coach-actual,
+.confidence-high,
+.coach-accept-button {
+  color: #116a4a !important;
+}
+
+.coach-state-pill.red,
+.confidence-low,
+.coach-action-error {
+  color: #a23934;
+}
+
+.coach-feedback-form fieldset button.active {
+  color: #fffdf8;
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.progress-summary-grid {
+  gap: 16px;
+}
+
+.progress-read-card {
+  border-left-width: 4px;
+  border-left-color: var(--green);
+  background: linear-gradient(135deg, #f0f6f1, var(--surface) 58%);
+}
+
+.progress-zone-ledger,
+.aerobic-efficiency-card,
+.heart-rate-pace-card {
+  border-radius: 15px;
+}
+
+.heart-rate-pace-outer-key {
+  border-color: #8bb6a0;
+  background: #d8e8df;
+}
+
+.heart-rate-pace-inner-key {
+  border-color: #568b6f;
+  background: #a9cbb9;
+}
+
+.heart-rate-pace-median-key {
+  background: var(--accent);
+}
+
+.heart-rate-pace-dot-key {
+  background: rgba(40, 92, 69, 0.26);
+}
+
+.mini-load-bars button:hover span,
+.mini-load-bars button:focus-visible span,
+.mini-load-bars button.active span {
+  outline-color: rgba(40, 92, 69, 0.72);
+}
+
+.map-stage {
+  border-color: var(--border);
+  border-radius: 16px;
+  box-shadow: 0 10px 30px var(--shadow);
+}
+
+.map-empty {
+  color: var(--muted);
+  background: rgba(243, 240, 232, 0.78);
+  backdrop-filter: blur(5px);
+}
+
+.map-canvas .maplibregl-ctrl-attrib {
+  color: var(--muted);
+  background: rgba(255, 253, 248, 0.84);
+}
+
+.map-canvas .maplibregl-ctrl-attrib a {
+  color: var(--accent-strong);
+}
+
+.snapshot-card,
+.activity-card {
+  border-color: var(--border);
+  border-radius: 15px;
+  background: rgba(255, 253, 248, 0.96);
+  box-shadow: 0 18px 46px rgba(54, 47, 34, 0.16);
+  backdrop-filter: blur(12px);
+}
+
+.app-banner {
+  border-color: #a8c9b9;
+  border-radius: 11px;
+  background: var(--green-soft);
+}
+
+@media (max-width: 760px) {
+  .app-shell.map-first {
+    padding: 12px 12px calc(82px + env(safe-area-inset-bottom));
+    gap: 12px;
+  }
+
+  .topbar {
+    min-height: 46px;
+  }
+
+  .app-shell.map-first .topbar h1 {
+    font-size: 1.65rem;
+  }
+
+  .mobile-bottom-nav {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    min-height: calc(66px + env(safe-area-inset-bottom));
+    padding: 6px 8px calc(7px + env(safe-area-inset-bottom));
+    border: 1px solid rgba(207, 202, 190, 0.9);
+    border-radius: 18px;
+    background: rgba(255, 253, 248, 0.94);
+    box-shadow: 0 12px 38px rgba(54, 47, 34, 0.18);
+    backdrop-filter: blur(18px);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .mobile-bottom-nav button {
+    min-height: 52px;
+    border-radius: 12px;
+  }
+
+  .mobile-bottom-nav button.active {
+    color: var(--accent-strong);
+    background: var(--green-soft);
+  }
+
+  .mobile-bottom-nav button.active::before {
+    top: -7px;
+    width: 26px;
+    height: 3px;
+    background: var(--accent);
+  }
+
+  .log-history-hero {
+    padding: 18px;
+  }
+
+  .log-history-total {
+    padding: 12px;
+  }
+
+  .training-week-block-wrap,
+  .training-scroll-sentinel {
+    min-width: 820px;
+  }
+
+  .week-calendar-grid {
+    grid-template-columns: repeat(7, minmax(114px, 1fr));
+  }
+
+  .training-floating-preview,
+  .metric-info-pop {
+    border-radius: 16px;
+  }
+}
+
+/* ---------- Unified Manrope + forest-primary refinement ---------- */
+
+button,
+input,
+textarea,
+select,
+option {
+  font-family: inherit;
+}
+
+.maplibregl-map,
+.maplibregl-ctrl,
+.maplibregl-ctrl-attrib {
+  font-family: inherit;
+}
+
+.app-shell.map-first .topbar h1 {
+  color: var(--accent);
+  font-weight: 790;
+  letter-spacing: -0.035em;
+}
+
+.product-hero h2,
+.product-page-head h2 {
+  color: var(--accent);
+  font-weight: 680;
+  letter-spacing: -0.025em;
+}
+
+.training-toolbar h2,
+.progress-section-heading h2,
+.activity-detail-heading h2,
+.activity-analysis-heading h2,
+.activity-stream-chart > header h3,
+.progress-zone-ledger > header h2,
+.training-month-divider span {
+  color: var(--text-strong);
+  font-weight: 720;
+  letter-spacing: -0.02em;
+}
+
+.activity-run-read p,
+.activity-plan-match strong,
+.activity-detail-sidebar .preview-primary-stats .compact-metric strong,
+.activity-chart-summary strong,
+.progress-zone-total strong {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.mini-toggle button.active {
+  color: #fffdf8;
+  background: var(--accent);
+  box-shadow: 0 3px 9px rgba(40, 92, 69, 0.16);
+}
+
+.mini-load-bars button span {
+  background: linear-gradient(180deg, #285c45, #5f8974);
+}
+
+.mini-load-bars button:hover span,
+.mini-load-bars button:focus-visible span,
+.mini-load-bars button.active span {
+  outline-color: rgba(40, 92, 69, 0.68);
+}
+
+.coach-read,
+.runzones-read {
+  border-left-color: var(--accent);
+}
+
+.proof-card.ready {
+  border-color: rgba(40, 92, 69, 0.42);
+  background: var(--green-soft);
+}
+
+.session-mini-card.tone-moderate {
+  border-left-color: var(--steady);
+}
+
+.lap-profile-bar {
+  fill: var(--accent);
+}
+
+.lap-profile-bar.zone-recovery { fill: #789586; }
+.lap-profile-bar.zone-easy { fill: #4c896b; }
+.lap-profile-bar.zone-steady { fill: var(--accent); }
+
+.activity-effort-bar .tone-moderate,
+.preview-zone-row.tone-moderate .zone-bar i {
+  background: var(--steady);
+}
+
+.splits-preview path {
+  stroke: var(--accent);
+}
+
+.calendar-run-card.tone-moderate {
+  background: linear-gradient(180deg, var(--steady-soft), var(--surface) 48%);
+}
+
+.progress-read-card:not(.tone-hard):not(.tone-danger) {
+  border-left-color: var(--accent);
+}
+
+.topbar-menu-toggle:focus-visible,
+.guide-toggle:focus-visible,
+.metric-info > summary:focus-visible {
+  outline-color: rgba(40, 92, 69, 0.28);
+}
+
+/* ---------- Deep-forest background + white type ---------- */
+
+html,
+body,
+.app-shell.map-first {
+  background: var(--app-bg);
+}
+
+.topbar {
+  background: var(--app-bg-top);
+}
+
+.app-shell.map-first .topbar h1,
+.product-hero h2,
+.product-page-head h2,
+.training-toolbar h2,
+.progress-section-heading h2,
+.activity-detail-heading h2,
+.activity-analysis-heading h2,
+.activity-stream-chart > header h3,
+.progress-zone-ledger > header h2,
+.training-month-divider span {
+  color: var(--text-strong);
+}
+
+.view-toggle,
+.source-switch,
+.segmented,
+.mini-toggle {
+  border-color: var(--border-soft);
+  background: rgba(25, 69, 54, 0.88);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
+}
+
+.view-toggle button:hover,
+.source-switch button:hover,
+.segmented button:hover {
+  color: var(--text-strong);
+  background: rgba(102, 200, 153, 0.1);
+}
+
+.view-toggle button.active,
+.source-switch button.active,
+.segmented button.active,
+.mini-toggle button.active {
+  color: #ffffff;
+  background: var(--accent);
+  box-shadow: 0 4px 14px rgba(0, 17, 11, 0.28);
+}
+
+.topbar-menu-toggle,
+.icon-button,
+.utility-menu-button,
+.map-back-to-log,
+.guide-toggle,
+.connection-chip,
+.menu-jump,
+.secondary-action,
+.activity-page-back {
+  border-color: var(--border);
+  color: var(--text);
+  background: rgba(18, 56, 44, 0.94);
+  box-shadow: 0 2px 8px rgba(0, 12, 8, 0.2);
+}
+
+.topbar-menu-toggle:hover,
+.icon-button:hover:not(:disabled),
+.utility-menu-button:hover,
+.map-back-to-log:hover,
+.guide-toggle:hover {
+  border-color: #65927f;
+  color: #ffffff;
+  background: var(--surface-control);
+}
+
+.connection-chip[data-connected='true'] {
+  border-color: #4f846e;
+  color: var(--text-strong);
+  background: var(--green-soft);
+}
+
+.product-card,
+.control-card,
+.fitness-direction-card,
+.chart-card,
+.risk-panel,
+.baseline-panel,
+.fitness-panel,
+.notebook-panel,
+.source-panel,
+.metric-tile,
+.indicator-row,
+.training-zone-panel,
+.training-kpi,
+.training-additional-info,
+.metrics-guide,
+.training-empty,
+.password-card,
+.training-week-block,
+.snapshot-card,
+.activity-card {
+  border-color: var(--border);
+  color: var(--text);
+  background: var(--surface-raised);
+  box-shadow: 0 10px 30px var(--shadow), 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.log-history-hero {
+  border-color: #46715f;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(102, 200, 153, 0.12), transparent 27rem),
+    linear-gradient(135deg, #153e31 0%, #0f3429 100%);
+  box-shadow: 0 14px 36px var(--shadow);
+}
+
+.log-history-total {
+  border-color: var(--border-soft);
+  color: var(--text);
+  background: rgba(9, 39, 30, 0.56);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.log-history-total.distance strong,
+.log-history-total.time strong {
+  color: var(--green);
+}
+
+.training-week-head {
+  background: linear-gradient(180deg, rgba(102, 200, 153, 0.045), transparent);
+}
+
+.week-total-readout > div,
+.compact-metric,
+.activity-chart-summary > span {
+  border-color: var(--border-soft);
+  background: var(--surface-soft);
+}
+
+.week-total-readout > div:first-child strong,
+.week-total-readout > div:nth-child(2) strong {
+  color: var(--green);
+}
+
+.week-calendar-grid {
+  background: var(--surface-muted);
+}
+
+.week-day-cell,
+.week-day-cell.has-run,
+.week-day-cell.has-gym:not(.has-run) {
+  border-left-color: var(--border-soft);
+  background: rgba(13, 48, 38, 0.78);
+}
+
+.week-day-cell.has-run {
+  background: #12382c;
+}
+
+.week-day-cell.has-gym:not(.has-run) {
+  background: #164133;
+}
+
+.calendar-run-card {
+  border-color: var(--border);
+  color: var(--text);
+  background: #194536;
+  box-shadow: 0 3px 10px rgba(0, 12, 8, 0.18);
+}
+
+.calendar-run-card.run-session {
+  background: linear-gradient(180deg, rgba(255, 139, 134, 0.12), #194536 46%);
+}
+
+.calendar-run-card.run-long {
+  background: linear-gradient(180deg, rgba(243, 195, 110, 0.12), #194536 46%);
+}
+
+.calendar-run-card.tone-moderate {
+  background: linear-gradient(180deg, rgba(155, 197, 175, 0.13), #194536 48%);
+}
+
+.calendar-run-card:hover,
+.calendar-run-card:focus-visible,
+.calendar-run-card.active {
+  border-color: #79aa94;
+  color: #ffffff;
+  background: #245843;
+  box-shadow: 0 6px 18px rgba(0, 12, 8, 0.25);
+}
+
+.calendar-day-note-trigger,
+.week-rest-label {
+  border-color: var(--border-soft);
+}
+
+.calendar-run-note,
+.calendar-day-note-trigger.has-note,
+.calendar-day-note-editor,
+.preview-plan-note {
+  border-color: var(--note-border);
+  color: var(--note);
+  background: var(--note-soft);
+}
+
+.calendar-gym-pill {
+  border-color: #54816f;
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.training-floating-preview,
+.metric-info-pop,
+.heart-rate-pace-tooltip {
+  border-color: var(--border);
+  color: var(--text);
+  background: rgba(18, 56, 44, 0.985);
+  box-shadow: 0 20px 52px rgba(0, 12, 8, 0.5);
+}
+
+.activity-page-open {
+  background:
+    radial-gradient(circle at 50% -10%, rgba(102, 200, 153, 0.08), transparent 36rem),
+    transparent;
+}
+
+.activity-plan-match,
+.activity-effort-strip,
+.activity-analysis-panel,
+.activity-stream-chart,
+.activity-note-editor,
+.preview-zone-breakdown,
+.preview-lap-splits,
+.route-preview,
+.splits-preview {
+  border-color: var(--border);
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.activity-run-read {
+  border-color: #57836f;
+  background:
+    radial-gradient(circle at 100% 0, rgba(102, 200, 153, 0.14), transparent 18rem),
+    linear-gradient(145deg, #184b38, #103a2c);
+  box-shadow: 0 14px 32px rgba(0, 12, 8, 0.32);
+}
+
+.lap-profile-scroll {
+  background: #0d3026;
+  scrollbar-color: #527663 #0a281f;
+}
+
+.lap-profile-grid line,
+.splits-preview line {
+  stroke: var(--border-soft);
+}
+
+.lap-profile-grid text,
+.lap-profile-label,
+.lap-profile-unit,
+.lap-profile-axis-title {
+  fill: var(--subtle);
+}
+
+.lap-profile-label {
+  fill: var(--text-strong);
+}
+
+.plan-editor-card,
+.plan-legacy-editor .plan-editor-card {
+  border-color: var(--border);
+  color: var(--text);
+  background: var(--surface);
+}
+
+.plan-editor-card > .plan-editor-toolbar {
+  background: linear-gradient(180deg, #1c4a3a, #143b2f);
+}
+
+.plan-editor-day {
+  background: rgba(13, 48, 38, 0.62);
+}
+
+.plan-editor-day.is-today {
+  background: #214f3f;
+}
+
+.coach-hero {
+  border-color: #4d7966;
+  border-left-color: var(--green);
+  background:
+    radial-gradient(circle at 92% 0, rgba(102, 200, 153, 0.12), transparent 34%),
+    linear-gradient(135deg, #174333, #103329);
+  box-shadow: 0 12px 30px var(--shadow);
+}
+
+.progress-read-card,
+.progress-read-card:not(.tone-hard):not(.tone-danger) {
+  background: linear-gradient(135deg, #194a39, var(--surface) 60%);
+}
+
+.heart-rate-pace-outer-key {
+  border-color: #60917a;
+  background: #315f4c;
+}
+
+.heart-rate-pace-inner-key {
+  border-color: #82b49d;
+  background: #4d806a;
+}
+
+.heart-rate-pace-median-key {
+  background: var(--green);
+}
+
+.heart-rate-pace-dot-key {
+  background: rgba(102, 200, 153, 0.34);
+}
+
+.mini-load-bars button span {
+  background: linear-gradient(180deg, #75d5a7, #34795b);
+}
+
+.mini-load-bars button:hover span,
+.mini-load-bars button:focus-visible span,
+.mini-load-bars button.active span {
+  outline-color: rgba(201, 244, 222, 0.84);
+}
+
+.map-stage {
+  border-color: var(--border);
+  background: var(--surface-muted);
+  box-shadow: 0 12px 34px var(--shadow);
+}
+
+.map-empty {
+  color: var(--muted);
+  background: rgba(9, 39, 30, 0.82);
+}
+
+.map-canvas .maplibregl-ctrl-attrib {
+  color: #27463a;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.map-canvas .maplibregl-ctrl-attrib a {
+  color: #173f30;
+}
+
+.snapshot-card,
+.activity-card {
+  background: rgba(18, 56, 44, 0.97);
+}
+
+.app-banner {
+  border-color: #4f806a;
+  color: var(--text-strong);
+  background: var(--green-soft);
+}
+
+input,
+textarea,
+select {
+  color: var(--text);
+  caret-color: var(--green);
+}
+
+::placeholder {
+  color: var(--subtle);
+  opacity: 1;
+}
+
+@media (max-width: 760px) {
+  .mobile-bottom-nav {
+    border-color: rgba(75, 113, 96, 0.95);
+    background: rgba(13, 48, 38, 0.96);
+    box-shadow: 0 14px 42px rgba(0, 12, 8, 0.52);
+  }
+
+  .mobile-bottom-nav button.active {
+    color: #ffffff;
+    background: var(--accent);
+  }
+
+  .mobile-bottom-nav button.active::before {
+    background: var(--green);
   }
 }

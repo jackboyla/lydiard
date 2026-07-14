@@ -15,6 +15,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { formatPace } from '../analysis/fatigue';
+import { streamBestEffortsForActivity } from '../analysis/bestEfforts';
 import {
   buildTrainingLoadModel,
   type CanonicalActivityMetric,
@@ -890,7 +891,6 @@ function CalendarDayColumn({
             active={previewId === session.activity.id}
             onPreview={onPreview}
             onPrefetch={onPrefetch}
-            note={note}
           />
         ))}
         {day.gym.map((session) => (
@@ -908,13 +908,11 @@ function CalendarRunCard({
   active,
   onPreview,
   onPrefetch,
-  note,
 }: {
   session: SessionLoad;
   active: boolean;
   onPreview?: (id: string) => void;
   onPrefetch?: (id: string) => void;
-  note?: string;
 }) {
   const activity = session.activity;
   const effortTone = toneForEffort(session.externalIntensityFactor);
@@ -941,13 +939,13 @@ function CalendarRunCard({
       <span className={`calendar-run-reason tone-${runKind.tone}`} title={runKind.reasons.join(' ')}>
         {calendarRunSummary(runKind.key)}
       </span>
-      {(activity.activityNote || note) && (
+      {activity.activityNote && (
         <span className="calendar-run-note">
           <MessageSquareText size={12} aria-hidden="true" />
-          {notePreview(activity.activityNote || note || '')}
+          {notePreview(activity.activityNote)}
         </span>
       )}
-      {!activity.activityNote && !note && (
+      {!activity.activityNote && (
         <span className="calendar-run-note calendar-run-note-empty">
           <MessageSquareText size={12} aria-hidden="true" /> Add note
         </span>
@@ -1083,6 +1081,16 @@ function ActivityDetailPage({
   const recordedLapSplits = lapSplits.filter((lap) => lap.source === 'recorded');
   const kilometreSplits = detail ? buildDerivedKilometreLaps(detail, thresholdPaceSecPerKm) : [];
   const hrZoneTotals = detail ? buildHrZoneTotals(detail, zones) : undefined;
+  const bestEfforts = detail ? streamBestEffortsForActivity({
+    id: detail.id,
+    name: detail.name,
+    startDate: detail.startDate,
+    startDateLocal: detail.startDateLocal,
+    distanceKm: detail.distanceKm,
+    movingTimeSec: detail.movingTimeSec,
+    timeSec: detail.streams?.timeSec,
+    distanceM: detail.streams?.distanceM,
+  }) : [];
   const runKind = classifyRun(session);
   const plannedText = planDay?.plannedText.trim() || planDay?.legacyPlannedText.trim();
 
@@ -1115,6 +1123,7 @@ function ActivityDetailPage({
               </Suspense>
             </section>
             <ActivityEffortStrip totals={hrZoneTotals} loading={loading} />
+            <ActivityBestEfforts groups={bestEfforts} loading={loading} />
             <section className="activity-analysis-panel" aria-labelledby="activity-analysis-heading">
               <header className="activity-analysis-heading">
                 <div><span>Run data</span><h2 id="activity-analysis-heading">Splits and load analysis</h2></div>
@@ -1190,6 +1199,41 @@ function ActivityDetailPage({
           </aside>
         </div>
       </article>
+    </section>
+  );
+}
+
+function ActivityBestEfforts({ groups, loading }: { groups: ReturnType<typeof streamBestEffortsForActivity>; loading: boolean }) {
+  if (loading && groups.length === 0) {
+    return <section className="activity-best-efforts"><p>Calculating best efforts from the distance stream…</p></section>;
+  }
+  if (groups.length === 0) {
+    return null;
+  }
+  return (
+    <section className="activity-best-efforts" aria-labelledby="activity-best-efforts-heading">
+      <header>
+        <div>
+          <span>Best efforts in this run</span>
+          <h3 id="activity-best-efforts-heading">Fastest distance segments</h3>
+        </div>
+        <small>Measured from the continuous distance stream</small>
+      </header>
+      <div>
+        {groups.map((group) => {
+          const effort = group.efforts[0];
+          return (
+            <article key={group.label}>
+              <span>{group.label}</span>
+              <strong>{formatDuration(effort.seconds)}</strong>
+              <small>{formatPace(effort.paceSecPerKm)}</small>
+              {effort.segmentStartSec !== undefined && effort.segmentEndSec !== undefined && (
+                <em>{formatDuration(effort.segmentStartSec)}–{formatDuration(effort.segmentEndSec)} into run</em>
+              )}
+            </article>
+          );
+        })}
+      </div>
     </section>
   );
 }

@@ -12,24 +12,24 @@ interface MapViewProps {
   onSelect: (id: string | null) => void;
 }
 
-const DARK_STYLE: maplibregl.StyleSpecification = {
+const JOURNAL_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {
     carto: {
       type: 'raster',
       tiles: [
-        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+        'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+        'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+        'https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
       ],
       tileSize: 256,
       attribution: '© OpenStreetMap contributors © CARTO',
     },
   },
   layers: [
-    { id: 'background', type: 'background', paint: { 'background-color': '#0d1015' } },
-    { id: 'carto', type: 'raster', source: 'carto', paint: { 'raster-opacity': 0.85 } },
+    { id: 'background', type: 'background', paint: { 'background-color': '#f3f0e8' } },
+    { id: 'carto', type: 'raster', source: 'carto', paint: { 'raster-opacity': 0.92 } },
   ],
 };
 
@@ -60,7 +60,7 @@ export function MapView({ activities, severityByWeek, colorBy, selectedId, onSel
     }
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: DARK_STYLE,
+      style: JOURNAL_STYLE,
       center: [-6.26, 53.35],
       zoom: 2,
       attributionControl: { compact: true },
@@ -88,7 +88,7 @@ export function MapView({ activities, severityByWeek, colorBy, selectedId, onSel
         filter: ['==', ['get', 'id'], '__none__'],
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
-          'line-color': '#ffffff',
+          'line-color': '#173b2d',
           'line-width': ['interpolate', ['linear'], ['zoom'], 8, 3, 12, 5, 15, 7],
           'line-opacity': 0.95,
         },

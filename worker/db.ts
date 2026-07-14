@@ -7,6 +7,7 @@ import type {
   TrainingPlanDay,
   WeeklyRunBlock,
 } from '../src/types';
+import { bestEffortsForActivity } from '../src/analysis/bestEfforts';
 
 export interface AthleteRow {
   id: number;
@@ -2383,6 +2384,52 @@ export async function saveStreams(
     db
       .prepare('UPDATE activities SET has_streams = 1, decoupling_pct = ?2, updated_at = ?3 WHERE id = ?1')
       .bind(activityId, decouplingPct ?? null, new Date().toISOString()),
+  ]);
+  const activity = await getActivity(db, activityId);
+  if (activity) {
+    await replaceActivityBestEfforts(db, activity, streams);
+  }
+}
+
+async function replaceActivityBestEfforts(
+  db: D1Database,
+  activity: ActivitySummary,
+  streams: ActivityStreams,
+): Promise<void> {
+  const groups = bestEffortsForActivity({
+    id: activity.id,
+    name: activity.name,
+    startDate: activity.startDate,
+    startDateLocal: activity.startDateLocal,
+    distanceKm: activity.distanceKm,
+    movingTimeSec: activity.movingTimeSec,
+    timeSec: streams.timeSec,
+    distanceM: streams.distanceM,
+  });
+  const computedAt = new Date().toISOString();
+  await db.batch([
+    db.prepare('DELETE FROM activity_best_efforts WHERE activity_id = ?1').bind(activity.id),
+    ...groups.map((group) => {
+      const effort = group.efforts[0];
+      return db
+        .prepare(
+          `INSERT INTO activity_best_efforts (
+             activity_id, distance_label, distance_km, seconds, pace_sec_per_km,
+             source, segment_start_sec, segment_end_sec, computed_at
+           ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)`,
+        )
+        .bind(
+          activity.id,
+          group.label,
+          group.distanceKm,
+          effort.seconds,
+          effort.paceSecPerKm,
+          effort.source,
+          effort.segmentStartSec ?? null,
+          effort.segmentEndSec ?? null,
+          computedAt,
+        );
+    }),
   ]);
 }
 

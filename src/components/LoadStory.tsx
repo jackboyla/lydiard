@@ -73,7 +73,7 @@ export function LoadStory({ analyses }: LoadStoryProps) {
           initialDimension={{ width: 900, height: 320 }}
         >
           <ComposedChart data={data} margin={{ top: 12, right: 24, bottom: 8, left: 0 }}>
-            <CartesianGrid stroke="#2c3440" vertical={false} />
+            <CartesianGrid stroke="var(--border-soft)" vertical={false} />
             <XAxis
               dataKey="ts"
               type="number"
@@ -83,25 +83,25 @@ export function LoadStory({ analyses }: LoadStoryProps) {
               minTickGap={54}
               tickLine={false}
               axisLine={false}
-              tick={{ fill: '#92a0b3', fontSize: 12 }}
+              tick={{ fill: 'var(--subtle)', fontSize: 12 }}
             />
             <YAxis
               yAxisId="left"
               tickLine={false}
               axisLine={false}
-              tick={{ fill: '#92a0b3', fontSize: 12 }}
+              tick={{ fill: 'var(--subtle)', fontSize: 12 }}
               tickFormatter={(value) => formatVolumeAxis(Number(value), volumeView)}
               width={44}
             />
             <YAxis yAxisId="right" orientation="right" hide />
             <Tooltip
-              cursor={{ fill: 'rgba(111, 168, 255, 0.08)' }}
+              cursor={{ fill: 'rgba(40, 92, 69, 0.07)' }}
               contentStyle={{
-                border: '1px solid #303946',
-                borderRadius: 8,
-                backgroundColor: '#171b21',
-                color: '#edf2f7',
-                boxShadow: '0 10px 30px rgba(0, 0, 0, 0.32)',
+                border: '1px solid var(--border)',
+                borderRadius: 10,
+                backgroundColor: 'var(--surface)',
+                color: 'var(--text)',
+                boxShadow: '0 10px 30px rgba(54, 47, 34, 0.14)',
               }}
               formatter={(value, name) => [
                 name === volumeLabel ? formatVolumeValue(Number(value), volumeView) : Math.round(Number(value)),
@@ -113,7 +113,7 @@ export function LoadStory({ analyses }: LoadStoryProps) {
               yAxisId="left"
               dataKey={volumeKey}
               name={volumeLabel}
-              fill={volumeView === 'mileage' ? '#587cf2' : '#22b982'}
+              fill={volumeView === 'mileage' ? 'var(--accent)' : 'var(--green)'}
               radius={[3, 3, 0, 0]}
               isAnimationActive={false}
             />
@@ -121,11 +121,11 @@ export function LoadStory({ analyses }: LoadStoryProps) {
               yAxisId="right"
               type="monotone"
               dataKey="chronicLoad"
-              stroke="#f2c94c"
+              stroke="var(--warning)"
               strokeWidth={3}
               dot={false}
               isAnimationActive={false}
-              activeDot={{ r: 5, fill: '#f2c94c' }}
+              activeDot={{ r: 5, fill: 'var(--warning)' }}
             />
           </ComposedChart>
         </ResponsiveContainer>
