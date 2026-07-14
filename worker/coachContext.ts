@@ -409,12 +409,14 @@ function profileToEngine(
     .slice(-28)
     .map((activity) => activity.distanceKm > 0 ? activity.movingTimeSec / activity.distanceKm : 0)
     .filter((pace) => pace > 0);
+  const goalEvent = goalEventFromConstraints(constraints);
   return {
     currentPhase: profile.currentPhase,
     goals: [
       { distance: '5k', targetTimeSec: profile.goal5kSeconds, priority: 1, targetDate: profile.targetRaceDate },
       { distance: '10k', targetTimeSec: profile.goal10kSeconds, priority: 2 },
     ],
+    goalEvent,
     sustainableWeeklyMinutes: sustainable,
     maximumWeeklyMinutes: numberValue(constraints.maximumWeeklyMinutes),
     longRunToleranceMinutes: profile.longRunToleranceMin ?? inferLongRunTolerance(activities),
@@ -426,6 +428,20 @@ function profileToEngine(
     allowControlledSteadyInBase: constraints.allowControlledSteadyInBase === true,
     kneeHistory: constraints.kneeHistory !== false || checkins.some((checkin) => (checkin.leftKneePain ?? 0) > 0 || (checkin.rightKneePain ?? 0) > 0),
     achillesHistory: constraints.achillesHistory !== false || checkins.some((checkin) => (checkin.leftAchillesPain ?? 0) > 0 || (checkin.rightAchillesPain ?? 0) > 0),
+  };
+}
+
+function goalEventFromConstraints(constraints: Record<string, unknown>): EngineCoachProfile['goalEvent'] {
+  const raw = constraints.scullionGoal;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const goal = raw as Record<string, unknown>;
+  const distanceKm = numberValue(goal.distanceKm);
+  const targetTimeSec = numberValue(goal.timeSeconds);
+  if (!distanceKm || !targetTimeSec || distanceKm < 1 || distanceKm > 100 || targetTimeSec < 180) return undefined;
+  return {
+    distanceKm,
+    targetTimeSec,
+    targetDate: typeof goal.targetDate === 'string' && goal.targetDate ? goal.targetDate : undefined,
   };
 }
 

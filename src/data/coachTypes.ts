@@ -190,6 +190,12 @@ export interface CriticalPowerDraft {
   notes?: string;
 }
 
+export interface CoachGoalDraft {
+  distanceKm: number;
+  timeSeconds: number;
+  targetDate?: string;
+}
+
 export interface CoachFeedbackDraft {
   plannedSessionId?: string;
   energy: 'good' | 'okay' | 'poor';

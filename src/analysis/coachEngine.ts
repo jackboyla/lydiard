@@ -328,6 +328,11 @@ export interface CoachProfile {
   athleteName?: string;
   currentPhase: LydiardPhase;
   goals: CoachGoal[];
+  goalEvent?: {
+    distanceKm: number;
+    targetTimeSec: number;
+    targetDate?: string;
+  };
   sustainableWeeklyMinutes: number;
   maximumWeeklyMinutes?: number;
   longRunToleranceMinutes: number;
@@ -1648,8 +1653,18 @@ function makePlannedRun(
   profile: CoachProfile,
   readiness: PlanningReadiness,
 ): PlannedSession {
-  const target = intensityTargetFor(template.type, physiology);
-  const paceForDistance = representativePace(target.gapPace, profile.recentEasyPaceSecPerKm);
+  const baseTarget = intensityTargetFor(template.type, physiology);
+  const goalPace = template.type === 'race_specific' || template.type === 'coordination'
+    ? guardedGoalPace(profile, physiology)
+    : undefined;
+  const target: IntensityTarget = goalPace
+    ? {
+        ...baseTarget,
+        gapPace: { fastSecPerKm: goalPace * 0.99, slowSecPerKm: goalPace * 1.01 },
+        guidance: 'Use the goal-event rhythm only inside the prescribed repetitions; current race-equivalent evidence caps the target when needed.',
+      }
+    : baseTarget;
+  const paceForDistance = representativePace(baseTarget.gapPace, profile.recentEasyPaceSecPerKm);
   const distance = paceForDistance ? durationMin * 60 / paceForDistance : undefined;
   return {
     id,
@@ -1661,7 +1676,7 @@ function makePlannedRun(
     targetDurationMin: durationMin,
     approximateDistanceKm: distance ? { low: round(distance * 0.92, 1), high: round(distance * 1.08, 1) } : undefined,
     target,
-    structure: structureFor(template.type, durationMin, target, physiology),
+    structure: structureFor(template.type, durationMin, target, physiology, profile),
     purpose: purposeFor(template.type),
     fallbackPlan: fallbackFor(template.type, durationMin, readiness),
     coachReasoning: reasoningFor(template.type, phase, readiness),
@@ -1741,6 +1756,7 @@ function structureFor(
   durationMin: number,
   target: IntensityTarget,
   physiology: PhysiologyEstimate | undefined,
+  profile: CoachProfile,
 ): WorkoutComponent[] {
   if (type === 'threshold') {
     return [
@@ -1758,12 +1774,12 @@ function structureFor(
     ];
   }
   if (type === 'race_specific' || type === 'coordination') {
-    const current5k = physiology?.raceEquivalents.find((race) => race.label === '5K')?.paceSecPerKm;
+    const racePace = guardedGoalPace(profile, physiology);
     const repSec = type === 'race_specific' ? 4 * 60 : 90;
     const count = type === 'race_specific' ? 4 : 8;
     return [
       { kind: 'warmup', durationMin: 20, note: 'Easy plus drills and strides.' },
-      { kind: 'repetitions', count, repetitionDurationSec: repSec, recoveryDurationSec: type === 'race_specific' ? 3 * 60 : 2 * 60, targetPowerPctCp: target.powerPctCp, targetPaceSecPerKm: current5k ? { fastSecPerKm: current5k * 0.98, slowSecPerKm: current5k * 1.02 } : target.gapPace, note: 'Current demonstrated pace, not aspirational 3:00/km if unsupported.' },
+      { kind: 'repetitions', count, repetitionDurationSec: repSec, recoveryDurationSec: type === 'race_specific' ? 3 * 60 : 2 * 60, targetPowerPctCp: target.powerPctCp, targetPaceSecPerKm: racePace ? { fastSecPerKm: racePace * 0.99, slowSecPerKm: racePace * 1.01 } : target.gapPace, note: 'Goal-specific rhythm, capped by current demonstrated evidence when the goal is not yet supported.' },
       { kind: 'cooldown', durationMin: Math.max(10, durationMin - 20 - count * repSec / 60), note: 'Easy.' },
     ];
   }
@@ -1867,11 +1883,68 @@ function buildPlanDecisions(
 }
 
 function goalPriority(profile: CoachProfile, physiology: PhysiologyEstimate | undefined): string {
+  if (profile.goalEvent) {
+    const goalPace = profile.goalEvent.targetTimeSec / profile.goalEvent.distanceKm;
+    const currentPace = equivalentPaceForDistance(physiology, profile.goalEvent.distanceKm);
+    const gap = currentPace ? currentPace - goalPace : undefined;
+    const evidence = gap === undefined
+      ? 'Current race-equivalent evidence is limited, so progression remains conservative.'
+      : gap <= 0
+        ? 'Current race-equivalent evidence supports the target; durability and execution are now the priority.'
+        : `Current evidence is about ${Math.round(gap)} sec/km from target pace, so the plan builds the missing systems before specific rehearsal.`;
+    return `${formatDistance(profile.goalEvent.distanceKm)} in ${formatRaceTime(profile.goalEvent.targetTimeSec)}. ${evidence}`;
+  }
   const fiveK = physiology?.raceEquivalents.find((race) => race.label === '5K')?.predictedSec;
   const tenK = physiology?.raceEquivalents.find((race) => race.label === '10K')?.predictedSec;
   if (!fiveK || fiveK > 900) return 'First milestone: durable healthy training toward sub-15:00 5K. Sub-30:00 10K remains a later, materially harder goal.';
   if (!tenK || tenK > 1875) return 'Sub-15:00 5K capability is indicated; next bridge is approximately sub-31:15 10K durability before targeting sub-30.';
   return 'Current model supports the sub-31 10K bridge; build threshold durability toward sub-30 without sacrificing health or aerobic continuity.';
+}
+
+function guardedGoalPace(profile: CoachProfile, physiology: PhysiologyEstimate | undefined): number | undefined {
+  const goal = profile.goalEvent;
+  if (!goal) return physiology?.raceEquivalents.find((race) => race.label === '5K')?.paceSecPerKm;
+  const goalPace = goal.targetTimeSec / goal.distanceKm;
+  const currentPace = equivalentPaceForDistance(physiology, goal.distanceKm);
+  if (!currentPace) return undefined;
+  // Specific work can approach the goal, but never jump more than 3% beyond
+  // the athlete's current equivalent in a single generated prescription.
+  return Math.max(goalPace, currentPace * 0.97);
+}
+
+function equivalentPaceForDistance(physiology: PhysiologyEstimate | undefined, distanceKm: number): number | undefined {
+  const available = physiology?.raceEquivalents
+    .map((race) => ({ ...race, distanceKm: raceDistanceKm(race.label) }))
+    .filter((race): race is typeof race & { distanceKm: number } => race.distanceKm !== undefined && race.predictedSec > 0)
+    .sort((a, b) => Math.abs(a.distanceKm - distanceKm) - Math.abs(b.distanceKm - distanceKm));
+  const nearest = available?.[0];
+  if (!nearest) return undefined;
+  const equivalentSeconds = nearest.predictedSec * Math.pow(distanceKm / nearest.distanceKm, 1.06);
+  return equivalentSeconds / distanceKm;
+}
+
+function raceDistanceKm(label: string): number | undefined {
+  if (label === '5K') return 5;
+  if (label === '10K') return 10;
+  if (label.toLowerCase().includes('half')) return 21.0975;
+  if (label.toLowerCase().includes('marathon')) return 42.195;
+  return undefined;
+}
+
+function formatDistance(distanceKm: number): string {
+  if (Math.abs(distanceKm - 21.0975) < 0.05) return 'Half marathon';
+  if (Math.abs(distanceKm - 42.195) < 0.05) return 'Marathon';
+  return `${Number(distanceKm.toFixed(2))} km`;
+}
+
+function formatRaceTime(seconds: number): string {
+  const total = Math.round(seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remaining = total % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remaining).padStart(2, '0')}`
+    : `${minutes}:${String(remaining).padStart(2, '0')}`;
 }
 
 function phaseObjective(phase: LydiardPhase, state: LydiardWeekPlan['currentState']): string {

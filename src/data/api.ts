@@ -18,6 +18,7 @@ import type {
   CoachEvaluationMutation,
   CoachFeedbackDraft,
   CoachFeedbackRecord,
+  CoachGoalDraft,
   CoachPhase,
   CoachProfileRecord,
   CriticalPowerDraft,
@@ -171,6 +172,24 @@ export async function saveCoachPhase(
   const payload = await mutationJson<{ profile: CoachProfileRecord }>('/api/coach/profile', 'PATCH', {
     expectedVersion,
     patch: { currentPhase, phaseStartedOn: new Date().toISOString().slice(0, 10) },
+  });
+  return payload.profile;
+}
+
+export async function saveCoachGoal(
+  goal: CoachGoalDraft,
+  constraints: Record<string, unknown>,
+  expectedVersion: number,
+): Promise<CoachProfileRecord> {
+  const patch: Record<string, unknown> = {
+    constraints: { ...constraints, scullionGoal: goal },
+    targetRaceDate: goal.targetDate ?? '',
+  };
+  if (Math.abs(goal.distanceKm - 5) < 0.05) patch.goal5kSeconds = goal.timeSeconds;
+  if (Math.abs(goal.distanceKm - 10) < 0.05) patch.goal10kSeconds = goal.timeSeconds;
+  const payload = await mutationJson<{ profile: CoachProfileRecord }>('/api/coach/profile', 'PATCH', {
+    expectedVersion,
+    patch,
   });
   return payload.profile;
 }

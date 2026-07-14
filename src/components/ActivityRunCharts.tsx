@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   CartesianGrid,
   Line,
@@ -187,9 +188,13 @@ function ChartSummary({
 
 function LapProfileChart({ detail, laps }: { detail: ActivityDetail | null; laps: ActivityLapView[] }) {
   const model = buildLapProfileModel(detail, laps);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [pinnedIndex, setPinnedIndex] = useState<number | null>(null);
+  const activeIndex = hoveredIndex ?? pinnedIndex;
+  const activeLap = activeIndex === null ? undefined : model.bars[activeIndex]?.lap;
   return (
     <div className="lap-profile-shell">
-      <div className="lap-profile-scroll">
+      <div className="lap-profile-scroll" onMouseLeave={() => setHoveredIndex(null)}>
         <svg
           viewBox={`0 0 ${model.width} ${model.height}`}
           style={{ width: `${model.width}px`, height: `${model.height}px` }}
@@ -203,8 +208,31 @@ function LapProfileChart({ detail, laps }: { detail: ActivityDetail | null; laps
             </g>
           ))}
           {model.backgroundPath && <path className="lap-profile-trace" d={model.backgroundPath} />}
-          {model.bars.map((bar) => (
-            <g key={`${bar.lap.index}-${bar.x}`}>
+          {model.bars.map((bar, index) => (
+            <g
+              key={`${bar.lap.index}-${bar.x}`}
+              className={`lap-profile-column${activeIndex === index ? ' active' : ''}`}
+              role="button"
+              tabIndex={0}
+              aria-pressed={pinnedIndex === index}
+              aria-label={lapDetailLabel(bar.lap)}
+              onMouseEnter={() => setHoveredIndex(index)}
+              onFocus={() => setHoveredIndex(index)}
+              onBlur={() => setHoveredIndex(null)}
+              onClick={() => setPinnedIndex((current) => current === index ? null : index)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                setPinnedIndex((current) => current === index ? null : index);
+              }}
+            >
+              <rect
+                className="lap-profile-hit"
+                x={bar.x - Math.max(0, (18 - bar.width) / 2)}
+                y={0}
+                width={Math.max(18, bar.width)}
+                height={model.bottom + 28}
+              />
               <rect
                 className={`lap-profile-bar zone-${bar.lap.zone.key}`}
                 x={bar.x}
@@ -213,7 +241,7 @@ function LapProfileChart({ detail, laps }: { detail: ActivityDetail | null; laps
                 height={model.bottom - bar.y}
                 rx={Math.min(7, bar.width / 3)}
               >
-                <title>{`Lap ${bar.lap.label}: ${bar.lap.distanceKm.toFixed(2)} km · ${formatPace(bar.lap.paceSecPerKm)} · ${bar.lap.zone.label}`}</title>
+                <title>{lapDetailLabel(bar.lap)}</title>
               </rect>
               {bar.showLabel && <text className="lap-profile-label" x={bar.x + bar.width / 2} y={model.bottom + 22} textAnchor="middle">{bar.lap.label}</text>}
             </g>
@@ -222,9 +250,40 @@ function LapProfileChart({ detail, laps }: { detail: ActivityDetail | null; laps
           <text className="lap-profile-axis-title" x={(model.left + model.width - model.right) / 2} y={model.height - 4} textAnchor="middle">Lap number</text>
         </svg>
       </div>
-      <p>Bar width follows lap distance. The grey trace is continuous pace; colour shows the split zone.</p>
+      {activeLap ? (
+        <div className="lap-profile-detail" role="status" aria-live="polite">
+          <div><span>Selected split</span><strong>Split {activeLap.label}</strong><small>{activeLap.zone.label}</small></div>
+          <dl>
+            <div><dt>Distance</dt><dd>{formatLapDistance(activeLap.distanceKm)}</dd></div>
+            <div><dt>Time</dt><dd>{formatLapDuration(activeLap.durationSec)}</dd></div>
+            <div><dt>Pace</dt><dd>{formatPace(activeLap.paceSecPerKm)}</dd></div>
+            <div><dt>Avg HR</dt><dd>{activeLap.averageHeartRate ? `${Math.round(activeLap.averageHeartRate)} bpm` : '—'}</dd></div>
+            <div><dt>Avg power</dt><dd>{activeLap.averagePower ? `${Math.round(activeLap.averagePower)} W` : '—'}</dd></div>
+          </dl>
+        </div>
+      ) : (
+        <p>Hover, focus, or tap a column for split distance, time, pace, heart rate, and power. Bar width follows split distance.</p>
+      )}
     </div>
   );
+}
+
+function lapDetailLabel(lap: ActivityLapView): string {
+  return `Split ${lap.label}: ${formatLapDistance(lap.distanceKm)}, ${formatLapDuration(lap.durationSec)}, ${formatPace(lap.paceSecPerKm)}, average heart rate ${lap.averageHeartRate ? `${Math.round(lap.averageHeartRate)} bpm` : 'unavailable'}, average power ${lap.averagePower ? `${Math.round(lap.averagePower)} watts` : 'unavailable'}`;
+}
+
+function formatLapDistance(distanceKm: number): string {
+  return `${distanceKm.toFixed(distanceKm >= 0.95 ? 2 : 3)} km`;
+}
+
+function formatLapDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remaining = total % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remaining).padStart(2, '0')}`
+    : `${minutes}:${String(remaining).padStart(2, '0')}`;
 }
 
 function buildLapProfileModel(detail: ActivityDetail | null, laps: ActivityLapView[]) {

@@ -1,10 +1,12 @@
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
   ArrowRight,
   CalendarRange,
   Check,
+  ChevronDown,
+  Flag,
   Gauge,
   HeartPulse,
   Pencil,
@@ -13,18 +15,23 @@ import {
   Save,
   ShieldCheck,
   Sparkles,
+  Target,
+  Timer,
   X,
   Zap,
 } from 'lucide-react';
 import type { PracticalZone } from '../analysis/coachEngine';
+import { buildScullionPlanRead, scullionGoalFromProfile, type ScullionGoal, type ScullionPlanRead } from '../analysis/scullionPlan';
 import type {
   CoachContextData,
   CoachDecisionRecord,
   CoachFeedbackDraft,
+  CoachGoalDraft,
   CoachPhase,
   CriticalPowerDraft,
   StoredPlannedSession,
 } from '../data/coachTypes';
+import type { GymSession } from '../types';
 
 export interface CoachPanelProps {
   context: CoachContextData | null;
@@ -32,6 +39,7 @@ export interface CoachPanelProps {
   error: string;
   onReload: (weekStart?: string) => Promise<void> | void;
   onUpdatePhase: (phase: CoachPhase, expectedVersion: number) => Promise<void>;
+  onUpdateGoal: (goal: CoachGoalDraft, constraints: Record<string, unknown>, expectedVersion: number) => Promise<void>;
   onAddCriticalPower: (input: CriticalPowerDraft) => Promise<void>;
   onProposeBlock: (startWeek: string, weekCount: 1 | 2 | 3) => Promise<void>;
   onAcceptBlock: (decisionId: string, expectedVersion: number) => Promise<void>;
@@ -40,6 +48,7 @@ export interface CoachPanelProps {
   onRejectDecision: (decisionId: string) => Promise<void>;
   onOpenActivity: (activityId: string) => void;
   currentRead: { status: string; tone: string; summary: string };
+  gymSessions: GymSession[];
   onUpdateSession: (
     id: string,
     patch: { plannedDate?: string; title?: string; plannedDurationMin?: number; purpose?: string },
@@ -63,6 +72,19 @@ export function CoachPanel(props: CoachPanelProps) {
   const [startWeek, setStartWeek] = useState(() => nextMonday(new Date()));
   const [cpWatts, setCpWatts] = useState('');
   const [cpEffective, setCpEffective] = useState(() => new Date().toISOString().slice(0, 10));
+  const initialGoal = context ? scullionGoalFromProfile(context.profile) : { distanceKm: 5, timeSeconds: 20 * 60 };
+  const [goalDistance, setGoalDistance] = useState(String(initialGoal.distanceKm));
+  const [goalTime, setGoalTime] = useState(formatGoalInput(initialGoal.timeSeconds));
+  const [goalDate, setGoalDate] = useState(initialGoal.targetDate ?? '');
+  const [goalError, setGoalError] = useState('');
+
+  useEffect(() => {
+    if (!context) return;
+    const next = scullionGoalFromProfile(context.profile);
+    setGoalDistance(String(next.distanceKm));
+    setGoalTime(formatGoalInput(next.timeSeconds));
+    setGoalDate(next.targetDate ?? '');
+  }, [context?.profile.version]);
 
   const act = async (name: string, action: () => Promise<void>) => {
     setWorking(name);
@@ -99,14 +121,54 @@ export function CoachPanel(props: CoachPanelProps) {
     (decision) => decision.decisionType === 'post_run_evaluation' && decision.status === 'proposed',
   );
   const canonicalCp = context.physiology.canonicalCriticalPower;
+  const goal = scullionGoalFromProfile(context.profile);
+  const scullion = buildScullionPlanRead(context, props.gymSessions, goal);
+  const nextKeySession = findNextKeySession(context.upcomingPlan.sessions);
+
+  const submitGoal = () => {
+    const distanceKm = Number(goalDistance);
+    const timeSeconds = parseGoalTime(goalTime);
+    if (!Number.isFinite(distanceKm) || distanceKm < 1 || distanceKm > 100) {
+      setGoalError('Goal distance must be between 1 and 100 km.');
+      return;
+    }
+    if (!timeSeconds || timeSeconds < 120 || timeSeconds > 24 * 60 * 60) {
+      setGoalError('Enter goal time as MM:SS or H:MM:SS.');
+      return;
+    }
+    if (goalDate && !/^\d{4}-\d{2}-\d{2}$/.test(goalDate)) {
+      setGoalError('Choose a valid goal date or leave it open.');
+      return;
+    }
+    setGoalError('');
+    const nextGoal: ScullionGoal = { distanceKm, timeSeconds, targetDate: goalDate || undefined };
+    void act('goal', () => props.onUpdateGoal(nextGoal, context.profile.constraints, context.profile.version));
+  };
 
   return (
     <section className="coach-shell coach-shell-simple" aria-label="Training plan and coach">
-      <header className={`coach-hero coach-read-${props.currentRead.tone}`}>
+      <GoalHeader
+        read={scullion}
+        distance={goalDistance}
+        time={goalTime}
+        date={goalDate}
+        working={working === 'goal'}
+        error={goalError}
+        phase={context.profile.currentPhase}
+        onDistance={setGoalDistance}
+        onTime={setGoalTime}
+        onDate={setGoalDate}
+        onSubmit={submitGoal}
+      />
+
+      <section className="coach-mission-grid" aria-label="Scullion training read">
+        <div className="coach-mission-column">
+      <header className={`coach-hero coach-mission-card coach-read-${props.currentRead.tone}`}>
         <div>
-          <p className="eyebrow"><Sparkles size={15} aria-hidden="true" /> Current recommendation</p>
-          <h2>{props.currentRead.status}</h2>
-          <p>{props.currentRead.summary}</p>
+          <p className="eyebrow"><Sparkles size={15} aria-hidden="true" /> This week's mission</p>
+          <span className="coach-mission-confidence">{scullion.missionConfidence} confidence</span>
+          <h2>{scullion.mission}</h2>
+          <p>{props.currentRead.status} · {props.currentRead.summary}</p>
         </div>
         <div className="coach-hero-actions">
           <button type="button" onClick={() => void props.onReload(context.currentWeek.weekStart)} disabled={Boolean(working)}>
@@ -114,6 +176,14 @@ export function CoachPanel(props: CoachPanelProps) {
           </button>
         </div>
       </header>
+
+          <NextKeySession session={nextKeySession} />
+        </div>
+        <div className="coach-read-column">
+          <WeekProgress read={scullion} context={context} />
+          <SystemBuckets read={scullion} />
+        </div>
+      </section>
 
       {(props.error || actionError) && <p className="coach-action-error" role="alert">{actionError || props.error}</p>}
 
@@ -206,6 +276,135 @@ export function CoachPanel(props: CoachPanelProps) {
   );
 }
 
+function GoalHeader({
+  read,
+  distance,
+  time,
+  date,
+  phase,
+  working,
+  error,
+  onDistance,
+  onTime,
+  onDate,
+  onSubmit,
+}: {
+  read: ScullionPlanRead;
+  distance: string;
+  time: string;
+  date: string;
+  phase: CoachPhase;
+  working: boolean;
+  error: string;
+  onDistance: (value: string) => void;
+  onTime: (value: string) => void;
+  onDate: (value: string) => void;
+  onSubmit: () => void;
+}) {
+  const status = read.overallStatus === 'on_track' ? 'On track' : read.overallStatus === 'protect_recovery' ? 'Protect recovery' : 'Work to do';
+  return (
+    <section className="coach-goal-header" aria-labelledby="goal-heading">
+      <div className="coach-goal-facts">
+        <div className="coach-goal-primary">
+          <span>Goal</span>
+          <h2 id="goal-heading">{read.goalLabel}</h2>
+          <p>{formatRaceDuration(read.goal.timeSeconds)} · {formatPace(read.goalPaceSecPerKm)}</p>
+        </div>
+        <div>
+          <span>Race date</span>
+          <strong>{read.goal.targetDate ? formatDate(read.goal.targetDate) : 'Open horizon'}</strong>
+          <small>{read.daysToGoal === undefined ? 'No artificial deadline' : read.daysToGoal >= 0 ? `${read.daysToGoal} days out` : 'Date has passed'}</small>
+        </div>
+        <div>
+          <span>Current block</span>
+          <strong>{phaseLabel(phase)}</strong>
+          <small>{read.absorbedWeeks}/4 recent weeks absorbed</small>
+        </div>
+        <div>
+          <span>Current evidence</span>
+          <strong>{read.currentEquivalentSeconds ? formatRaceDuration(read.currentEquivalentSeconds) : 'Withheld'}</strong>
+          <small>{read.currentEquivalentSeconds ? `${read.currentEquivalentConfidence} confidence · ${signedSeconds(read.paceGapSecPerKm)} /km gap` : 'More race-quality evidence needed'}</small>
+        </div>
+        <div className={`coach-goal-status status-${read.overallStatus}`}>
+          <span><i aria-hidden="true" /> {status}</span>
+          <small>Scullion-informed block read</small>
+        </div>
+      </div>
+      <form className="coach-goal-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+        <div>
+          <Target size={17} aria-hidden="true" />
+          <span>Set the target</span>
+        </div>
+        <label><span>Distance (km)</span><input type="number" inputMode="decimal" min="1" max="100" step="0.0001" list="goal-distances" value={distance} disabled={working} onChange={(event) => onDistance(event.target.value)} /></label>
+        <datalist id="goal-distances"><option value="5" /><option value="10" /><option value="21.0975" /><option value="42.195" /></datalist>
+        <label><span>Goal time</span><input inputMode="numeric" value={time} disabled={working} placeholder="1:25:00" aria-describedby="goal-time-help" onChange={(event) => onTime(event.target.value)} /><small id="goal-time-help">MM:SS or H:MM:SS</small></label>
+        <label><span>Goal date <em>optional</em></span><input type="date" value={date} disabled={working} onChange={(event) => onDate(event.target.value)} /></label>
+        <button type="submit" className="primary-button" disabled={working}><Flag size={15} aria-hidden="true" /> {working ? 'Saving…' : 'Save goal'}</button>
+        {error && <p role="alert">{error}</p>}
+      </form>
+      {read.currentEquivalentCaveat && <p className="coach-goal-caveat"><Gauge size={14} aria-hidden="true" /> {read.currentEquivalentCaveat}</p>}
+    </section>
+  );
+}
+
+function WeekProgress({ read, context }: { read: ScullionPlanRead; context: CoachContextData }) {
+  const today = localDateKey();
+  const actualDays = new Set(context.recentRuns.map((run) => (run.startDateLocal ?? run.startDate).slice(0, 10)));
+  const plannedDays = new Set(context.currentWeek.sessions
+    .filter((session) => !['rest', 'strength', 'cancelled', 'superseded'].includes(session.sessionType))
+    .map((session) => session.plannedDate));
+  const days = Array.from({ length: 7 }, (_, index) => addDays(context.currentWeek.weekStart, index));
+  const progress = Math.min(1, read.currentWeekKm / Math.max(1, read.weeklyTargetKm));
+  return (
+    <section className="coach-week-progress">
+      <header><div><span>Week progress</span><strong>{read.currentWeekSessions} sessions</strong></div><em className={`status-${read.overallStatus}`}>{read.overallStatus.replaceAll('_', ' ')}</em></header>
+      <div className="coach-week-days" aria-label="Current week session progress">
+        {days.map((day) => <span key={day} className={`${actualDays.has(day) ? 'done' : plannedDays.has(day) ? 'planned' : ''}${day === today ? ' today' : ''}`}><i aria-hidden="true" />{weekday(day).slice(0, 1)}</span>)}
+      </div>
+      <div className="coach-volume-read"><span>Volume</span><strong>{read.currentWeekKm.toFixed(1)} <small>/ {read.weeklyTargetKm.toFixed(1)} km</small></strong></div>
+      <div className="coach-progress-track" aria-label={`${Math.round(progress * 100)}% of current safe weekly volume`}><span style={{ width: `${progress * 100}%` }} /></div>
+      <p>{Math.max(0, read.weeklyTargetKm - read.currentWeekKm).toFixed(1)} km remaining · the target is capped by recently absorbed training.</p>
+    </section>
+  );
+}
+
+function SystemBuckets({ read }: { read: ScullionPlanRead }) {
+  return (
+    <section className="coach-system-buckets">
+      <header><span>Systems / buckets</span><small>Last 28 days vs current-block need</small></header>
+      <div>
+        {read.buckets.map((bucket) => (
+          <details key={bucket.key} className={`coach-bucket status-${bucket.status}`}>
+            <summary>
+              <span>{bucket.label}</span>
+              <div><strong>{bucket.actual.toFixed(bucket.unit === 'km' ? 1 : 0)}{bucket.target > 0 ? ` / ${bucket.target.toFixed(bucket.unit === 'km' ? 1 : 0)}` : ''} {bucket.unit}</strong><i><b style={{ width: `${bucket.progress * 100}%` }} /></i></div>
+              <em>{bucketStatusLabel(bucket.status)}</em>
+              <ChevronDown size={15} aria-hidden="true" />
+            </summary>
+            <div><p>{bucket.evidence}</p><strong>Next decision</strong><p>{bucket.nextStep}</p></div>
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function NextKeySession({ session }: { session?: StoredPlannedSession }) {
+  if (!session) {
+    return <section className="coach-next-key empty"><div><span>Next key session</span><h3>Not scheduled</h3></div><p>Generate a block when the goal and current evidence look right. Nothing is added automatically.</p></section>;
+  }
+  return (
+    <section className="coach-next-key">
+      <div><span>Next key session · {weekday(session.plannedDate)}</span><h3>{session.title}</h3><p>{session.purpose}</p></div>
+      <div className="coach-next-key-targets">
+        {session.plannedDurationSec !== undefined && <span><Timer size={14} /> {Math.round(session.plannedDurationSec / 60)} min</span>}
+        {session.plannedDistanceKm !== undefined && <span>{session.plannedDistanceKm.toFixed(1)} km</span>}
+        {paceTarget(session) && <span>{paceTarget(session)}</span>}
+      </div>
+    </section>
+  );
+}
+
 function PhysiologyPanel({ context }: { context: CoachContextData }) {
   const p = context.physiology;
   return (
@@ -234,14 +433,15 @@ function UpcomingPlan({
   const weeks = useMemo(() => groupSessionsByWeek(sessions), [sessions]);
   if (sessions.length === 0) return <section className="product-card coach-empty-plan"><CalendarRange size={22} /><div><strong>No future block yet</strong><p>Generate a draft above. Nothing changes until you accept it.</p></div></section>;
   return (
-    <section className="coach-future-weeks" aria-label="Upcoming structured training plan">
+    <section className="coach-future-weeks coach-day-by-day" aria-label="Upcoming structured training plan">
       {[...weeks.entries()].map(([weekStart, weekSessions], index) => {
         const running = weekSessions.filter((session) => !['rest', 'strength'].includes(session.sessionType));
         const minutes = running.reduce((total, session) => total + (session.plannedDurationSec ?? 0) / 60, 0);
+        const distance = running.reduce((total, session) => total + (session.plannedDistanceKm ?? 0), 0);
         const accepted = weekSessions.some((session) => session.status === 'accepted' || session.status === 'planned');
         return (
           <article key={weekStart} className="product-card coach-future-week">
-            <header><div><span>Week {index + 1} · {formatDateRange(weekStart, addDays(weekStart, 6))}</span><h3>{accepted ? 'Accepted' : 'Proposed'} · {Math.round(minutes)} min</h3></div><small>{index > 0 ? 'Contingent on prior-week absorption' : 'Current evidence'}</small></header>
+            <header><div><span>This week, day by day</span><h3>Week {index + 1} · {formatDateRange(weekStart, addDays(weekStart, 6))}</h3></div><small>{distance > 0 ? `${distance.toFixed(1)} km` : `${Math.round(minutes)} min`} if every session is completed · {accepted ? 'accepted' : 'proposed'}{index > 0 ? ' · contingent' : ''}</small></header>
             <div className="coach-session-list">{weekSessions.map((session) => <SessionCard key={session.id} session={session} context={context} onUpdateSession={onUpdateSession} />)}</div>
           </article>
         );
@@ -266,9 +466,13 @@ function SessionCard({
   const [purpose, setPurpose] = useState(session.purpose);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const today = localDateKey();
+  const [expanded, setExpanded] = useState(session.plannedDate === today && session.priority === 'key');
   const links = context.upcomingPlan.activityLinks.filter((link) => link.plannedSessionId === session.id);
   const actual = links.map((link) => context.recentRuns.find((run) => run.id === link.activityId)).filter(Boolean);
   const editable = ['proposed', 'accepted', 'planned'].includes(session.status);
+  const components = workoutComponents(session);
+  const keySession = session.priority === 'key';
   const save = async () => {
     const duration = Number(minutes);
     if (!title.trim() || !Number.isFinite(duration) || duration < 0) return;
@@ -289,19 +493,39 @@ function SessionCard({
     }
   };
   return (
-    <article className={`coach-session-card status-${session.status}`}>
-      <div className="coach-session-date"><strong>{weekday(session.plannedDate)}</strong><span>{formatShortDate(session.plannedDate)}</span></div>
-      <div className="coach-session-main">
-        <header><strong>{session.title}</strong><span>{session.priority} · {session.status}</span></header>
-        <p>{session.purpose}</p>
+    <details
+      className={`coach-session-card status-${session.status} type-${session.sessionType}${keySession ? ' is-key' : ''}${session.plannedDate === today ? ' is-today' : ''}`}
+      open={expanded}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
+    >
+      <summary>
+        <div className="coach-session-date"><strong>{new Date(`${session.plannedDate}T12:00:00Z`).getUTCDate()}</strong><span>{weekday(session.plannedDate)}</span></div>
+        <i className="coach-session-dot" aria-hidden="true" />
+        <div className="coach-session-summary-main"><strong>{session.title}</strong><small>{session.plannedDistanceKm ? `${session.plannedDistanceKm.toFixed(1)} km` : session.plannedDurationSec ? `${Math.round(session.plannedDurationSec / 60)} min` : session.purpose}</small></div>
+        <div className="coach-session-summary-target">{session.targetHrLow && session.targetHrHigh ? `${Math.round(session.targetHrLow)}–${Math.round(session.targetHrHigh)} bpm` : paceTarget(session) || session.priority}</div>
+        <span className="coach-session-state">{session.plannedDate === today ? 'Today' : actual.length > 0 ? 'Done' : session.status}</span>
+        <ChevronDown size={16} aria-hidden="true" />
+      </summary>
+      <div className="coach-session-expanded">
+        <div className="coach-session-main">
+        <header><div><span>{session.sessionType.replaceAll('_', ' ')}</span><strong>{session.title}</strong></div><small>{keySession ? 'Key session' : 'Supporting work'} · {session.trainingPhase.replaceAll('_', ' ')}</small></header>
+        <p className="coach-session-purpose-read">{session.purpose}</p>
         <div className="coach-targets">
           <span>{session.plannedDurationSec ? `${Math.round(session.plannedDurationSec / 60)} min` : 'No running'}</span>
+          {session.plannedDistanceKm !== undefined && <span>{session.plannedDistanceKm.toFixed(1)} km</span>}
           {rangeLabel(session.targetPowerLowPctCp, session.targetPowerHighPctCp, '% CP', 100)}
           {rangeLabel(session.targetPowerLowW, session.targetPowerHighW, 'W')}
           {session.targetHrCeiling && <span>HR ceiling {Math.round(session.targetHrCeiling)}</span>}
           {paceTarget(session) && <span>{paceTarget(session)}</span>}
         </div>
+        {components.length > 0 && (
+          <section className="coach-execution-guide" aria-label={`How to execute ${session.title}`}>
+            <span>How to execute</span>
+            <div>{components.map((component, index) => <article key={`${component.kind}-${index}`}><i>{index + 1}</i><div><strong>{componentLabel(component)}</strong><p>{componentDetail(component)}</p></div></article>)}</div>
+          </section>
+        )}
         {session.fallbackPlan && <p className="coach-fallback"><strong>Fallback:</strong> {session.fallbackPlan}</p>}
+        {session.coachReasoning && <p className="coach-session-reason"><strong>Why now:</strong> {session.coachReasoning}</p>}
         {actual.length > 0 && <p className="coach-actual"><Check size={13} /> Actual linked · {actual.map((run) => run?.name).join(', ')}</p>}
         {editable && !editing && <button type="button" className="coach-session-edit" onClick={() => setEditing(true)}><Pencil size={13} /> Edit session</button>}
         {editing && (
@@ -315,7 +539,8 @@ function SessionCard({
           </form>
         )}
       </div>
-    </article>
+      </div>
+    </details>
   );
 }
 
@@ -425,3 +650,109 @@ function rangeLabel(low: number | undefined, high: number | undefined, unit: str
 function numericRange(low: number | undefined, high: number | undefined, unit: string) { if (low !== undefined && high !== undefined) return `${Math.round(low)}–${Math.round(high)} ${unit}`; if (high !== undefined) return `<${Math.round(high)} ${unit}`; if (low !== undefined) return `>${Math.round(low)} ${unit}`; return '-'; }
 function paceTarget(session: StoredPlannedSession) { if (session.targetGapLowSecPerKm === undefined && session.targetGapHighSecPerKm === undefined) return ''; return `${session.targetGapLowSecPerKm ? formatPace(session.targetGapLowSecPerKm) : ''}${session.targetGapLowSecPerKm && session.targetGapHighSecPerKm ? '–' : ''}${session.targetGapHighSecPerKm ? formatPace(session.targetGapHighSecPerKm) : ''}`; }
 function paceRange(zone: PracticalZone) { const pace = zone.pace; if (!pace) return '-'; return `${pace.fastSecPerKm ? formatPace(pace.fastSecPerKm) : ''}${pace.fastSecPerKm && pace.slowSecPerKm ? '–' : ''}${pace.slowSecPerKm ? formatPace(pace.slowSecPerKm) : ''}`; }
+
+function findNextKeySession(sessions: StoredPlannedSession[]): StoredPlannedSession | undefined {
+  const today = localDateKey();
+  const active = sessions
+    .filter((session) => session.plannedDate >= today && !['rest', 'strength'].includes(session.sessionType) && !['cancelled', 'superseded', 'skipped'].includes(session.status))
+    .sort((a, b) => a.plannedDate.localeCompare(b.plannedDate) || a.sequence - b.sequence);
+  return active.find((session) => session.priority === 'key') ?? active[0];
+}
+
+function localDateKey(value = new Date()): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatGoalInput(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remaining = total % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remaining).padStart(2, '0')}`
+    : `${minutes}:${String(remaining).padStart(2, '0')}`;
+}
+
+function parseGoalTime(value: string): number | undefined {
+  const parts = value.trim().split(':').map(Number);
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => !Number.isFinite(part) || part < 0)) return undefined;
+  if (parts.length === 2) {
+    const [minutes, seconds] = parts;
+    return seconds < 60 ? Math.round(minutes * 60 + seconds) : undefined;
+  }
+  const [hours, minutes, seconds] = parts;
+  return minutes < 60 && seconds < 60 ? Math.round(hours * 3600 + minutes * 60 + seconds) : undefined;
+}
+
+function formatRaceDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remaining = total % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remaining).padStart(2, '0')}`
+    : `${minutes}:${String(remaining).padStart(2, '0')}`;
+}
+
+function signedSeconds(value?: number): string {
+  if (value === undefined || !Number.isFinite(value)) return '-';
+  const rounded = Math.round(value);
+  return `${rounded > 0 ? '+' : ''}${rounded}s`;
+}
+
+function phaseLabel(phase: CoachPhase): string {
+  return ({
+    aerobic_conditioning: 'Aerobic foundation',
+    hill_resistance: 'Hill resistance',
+    anaerobic_development: 'Capacity & specificity',
+    coordination: 'Coordination & taper',
+    recovery_regeneration: 'Recovery',
+  })[phase];
+}
+
+function bucketStatusLabel(status: ScullionPlanRead['buckets'][number]['status']): string {
+  return ({
+    covered: 'Enough this block',
+    building: 'In progress',
+    needs_attention: 'Needs attention',
+    planned_later: 'Planned later',
+  })[status];
+}
+
+interface StoredWorkoutComponent {
+  kind: string;
+  durationMin?: number;
+  count?: number;
+  repetitionDurationSec?: number;
+  recoveryDurationSec?: number;
+  distanceM?: number;
+  note?: string;
+}
+
+function workoutComponents(session: StoredPlannedSession): StoredWorkoutComponent[] {
+  const value = session.workoutStructure.components;
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is StoredWorkoutComponent => Boolean(item) && typeof item === 'object' && 'kind' in item && typeof item.kind === 'string');
+}
+
+function componentLabel(component: StoredWorkoutComponent): string {
+  const kind = component.kind.replaceAll('_', ' ');
+  if (component.count && component.repetitionDurationSec) return `${component.count} × ${formatComponentDuration(component.repetitionDurationSec)}`;
+  if (component.count && component.distanceM) return `${component.count} × ${component.distanceM >= 1000 ? `${component.distanceM / 1000} km` : `${component.distanceM} m`}`;
+  if (component.durationMin) return `${Math.round(component.durationMin)} min ${kind}`;
+  return kind;
+}
+
+function componentDetail(component: StoredWorkoutComponent): string {
+  const parts: string[] = [];
+  if (component.recoveryDurationSec) parts.push(`${formatComponentDuration(component.recoveryDurationSec)} recovery`);
+  if (component.note) parts.push(component.note);
+  return parts.join(' · ') || 'Keep the prescribed purpose and finish with control.';
+}
+
+function formatComponentDuration(seconds: number): string {
+  return seconds >= 60 && seconds % 60 === 0 ? `${seconds / 60} min` : `${seconds}s`;
+}

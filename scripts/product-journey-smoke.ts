@@ -50,7 +50,7 @@ try {
   );
   const navLabels = (await page.locator('.mobile-bottom-nav button').allTextContents()).map((label) => label.trim());
   assert(JSON.stringify(navLabels) === JSON.stringify(['Log', 'Progress', 'Plan']), `Unexpected navigation: ${navLabels.join(', ')}`);
-  assert(await page.getByRole('heading', { name: 'Your runs and notes' }).isVisible(), 'Log heading is missing.');
+  assert(await page.getByRole('heading', { name: 'The running year' }).isVisible(), 'Log almanac heading is missing.');
   assert(await page.locator('.log-history-totals').isVisible(), 'All-history totals are missing from Log.');
   assert(await page.getByRole('group', { name: 'Training range' }).count() === 0, 'Log still exposes time-period filters.');
   const duplicateDayNotePreviews = await page.locator('.week-day-cell.has-run.has-note').evaluateAll((days) => days.filter((day) => {
@@ -132,6 +132,35 @@ try {
   }
   assert(await page.locator('.activity-best-efforts article > em').count() === runBestEffortCount, 'Per-run effort boundaries are missing.');
   assert(await page.locator('.activity-lap-profile .lap-profile-bar').count() > 0, 'Lap profile bars are missing.');
+  const splitColumns = page.locator('.activity-lap-profile .lap-profile-column');
+  assert(await splitColumns.count() > 0, 'Interactive split columns are missing.');
+  await splitColumns.first().click();
+  const splitReadout = page.locator('.activity-lap-profile .lap-profile-detail');
+  assert(await splitReadout.isVisible(), 'Tapping a split column did not expose its readout.');
+  const splitReadoutText = (await splitReadout.textContent()) ?? '';
+  for (const label of ['Selected split', 'Distance', 'Time', 'Pace', 'Avg HR', 'Avg power']) {
+    assert(splitReadoutText.includes(label), `Split readout is missing ${label}.`);
+  }
+  const mobileOverview = page.locator('.activity-mobile-overview');
+  assert(await mobileOverview.isVisible(), 'Run Read and general metrics are not visible in the mobile overview.');
+  const mobileOverviewGeometry = await page.evaluate(() => {
+    const map = document.querySelector('.activity-route-panel')?.getBoundingClientRect();
+    const overview = document.querySelector('.activity-mobile-overview')?.getBoundingClientRect();
+    const visibleReads = [...document.querySelectorAll<HTMLElement>('.activity-run-read')].filter((node) => getComputedStyle(node).display !== 'none');
+    const readStyle = visibleReads[0] ? getComputedStyle(visibleReads[0]) : undefined;
+    return {
+      gap: map && overview ? overview.top - map.bottom : Number.POSITIVE_INFINITY,
+      visibleReads: visibleReads.length,
+      background: readStyle?.backgroundImage ?? '',
+      color: readStyle?.color ?? '',
+      metrics: document.querySelectorAll('.activity-mobile-overview .preview-primary-stats .compact-metric').length,
+    };
+  });
+  assert(mobileOverviewGeometry.gap >= 0 && mobileOverviewGeometry.gap <= 16, `Mobile run overview is not directly below the map (${mobileOverviewGeometry.gap}px).`);
+  assert(mobileOverviewGeometry.visibleReads === 1, `Expected one visible mobile Run Read, found ${mobileOverviewGeometry.visibleReads}.`);
+  assert(mobileOverviewGeometry.metrics === 6, `Expected six mobile general metrics, found ${mobileOverviewGeometry.metrics}.`);
+  assert(mobileOverviewGeometry.background.includes('24, 75, 56'), `Run Read did not restore the forest background: ${mobileOverviewGeometry.background}.`);
+  assert(mobileOverviewGeometry.color.includes('248, 245, 236'), `Run Read foreground is not the readable warm white: ${mobileOverviewGeometry.color}.`);
   assert(await page.locator('.splits-preview').count() === 0, 'The redundant Pace over time chart is still rendered.');
   assert(await page.locator('.lap-split-table th', { hasText: 'HR avg' }).first().isVisible(), 'Average HR split column is missing.');
   assert(await page.locator('.lap-split-table th', { hasText: 'HR max' }).first().isVisible(), 'Maximum HR split column is missing.');
@@ -227,6 +256,10 @@ try {
   assert(await page.locator('.training-zone-panel').isVisible(), 'Training zones are missing from Progress.');
   assert(await page.locator('.progress-zone-ledger').isVisible(), 'Range-scoped zone ledger is missing from Progress.');
   assert(await page.locator('.progress-zone-row').count() === 5, 'Progress zone ledger does not expose all five zones.');
+  assert((await page.locator('.progress-load-panel .mini-load-y-title').textContent())?.trim() === 'Training time', 'The 12-week y axis is not labelled.');
+  assert((await page.locator('.progress-load-panel .mini-load-x-title').textContent())?.trim() === 'Week starting', 'The 12-week x axis is not labelled.');
+  assert(await page.locator('.progress-load-panel .mini-load-y-ticks span').count() === 3, 'The 12-week y axis is missing numeric ticks.');
+  assert(await page.locator('.progress-load-panel .mini-load-x-ticks span').count() === 12, 'The 12-week x axis is missing week ticks.');
   assert(await page.locator('.analysis-chart-stack').isVisible(), 'Progress charts are not always visible.');
   assert(await page.locator('.heart-rate-pace-card .recharts-area-area').count() >= 2, 'Continuous heart-rate range bands are missing.');
   assert(await page.locator('.heart-rate-pace-card .heart-rate-pace-points.recharts-symbols').count() > 0, 'Exact-pace run observations are missing.');
@@ -235,10 +268,11 @@ try {
   await page.locator('.mobile-bottom-nav button').filter({ hasText: 'Plan' }).click();
   await page.waitForSelector('.coach-block-planner', { timeout: 10_000 });
   assert(new URL(page.url()).searchParams.get('view') === 'plan', 'Plan URL state was not updated.');
-  const planRead = (await page.locator('.coach-hero h2').textContent())?.trim();
-  assert(progressRead === planRead, `Progress and Plan disagree: ${progressRead} vs ${planRead}`);
-  const plannerTop = await page.locator('.coach-block-planner').evaluate((node) => node.getBoundingClientRect().top);
-  assert(plannerTop < 700, `Future-plan action is buried below the first screen (${plannerTop}px).`);
+  const planRead = (await page.locator('.coach-mission-card').textContent())?.trim() ?? '';
+  assert(planRead.includes(progressRead ?? ''), `Progress status is missing from the Plan mission: ${progressRead} vs ${planRead}`);
+  assert(await page.locator('.coach-goal-form').isVisible(), 'Goal distance/time controls are missing from Plan.');
+  assert(await page.locator('.coach-bucket').count() === 8, 'The Scullion systems read does not expose all eight training buckets.');
+  assert(await page.locator('.coach-block-planner').isVisible(), 'Future-plan action is missing.');
   assert(!(await page.locator('.coach-advanced-settings').evaluate((node) => (node as HTMLDetailsElement).open)), 'Advanced coach settings should start closed.');
   assert(!(await page.locator('.plan-legacy-editor').evaluate((node) => (node as HTMLDetailsElement).open)), 'Legacy plan editor should start closed.');
 
@@ -273,11 +307,15 @@ try {
     noteRoundTrip: true,
     dayNoteRoundTrip,
     runStreamCharts: true,
+    splitColumnInspection: 'hover + focus + tap',
+    mobileRunOverview: 'directly below map',
     runBestEfforts: runBestEffortCount,
     progressZoneLedger: true,
     bestEffortGroups: bestEffortGroupCount,
     canonicalRead: progressRead,
-    plannerTopPx: Math.round(plannerTop),
+    progressAxes: 'labelled x + y',
+    scullionBuckets: 8,
+    goalControls: true,
     browserBack: true,
     browserErrors: pageErrors.length,
   }, null, 2));

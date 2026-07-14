@@ -88,6 +88,41 @@ assert(plan.longRunMinutes <= 105, 'long run must respect known tolerance');
 assert(plan.qualitySessionCount <= 2, 'quality must remain capped at two');
 assert(plan.strengthSessionCount === 2, 'durability plan should preserve twice-weekly strength');
 
+const halfMarathonGoalSeconds = 60 * 60;
+const goalAwarePlan = buildLydiardWeek({
+  weekStart: '2026-07-13',
+  profile: {
+    currentPhase: 'coordination',
+    goals: [{ distance: '5k', targetTimeSec: 900, priority: 1 }],
+    goalEvent: { distanceKm: 21.0975, targetTimeSec: halfMarathonGoalSeconds, targetDate: '2026-08-17' },
+    sustainableWeeklyMinutes: 420,
+    maximumWeeklyMinutes: 480,
+    longRunToleranceMinutes: 105,
+    runningDaysPerWeek: 6,
+    maxQualitySessions: 2,
+    strengthSessionsPerWeek: 2,
+  },
+  physiology,
+  recentWeeks: [
+    { weekStart: '2026-06-29', runningMinutes: 400, distanceKm: 75, stress: 390, hardStress: 30, longRunMinutes: 95, absorbed: true },
+    { weekStart: '2026-07-06', runningMinutes: 410, distanceKm: 77, stress: 400, hardStress: 32, longRunMinutes: 100, absorbed: true },
+  ],
+  recentSessions: [],
+  recentFeedback: [],
+  sevenDayStress: 400,
+  fortyTwoDayStress: 380,
+});
+const raceSpecific = goalAwarePlan.days.flatMap((day) => day.sessions).find((session) => session.sessionType === 'race_specific');
+assert(raceSpecific?.target.gapPace, 'coordination phase should expose the goal-aware pace range');
+assert(raceSpecific.target.gapPace.fastSecPerKm, 'goal-aware range should include a fast pace boundary');
+assert(raceSpecific.target.gapPace.slowSecPerKm, 'goal-aware range should include a slow pace boundary');
+const prescribedMidpoint = (raceSpecific.target.gapPace.fastSecPerKm + raceSpecific.target.gapPace.slowSecPerKm) / 2;
+assert(
+  prescribedMidpoint > halfMarathonGoalSeconds / 21.0975,
+  'an unsupported goal pace must be capped by current race-equivalent evidence',
+);
+assert(goalAwarePlan.goalPriority.startsWith('Half marathon in 1:00:00.'), 'arbitrary saved event should steer the generated plan rationale');
+
 const block = buildLydiardBlock({
   weekStart: '2026-07-13',
   weekCount: 3,
@@ -159,6 +194,11 @@ console.log(JSON.stringify({
     runningMinutes: plan.totalRunningMinutes,
     qualitySessions: plan.qualitySessionCount,
     longRunMinutes: plan.longRunMinutes,
+  },
+  goalAwarePlan: {
+    goalPriority: goalAwarePlan.goalPriority,
+    prescribedRacePaceSecPerKm: prescribedMidpoint,
+    requestedRacePaceSecPerKm: halfMarathonGoalSeconds / 21.0975,
   },
   futureBlock: block.weeks.map((week) => ({
     weekStart: week.weekStart,

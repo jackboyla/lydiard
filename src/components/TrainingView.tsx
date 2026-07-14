@@ -572,13 +572,14 @@ export function TrainingView({
       ) : (
         <>
       <section className="training-toolbar log-history-hero" aria-label="All training history">
-        <div>
+        <div className="log-history-intro">
           <p className="eyebrow">
-            <Activity size={15} aria-hidden="true" />
-            Training log
+            <CalendarDays size={15} aria-hidden="true" />
+            Training almanac
           </p>
-          <h2>Your runs and notes</h2>
-          <small>{allHistoryLoaded ? 'All recorded activities' : 'Loading your full history…'}</small>
+          <h2>The running year</h2>
+          <p className="log-history-deck">Every run, rest day and field note—laid out in the rhythm you trained it.</p>
+          <small>{allHistoryLoaded ? `${scoped.months.length} months on record` : 'Opening your full history…'}</small>
         </div>
         <div className="log-history-totals" aria-label="All-time totals">
           <div className="log-history-total distance">
@@ -592,6 +593,12 @@ export function TrainingView({
           <div className="log-history-total runs">
             <span>Runs</span>
             <strong>{runCount.toLocaleString()}</strong>
+          </div>
+          <div className="calendar-tone-key" aria-label="Calendar effort key">
+            <span><i className="tone-easy" aria-hidden="true" /> Easy</span>
+            <span><i className="tone-moderate" aria-hidden="true" /> Steady</span>
+            <span><i className="tone-hard" aria-hidden="true" /> Hard</span>
+            <span><i className="tone-danger" aria-hidden="true" /> High load</span>
           </div>
         </div>
       </section>
@@ -635,6 +642,7 @@ export function TrainingView({
                       onPreview={openPreview}
                       onPrefetch={prefetchDetail}
                       onSaveDayNote={onSaveDayNote}
+                      currentWeek={entry.weekId === currentWeekId}
                     />
                   ) : (
                     <NoRunWeekBlock
@@ -642,6 +650,7 @@ export function TrainingView({
                       gym={entry.gym}
                       planByDate={planByDate}
                       onSaveDayNote={onSaveDayNote}
+                      currentWeek={entry.weekId === currentWeekId}
                     />
                   )}
                 </div>
@@ -650,7 +659,8 @@ export function TrainingView({
           ) : (
             <div className="training-empty">
               <Activity size={28} aria-hidden="true" />
-              <h3>{usingSample ? 'Import Garmin data for run rows' : 'No runs in this range'}</h3>
+              <h3>{usingSample ? 'Bring your training year into view' : 'Your calendar is ready'}</h3>
+              <p>{usingSample ? 'Import Garmin activities and each week will assemble here automatically.' : 'Your next run, rest-day note or gym session will appear in this week.'}</p>
             </div>
           )}
           {visibleWeekCount < scoped.weekEntries.length && <div className="training-scroll-sentinel" aria-hidden="true" />}
@@ -672,6 +682,7 @@ function WeekBlock({
   onPreview,
   onPrefetch,
   onSaveDayNote,
+  currentWeek,
 }: {
   week: WeekLoadSummary;
   gym: GymSession[];
@@ -681,20 +692,24 @@ function WeekBlock({
   onPreview: (id: string) => void;
   onPrefetch: (id: string) => void;
   onSaveDayNote: TrainingViewProps['onSaveDayNote'];
+  currentWeek: boolean;
 }) {
   const days = buildWeekCalendarDays(week.weekId, week.sessions, gym, planByDate);
   return (
-    <article className={`training-week-block ${week.severity}`}>
+    <article className={`training-week-block ${week.severity}${currentWeek ? ' current-week' : ''}`}>
       <header className="training-week-head">
         <div className="training-week-heading-content">
-          <p>{week.label}</p>
+          <div className="training-week-title-group">
+            <p>{week.label}</p>
+            {currentWeek && <span className="current-week-marker">This week</span>}
+            <h3>{week.status}</h3>
+          </div>
           <WeekTotalReadout
             label={week.label}
             distanceKm={week.distanceKm}
             durationHours={week.durationHours}
             runCount={week.activityCount}
           />
-          <h3>{week.status}</h3>
         </div>
       </header>
       <WeekCalendar
@@ -823,21 +838,26 @@ function NoRunWeekBlock({
   gym,
   planByDate,
   onSaveDayNote,
+  currentWeek,
 }: {
   weekId: string;
   gym: GymSession[];
   planByDate: Map<string, TrainingPlanDay>;
   onSaveDayNote: TrainingViewProps['onSaveDayNote'];
+  currentWeek: boolean;
 }) {
   const days = buildWeekCalendarDays(weekId, [], gym, planByDate);
   const label = `Week of ${formatWeekIdLabel(weekId)}`;
   return (
-    <article className={`training-week-block ${gym.length > 0 ? 'gym-only' : 'empty-week'}`}>
+    <article className={`training-week-block ${gym.length > 0 ? 'gym-only' : 'empty-week'}${currentWeek ? ' current-week' : ''}`}>
       <header className="training-week-head">
         <div className="training-week-heading-content">
-          <p>{label}</p>
+          <div className="training-week-title-group">
+            <p>{label}</p>
+            {currentWeek && <span className="current-week-marker">This week</span>}
+            <h3>{gym.length > 0 ? 'Gym week' : 'No runs'}</h3>
+          </div>
           <WeekTotalReadout label={label} distanceKm={0} durationHours={0} runCount={0} />
-          <h3>{gym.length > 0 ? 'Gym week' : 'No runs'}</h3>
           {gym.length > 0 && (
             <div className="week-gym-count">
               <Dumbbell size={16} aria-hidden="true" />
@@ -900,14 +920,19 @@ function CalendarDayColumn({
   const hasGym = day.gym.length > 0;
   const note = day.planDay?.notes;
   const hasNote = Boolean(note && note.length > 0);
+  const today = new Date();
+  const todayId = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const isToday = day.dayId === todayId;
   return (
     <section
-      className={`week-day-cell tone-${day.tone}${hasRun ? ' has-run' : ''}${hasGym ? ' has-gym' : ''}${hasNote ? ' has-note' : ''}`}
+      className={`week-day-cell tone-${day.tone}${hasRun ? ' has-run' : ''}${hasGym ? ' has-gym' : ''}${hasNote ? ' has-note' : ''}${isToday ? ' is-today' : ''}`}
       aria-label={`${day.weekday} ${day.dateLabel}`}
+      aria-current={isToday ? 'date' : undefined}
     >
       <header className="week-day-head">
         <span>{day.weekday}</span>
         <strong>{day.dateLabel}</strong>
+        {isToday && <em>Today</em>}
         <small>
           {hasRun
             ? day.sessions.length > 1
@@ -1157,6 +1182,10 @@ function ActivityDetailPage({
                 <LazyActivityRouteMap activity={detail ?? session.activity} />
               </Suspense>
             </section>
+            <div className="activity-mobile-overview" aria-label="Run overview">
+              <RunRead classification={runKind} session={session} />
+              <PrimaryRunMetrics activity={activity} session={session} />
+            </div>
             <ActivityEffortStrip totals={hrZoneTotals} loading={loading} />
             <ActivityBestEfforts groups={bestEfforts} loading={loading} />
             <section className="activity-analysis-panel" aria-labelledby="activity-analysis-heading">
@@ -1213,14 +1242,7 @@ function ActivityDetailPage({
               </section>
             )}
             <RunRead classification={runKind} session={session} />
-            <div className="preview-stat-grid preview-primary-stats">
-              <Metric label="Distance" value={`${activity.distanceKm.toFixed(1)} km`} />
-              <Metric label="Moving time" value={formatDuration(activity.movingTimeSec)} />
-              <Metric label="Avg pace" value={formatPace(activityPaceSecPerKm(activity))} />
-              <Metric label="Avg HR" value={activity.averageHeartRate ? `${Math.round(activity.averageHeartRate)} bpm` : '-'} />
-              <Metric label="Elevation" value={`${Math.round(activity.elevationGainM)} m`} />
-              <Metric label="Load" value={session.load.toFixed(1)} />
-            </div>
+            <PrimaryRunMetrics activity={activity} session={session} />
             {planDay?.notes && planDay.notes.length > 0 && (
               <section className="preview-plan-note" aria-label="Day note">
                 <header>
@@ -1284,6 +1306,19 @@ function RunRead({ classification, session }: { classification: RunClassificatio
       <p>{runReadCopy(classification.key, session)}</p>
       <div>{tags.map((tag) => <span key={tag}>{tag}</span>)}</div>
     </section>
+  );
+}
+
+function PrimaryRunMetrics({ activity, session }: { activity: ActivitySummary; session: SessionLoad }) {
+  return (
+    <div className="preview-stat-grid preview-primary-stats" aria-label="General run metrics">
+      <Metric label="Distance" value={`${activity.distanceKm.toFixed(1)} km`} />
+      <Metric label="Moving time" value={formatDuration(activity.movingTimeSec)} />
+      <Metric label="Avg pace" value={formatPace(activityPaceSecPerKm(activity))} />
+      <Metric label="Avg HR" value={activity.averageHeartRate ? `${Math.round(activity.averageHeartRate)} bpm` : '-'} />
+      <Metric label="Elevation" value={`${Math.round(activity.elevationGainM)} m`} />
+      <Metric label="Load" value={session.load.toFixed(1)} />
+    </div>
   );
 }
 

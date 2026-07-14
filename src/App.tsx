@@ -45,6 +45,7 @@ import {
   saveActivityNote,
   setBestEffortRejection,
   saveCoachPhase,
+  saveCoachGoal,
   addCoachCriticalPower,
   proposeCoachBlock,
   acceptCoachBlock,
@@ -73,7 +74,7 @@ import type {
   WeeklyAnalysis,
   WeeklyRunBlock,
 } from './types';
-import type { CoachContextData, CoachFeedbackDraft, CoachPhase, CriticalPowerDraft } from './data/coachTypes';
+import type { CoachContextData, CoachFeedbackDraft, CoachGoalDraft, CoachPhase, CriticalPowerDraft } from './data/coachTypes';
 
 type RangePreset = '4w' | '12w' | '6mo' | '1y' | 'all';
 type ViewMode = 'log' | 'progress' | 'plan';
@@ -415,6 +416,15 @@ export default function App() {
     await loadCoachData();
   }, [loadCoachData]);
 
+  const handleCoachGoal = useCallback(async (
+    goal: CoachGoalDraft,
+    constraints: Record<string, unknown>,
+    expectedVersion: number,
+  ) => {
+    await saveCoachGoal(goal, constraints, expectedVersion);
+    await loadCoachData();
+  }, [loadCoachData]);
+
   const handleCoachCriticalPower = useCallback(async (input: CriticalPowerDraft) => {
     await addCoachCriticalPower(input);
     await loadCoachData();
@@ -666,7 +676,7 @@ export default function App() {
         </div>
 
         <div className="view-toggle product-view-toggle desktop-primary-nav" role="tablist" aria-label="Primary">
-          <button role="tab" aria-selected={view === 'log'} className={view === 'log' ? 'active' : ''} type="button" onClick={() => { setLogMode('list'); selectView('log'); }}><List size={16} aria-hidden="true" /> Log</button>
+          <button role="tab" aria-selected={view === 'log'} className={view === 'log' ? 'active' : ''} type="button" onClick={() => { setLogMode('list'); selectView('log'); }}><CalendarDays size={16} aria-hidden="true" /> Log</button>
           <button role="tab" aria-selected={view === 'progress'} className={view === 'progress' ? 'active' : ''} type="button" onClick={() => selectView('progress')}><TrendingUp size={16} aria-hidden="true" /> Progress</button>
           <button role="tab" aria-selected={view === 'plan'} className={view === 'plan' ? 'active' : ''} type="button" onClick={() => selectView('plan')}><ClipboardList size={16} aria-hidden="true" /> Plan</button>
         </div>
@@ -803,6 +813,7 @@ export default function App() {
               error={coachError}
               onReload={loadCoachData}
               onUpdatePhase={handleCoachPhase}
+              onUpdateGoal={handleCoachGoal}
               onAddCriticalPower={handleCoachCriticalPower}
               onProposeBlock={handleCoachBlockProposal}
               onAcceptBlock={handleCoachBlockAcceptance}
@@ -812,6 +823,7 @@ export default function App() {
               onOpenActivity={openActivityInLog}
               currentRead={currentRead}
               onUpdateSession={handleCoachSessionUpdate}
+              gymSessions={gymSessions}
             />
           )}
           planDays={planDays}
@@ -1054,20 +1066,36 @@ function ProgressView({
             </div>
           </div>
         </header>
-        <div className="mini-load-bars" aria-label="Last 12 weeks of training">
-          {recentWeeks.map((week) => (
-            <button
-              key={week.weekId}
-              type="button"
-              className={activeWeek?.weekId === week.weekId ? 'active' : ''}
-              onMouseEnter={() => setActiveWeekId(week.weekId)}
-              onFocus={() => setActiveWeekId(week.weekId)}
-              onClick={() => setActiveWeekId(week.weekId)}
-              title={`${week.label}: ${formatHomeLoadMetric(week, loadMetric)}`}
-            >
-              <span style={{ height: `${Math.max(8, (homeLoadMetricValue(week, loadMetric) / maxValue) * 100)}%` }} />
-            </button>
-          ))}
+        <div className="mini-load-chart" aria-label={`Last 12 weeks by ${loadMetric === 'time' ? 'training time' : 'distance'}`}>
+          <span className="mini-load-y-title">{loadMetric === 'time' ? 'Training time' : 'Distance (km)'}</span>
+          <div className="mini-load-y-ticks" aria-hidden="true">
+            <span>{formatLoadAxisValue(maxValue, loadMetric)}</span>
+            <span>{formatLoadAxisValue(maxValue / 2, loadMetric)}</span>
+            <span>{formatLoadAxisValue(0, loadMetric)}</span>
+          </div>
+          <div className="mini-load-plot">
+            <div className="mini-load-grid" aria-hidden="true"><i /><i /><i /></div>
+            <div className="mini-load-bars" aria-label="Last 12 weeks of training">
+              {recentWeeks.map((week) => (
+                <button
+                  key={week.weekId}
+                  type="button"
+                  className={activeWeek?.weekId === week.weekId ? 'active' : ''}
+                  onMouseEnter={() => setActiveWeekId(week.weekId)}
+                  onFocus={() => setActiveWeekId(week.weekId)}
+                  onClick={() => setActiveWeekId(week.weekId)}
+                  title={`${week.label}: ${formatHomeLoadMetric(week, loadMetric)}`}
+                  aria-label={`${week.label}, ${formatHomeLoadMetric(week, loadMetric)}`}
+                >
+                  <span style={{ height: `${Math.max(8, (homeLoadMetricValue(week, loadMetric) / maxValue) * 100)}%` }} />
+                </button>
+              ))}
+            </div>
+            <div className="mini-load-x-ticks" aria-hidden="true">
+              {recentWeeks.map((week) => <span key={week.weekId}>{formatWeekAxisTick(week.weekId)}</span>)}
+            </div>
+            <span className="mini-load-x-title">Week starting</span>
+          </div>
         </div>
         {activeWeek && <p>{activeWeek.label} · {activeWeek.activityCount} runs · {activeWeek.distanceKm.toFixed(1)} km</p>}
       </section>
@@ -1238,7 +1266,7 @@ function Segmented({
 
 function MobileBottomNav({ active, onSelect }: { active: ViewMode; onSelect: (next: ViewMode) => void }) {
   const items: Array<{ key: ViewMode; label: string; icon: ReactNode }> = [
-    { key: 'log', label: 'Log', icon: <List size={24} aria-hidden="true" /> },
+    { key: 'log', label: 'Log', icon: <CalendarDays size={24} aria-hidden="true" /> },
     { key: 'progress', label: 'Progress', icon: <TrendingUp size={24} aria-hidden="true" /> },
     { key: 'plan', label: 'Plan', icon: <ClipboardList size={24} aria-hidden="true" /> },
   ];
@@ -1717,6 +1745,18 @@ function homeLoadMetricValue(week: WeekLoadSummary, metric: 'time' | 'distance')
 
 function formatHomeLoadMetric(week: WeekLoadSummary, metric: 'time' | 'distance'): string {
   return metric === 'time' ? formatHours(week.durationHours) : `${week.distanceKm.toFixed(1)} km`;
+}
+
+function formatLoadAxisValue(value: number, metric: 'time' | 'distance'): string {
+  if (metric === 'time') return `${value.toFixed(value >= 10 ? 0 : 1)}h`;
+  return `${Math.round(value)}`;
+}
+
+function formatWeekAxisTick(weekId: string): string {
+  const date = new Date(`${weekId}T12:00:00Z`);
+  return Number.isFinite(date.getTime())
+    ? `${date.getUTCDate()}/${date.getUTCMonth() + 1}`
+    : weekId;
 }
 
 function formatHours(hours: number): string {
