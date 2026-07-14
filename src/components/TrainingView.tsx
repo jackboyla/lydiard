@@ -26,6 +26,7 @@ import {
 import type { PhysiologyEstimate, PracticalZone } from '../analysis/coachEngine';
 import { getActivity } from '../data/api';
 import { buildActivityLaps, buildDerivedKilometreLaps, type ActivityLapView } from '../data/activityLaps';
+import { localWeekId, millisecondsUntilNextLocalWeek } from '../data/calendar';
 import { activityPaceSecPerKm, toWeekIdUtc } from '../data/mapRoutes';
 import type { ActivityDetail, ActivitySummary, GymSession, TrainingPlanDay, WeeklyAnalysis } from '../types';
 import { MetricInfo, MetricsGuide, type MetricKey } from './MetricInfo';
@@ -178,6 +179,7 @@ export function TrainingView({
   const [previewDetail, setPreviewDetail] = useState<ActivityDetail | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [pendingJump, setPendingJump] = useState<string | null>(null);
+  const [currentWeekId, setCurrentWeekId] = useState(() => localWeekId());
   const detailCache = useRef(new Map<string, ActivityDetail>());
   const scrollerRef = useRef<HTMLElement | null>(null);
   const weekListRef = useRef<HTMLDivElement | null>(null);
@@ -192,7 +194,10 @@ export function TrainingView({
     () => buildTrainingLoadModel(activities, canonicalMetrics),
     [activities, canonicalMetrics],
   );
-  const scoped = useMemo(() => scopeLoadModel(loadModel, gymSessions), [loadModel, gymSessions]);
+  const scoped = useMemo(
+    () => scopeLoadModel(loadModel, gymSessions, currentWeekId),
+    [currentWeekId, gymSessions, loadModel],
+  );
   const trainingZoneModel = useMemo(
     () => buildTrainingZoneModel(physiology, loadModel.thresholds),
     [physiology, loadModel.thresholds],
@@ -217,6 +222,29 @@ export function TrainingView({
   useEffect(() => {
     if (activities.length > 0 && !allHistoryLoaded) void onRequestFullHistory();
   }, [activities.length, allHistoryLoaded, onRequestFullHistory]);
+
+  useEffect(() => {
+    let timer = 0;
+    const refreshCurrentWeek = () => {
+      setCurrentWeekId((current) => {
+        const next = localWeekId();
+        return current === next ? current : next;
+      });
+      window.clearTimeout(timer);
+      timer = window.setTimeout(refreshCurrentWeek, millisecondsUntilNextLocalWeek());
+    };
+    const refreshAfterResume = () => {
+      if (document.visibilityState === 'visible') refreshCurrentWeek();
+    };
+    refreshCurrentWeek();
+    window.addEventListener('focus', refreshCurrentWeek);
+    document.addEventListener('visibilitychange', refreshAfterResume);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('focus', refreshCurrentWeek);
+      document.removeEventListener('visibilitychange', refreshAfterResume);
+    };
+  }, []);
   const loadDetail = useCallback((activityId: string) => {
     const cached = detailCache.current.get(activityId);
     if (cached) return Promise.resolve(cached);
@@ -282,6 +310,15 @@ export function TrainingView({
       logAnchorOffset: logAnchorOffset.current,
     }, '', '/?view=log');
   }, []);
+
+  const revealActivityWeek = useCallback((activityId: string) => {
+    const session = loadModel.sessionsById.get(activityId);
+    if (!session) return;
+    const index = scoped.weekEntries.findIndex((entry) => entry.weekId === session.weekId);
+    if (index >= 0) {
+      setVisibleWeekCount((current) => Math.max(current, index + 1 + JUMP_BUFFER_WEEKS));
+    }
+  }, [loadModel.sessionsById, scoped.weekEntries]);
 
   // Month/year jump. Week blocks are lazily rendered, so a naive #anchor link
   // does nothing when the target month isn't in the DOM yet. Instead we render
@@ -361,12 +398,9 @@ export function TrainingView({
     if (!session) {
       return;
     }
-    const index = scoped.weekEntries.findIndex((entry) => entry.weekId === session.weekId);
-    if (index >= 0) {
-      setVisibleWeekCount((current) => Math.max(current, index + 1 + JUMP_BUFFER_WEEKS));
-      setPendingJump(session.weekId);
-    }
-  }, [activityFocus?.id, activityFocus?.request, loadModel.sessionsById, scoped.weekEntries]);
+    revealActivityWeek(activityFocus.id);
+    setPendingJump(session.weekId);
+  }, [activityFocus?.id, activityFocus?.request, loadModel.sessionsById, revealActivityWeek]);
 
   useEffect(() => {
     const onPopState = (event: PopStateEvent) => {
@@ -380,13 +414,14 @@ export function TrainingView({
         if (typeof savedHorizontalScroll === 'number') logScrollLeft.current = savedHorizontalScroll;
         if (typeof savedAnchorId === 'string') logAnchorId.current = savedAnchorId;
         if (typeof savedAnchorOffset === 'number') logAnchorOffset.current = savedAnchorOffset;
+        if (typeof savedAnchorId === 'string') revealActivityWeek(savedAnchorId);
         restoreLogScroll.current = true;
       }
       setPreviewId(activityId);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, []);
+  }, [revealActivityWeek]);
 
   useLayoutEffect(() => {
     if (previewId || !restoreLogScroll.current) return;
@@ -1479,7 +1514,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function scopeLoadModel(model: TrainingLoadModel, gymSessions: GymSession[]) {
+function scopeLoadModel(model: TrainingLoadModel, gymSessions: GymSession[], currentWeekId: string) {
   const sessionsAsc = model.sessions;
   const sessions = [...sessionsAsc].reverse();
   const weekIds = new Set(sessionsAsc.map((session) => session.weekId));
@@ -1506,6 +1541,9 @@ function scopeLoadModel(model: TrainingLoadModel, gymSessions: GymSession[]) {
     if (!entriesById.has(weekId)) {
       entriesById.set(weekId, { weekId, gym });
     }
+  }
+  if (!entriesById.has(currentWeekId)) {
+    entriesById.set(currentWeekId, { weekId: currentWeekId, gym: [] });
   }
   const occupiedWeekIds = [...entriesById.keys()].sort();
   if (occupiedWeekIds.length > 0) {

@@ -38,6 +38,16 @@ let dayNoteRoundTrip = false;
 
 try {
   await page.goto(`${BASE_URL}/?view=log`, { waitUntil: 'networkidle' });
+  const currentLocalWeek = await page.evaluate(() => {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  });
+  assert(
+    await page.locator('[data-week]').first().getAttribute('data-week') === currentLocalWeek,
+    'Log does not begin with the current local calendar week.',
+  );
   const navLabels = (await page.locator('.mobile-bottom-nav button').allTextContents()).map((label) => label.trim());
   assert(JSON.stringify(navLabels) === JSON.stringify(['Log', 'Progress', 'Plan']), `Unexpected navigation: ${navLabels.join(', ')}`);
   assert(await page.getByRole('heading', { name: 'Your runs and notes' }).isVisible(), 'Log heading is missing.');
@@ -140,9 +150,9 @@ try {
   await page.waitForFunction((value) => document.querySelector<HTMLTextAreaElement>('.activity-note-editor textarea')?.value === value, marker);
   await noteEditor.fill(originalNote);
   await page.getByRole('button', { name: 'Save note' }).click();
-  await page.goBack();
+  await page.getByRole('button', { name: 'Back to your log' }).click();
   await page.waitForFunction(() => !document.querySelector('.activity-note-editor'));
-  assert(new URL(page.url()).searchParams.get('view') === 'log', 'Browser Back did not close activity detail into Log.');
+  assert(new URL(page.url()).searchParams.get('view') === 'log', 'Back to your log did not close activity detail into Log.');
   const restoredLogPosition = await page.locator('.training-view').evaluate((node) => ({
     top: node.scrollTop,
     left: node.querySelector<HTMLElement>('.training-week-list')?.scrollLeft ?? 0,
@@ -157,9 +167,29 @@ try {
   assert(
     restoredLogPosition.anchorOffset !== null &&
       Math.abs(restoredLogPosition.anchorOffset - (savedLogPosition?.logAnchorOffset ?? 0)) <= 1,
-    'Browser Back did not restore the opened run to the same visual position.',
+    'Back to your log did not restore the opened run to the same visual position on mobile.',
   );
-  assert(restoredLogPosition.left === (savedLogPosition?.logScrollLeft ?? 0), 'Browser Back did not restore horizontal Log position.');
+  assert(restoredLogPosition.left === (savedLogPosition?.logScrollLeft ?? 0), 'Back to your log did not restore horizontal Log position.');
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const desktopRun = page.locator('.calendar-run-card').nth(Math.min(12, await page.locator('.calendar-run-card').count() - 1));
+  await desktopRun.scrollIntoViewIfNeeded();
+  await desktopRun.click();
+  const savedDesktopPosition = await page.evaluate(() => history.state as { logAnchorOffset?: number } | null);
+  await page.getByRole('button', { name: 'Back to your log' }).click();
+  await page.waitForFunction(() => !document.querySelector('.activity-detail-page'));
+  const restoredDesktopOffset = await page.locator('.training-view').evaluate((node) => {
+    const state = history.state as { logAnchorId?: string } | null;
+    const anchor = state?.logAnchorId
+      ? node.querySelector<HTMLElement>(`[data-activity-id="${CSS.escape(state.logAnchorId)}"]`)
+      : null;
+    return anchor ? anchor.getBoundingClientRect().top - node.getBoundingClientRect().top : null;
+  });
+  assert(
+    restoredDesktopOffset !== null && Math.abs(restoredDesktopOffset - (savedDesktopPosition?.logAnchorOffset ?? 0)) <= 1,
+    'Back to your log did not restore the opened run on desktop.',
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
 
   await page.locator('.mobile-bottom-nav button').filter({ hasText: 'Progress' }).click();
   await page.waitForSelector('.progress-view');
@@ -216,13 +246,30 @@ try {
   await page.waitForSelector('.progress-view');
   assert(new URL(page.url()).searchParams.get('view') === 'progress', 'Browser Back did not restore Progress.');
 
+  const rolloverContext = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'Europe/London' });
+  const rolloverPage = await rolloverContext.newPage();
+  await rolloverPage.addInitScript((value) => localStorage.setItem('lydiard.siteKey', value), siteKey);
+  await rolloverPage.clock.install({ time: new Date('2026-07-19T22:55:00.000Z') });
+  await rolloverPage.goto(`${BASE_URL}/?view=log`, { waitUntil: 'networkidle' });
+  await rolloverPage.clock.pauseAt(new Date('2026-07-19T22:59:59.900Z'));
+  const preMidnightWeek = await rolloverPage.locator('[data-week]').first().getAttribute('data-week');
+  assert(
+    preMidnightWeek === '2026-07-13',
+    `Pre-midnight Log week is incorrect: ${preMidnightWeek}.`,
+  );
+  await rolloverPage.clock.runFor(100);
+  await rolloverPage.waitForFunction(() => document.querySelector('[data-week]')?.getAttribute('data-week') === '2026-07-20');
+  await rolloverContext.close();
+
   assert(pageErrors.length === 0, `Browser errors: ${pageErrors.join(' | ')}`);
   console.log(JSON.stringify({
     navigation: navLabels,
     historyWeeksRevealed: `${initialVisibleWeeks}→${expandedVisibleWeeks}`,
     continuousWeeks: true,
+    automaticMondayRollover: true,
     totalsUnderDate: true,
     activityDeepLink: true,
+    activityReturnPosition: 'mobile + desktop',
     noteRoundTrip: true,
     dayNoteRoundTrip,
     runStreamCharts: true,
