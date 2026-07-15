@@ -135,7 +135,7 @@ export function buildScullionPlanRead(
       'km',
       `Last 28 days contain ${fourWeekKm.toFixed(1)} km; the current safe block target is ${weeklyTargetKm.toFixed(1)} km per week.`,
       recentWeeklyKm > 0 && eventCeiling > progressionCap
-        ? `Hold near ${weeklyTargetKm.toFixed(1)} km first. Scullion's rule is to build the floor before chasing event-volume folklore.`
+        ? `Hold near ${weeklyTargetKm.toFixed(1)} km first. Build the floor before chasing event-volume folklore.`
         : 'Keep the ordinary week repeatable; change only one major stressor at a time.',
     ),
     recoveryTarget === 0

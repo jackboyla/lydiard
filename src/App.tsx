@@ -27,6 +27,7 @@ import {
 } from './analysis/loadModel';
 import { CoachPanel } from './components/CoachPanel';
 import { PlanView } from './components/PlanView';
+import { PowerDurationChart } from './components/PowerDurationChart';
 import { ProgressZoneBreakdown } from './components/ProgressZoneBreakdown';
 import { TrainingView, TrainingZoneSummary, type TrainingJumpApi } from './components/TrainingView';
 import {
@@ -489,13 +490,18 @@ export default function App() {
       void loadCoachData();
     } else if (view === 'progress') {
       void loadCoachData();
-      if (activities.length > 0) void loadAllActivities();
     } else if (view === 'log') {
       // Day notes belong to the diary as well as the Plan editor. Loading them
       // here also supplies the optimistic-concurrency token for rest-day edits.
       void loadPlanData();
     }
-  }, [activities.length, view, loadAllActivities, loadCoachData, loadPlanData]);
+  }, [view, loadCoachData, loadPlanData]);
+
+  useEffect(() => {
+    if (view === 'progress' && activities.length > 0 && !allActivitiesLoaded) {
+      void loadAllActivities();
+    }
+  }, [activities.length, allActivitiesLoaded, view, loadAllActivities]);
 
   useEffect(() => {
     if (view === 'log' && activityFocus && activities.length > 0 && !activities.some((activity) => activity.id === activityFocus.id)) {
@@ -855,6 +861,10 @@ export default function App() {
           onMetricChange={setMetric}
           onWeekSelect={setSelectedIndex}
           physiology={coachContext?.physiology}
+          powerDuration={coachContext?.powerDuration}
+          powerDurationLoading={coachLoading}
+          powerDurationError={coachError}
+          onReloadPowerDuration={loadCoachData}
         />
       ) : logMode === 'map' ? (
         <main className="map-stage">
@@ -996,6 +1006,10 @@ function ProgressView({
   onMetricChange,
   onWeekSelect,
   physiology,
+  powerDuration,
+  powerDurationLoading,
+  powerDurationError,
+  onReloadPowerDuration,
 }: {
   loadModel: TrainingLoadModel;
   analyses: WeeklyAnalysis[];
@@ -1013,6 +1027,10 @@ function ProgressView({
   onMetricChange: (metric: TrendMetricKey) => void;
   onWeekSelect: (index: number) => void;
   physiology?: PhysiologyEstimate;
+  powerDuration: CoachContextData['powerDuration'] | undefined;
+  powerDurationLoading: boolean;
+  powerDurationError: string;
+  onReloadPowerDuration: () => Promise<void>;
 }) {
   const [loadMetric, setLoadMetric] = useState<'time' | 'distance'>('time');
   const [activeWeekId, setActiveWeekId] = useState<string | null>(null);
@@ -1054,6 +1072,15 @@ function ProgressView({
           </div>
         </article>
       </section>
+
+      <PowerDurationChart
+        points={powerDuration}
+        criticalPowerWatts={physiology?.canonicalCriticalPower?.watts}
+        loading={powerDurationLoading}
+        error={powerDurationError}
+        onRetry={onReloadPowerDuration}
+        onOpenActivity={onOpenActivity}
+      />
 
       <section className="product-card load-preview-panel progress-load-panel">
         <header>

@@ -1,6 +1,7 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import {
   buildHrCostBaseline,
+  buildPowerDurationCurve,
   estimatePhysiology,
   scoreLydiardSession,
   type AthleteFeedback,
@@ -10,6 +11,7 @@ import {
   type HrCostBaseline,
   type PhysiologyEstimate as EnginePhysiologyEstimate,
   type PlanningStateInput,
+  type PowerDurationPoint,
   type RecentTrainingWeek,
   type SessionStressAssessment,
 } from '../src/analysis/coachEngine';
@@ -121,6 +123,7 @@ export interface CoachContextBundle {
     verdict?: string;
   }>;
   recentSessions: SessionStressAssessment[];
+  powerDuration: PowerDurationPoint[];
   recentFeedback: ActivityFeedback[];
   recentCheckins: DailyCheckin[];
   recentDecisions: CoachDecision[];
@@ -294,6 +297,7 @@ export async function loadCoachRuntime(
       recentWeeks,
       recentRuns,
       recentSessions: sessionAssessments.slice(-28),
+      powerDuration: buildPowerDurationCurve(sessionAssessments, asOf),
       recentFeedback,
       recentCheckins: checkins.slice(-42),
       recentDecisions: decisions,

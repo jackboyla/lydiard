@@ -9827,7 +9827,7 @@ select {
   }
 }
 
-/* ---------- Goal-driven Scullion plan ---------- */
+/* ---------- Goal-driven coaching plan ---------- */
 
 .coach-shell-simple {
   display: grid;
@@ -11001,4 +11001,312 @@ select {
   border-color: rgba(255, 253, 248, 0.2);
   color: #f0cf98;
   background: rgba(8, 31, 23, 0.5);
+}
+/* ---------- Progress power-duration curve ---------- */
+
+.power-duration-card {
+  --power-recent: #29b6e8;
+  --power-building: #8f63ef;
+  --power-historic: #e14b64;
+  display: grid;
+  gap: 18px;
+  padding: clamp(18px, 3vw, 28px);
+  border-color: #3d725c;
+  color: #eef6f1;
+  background:
+    radial-gradient(circle at 92% 0, rgba(41, 182, 232, 0.09), transparent 27rem),
+    linear-gradient(145deg, #153f31, #0d3026 72%);
+}
+
+.power-duration-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.power-duration-card > header > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.power-duration-card > header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #9fc8b5;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.power-duration-card h2 {
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(1.55rem, 3vw, 2.25rem);
+  letter-spacing: -0.035em;
+}
+
+.power-duration-card > header p {
+  margin: 0;
+  color: #c2d2ca;
+  line-height: 1.5;
+}
+
+.power-duration-cp {
+  display: grid;
+  min-width: 120px;
+  justify-items: end;
+  padding: 10px 12px;
+  border: 1px solid rgba(159, 200, 181, 0.28);
+  border-radius: 12px;
+  background: rgba(5, 28, 21, 0.4);
+}
+
+.power-duration-cp small {
+  color: #9eb6aa;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.power-duration-cp strong {
+  color: #ffffff;
+  font-size: 1.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.power-duration-chart-shell {
+  width: 100%;
+  min-width: 0;
+  border-block: 1px solid rgba(159, 200, 181, 0.12);
+  background: rgba(3, 24, 17, 0.19);
+}
+
+.power-duration-chart {
+  display: block;
+  width: 100%;
+  min-height: 290px;
+  overflow: visible;
+}
+
+.power-duration-grid line,
+.power-duration-x-tick line {
+  stroke: rgba(185, 203, 191, 0.15);
+  stroke-width: 1;
+}
+
+.power-duration-x-tick line {
+  stroke-dasharray: 3 6;
+}
+
+.power-duration-grid text,
+.power-duration-x-tick text,
+.power-duration-y-unit {
+  fill: #9eb6aa;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.power-duration-area {
+  fill: url(#power-duration-area);
+}
+
+.power-duration-segment {
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.power-duration-segment.freshness-recent,
+.power-duration-point.freshness-recent .power-duration-dot { stroke: var(--power-recent); }
+.power-duration-segment.freshness-building,
+.power-duration-point.freshness-building .power-duration-dot { stroke: var(--power-building); }
+.power-duration-segment.freshness-historic,
+.power-duration-point.freshness-historic .power-duration-dot { stroke: var(--power-historic); }
+
+.power-duration-point {
+  cursor: pointer;
+  outline: none;
+}
+
+.power-duration-hit {
+  fill: transparent;
+}
+
+.power-duration-dot {
+  fill: #0b2d23;
+  stroke-width: 3;
+  transition: r 120ms ease, fill 120ms ease;
+}
+
+.power-duration-point:hover .power-duration-dot,
+.power-duration-point:focus .power-duration-dot,
+.power-duration-point.selected .power-duration-dot {
+  r: 7px;
+  fill: #ffffff;
+}
+
+.power-duration-legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(12px, 3vw, 28px);
+  color: #c2d2ca;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.power-duration-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.power-duration-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.power-duration-legend .freshness-recent { background: var(--power-recent); }
+.power-duration-legend .freshness-building { background: var(--power-building); }
+.power-duration-legend .freshness-historic { background: var(--power-historic); }
+
+.power-duration-detail {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 13px 15px;
+  border: 1px solid rgba(159, 200, 181, 0.2);
+  border-radius: 12px;
+  background: rgba(5, 28, 21, 0.34);
+}
+
+.power-duration-detail > div {
+  display: grid;
+  gap: 2px;
+}
+
+.power-duration-detail small {
+  color: #9eb6aa;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.power-duration-detail strong {
+  color: #ffffff;
+  font-size: 1rem;
+}
+
+.power-duration-detail span,
+.power-duration-detail p {
+  margin: 0;
+  color: #c2d2ca;
+  font-size: 0.76rem;
+}
+
+.power-duration-detail button,
+.power-duration-error button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid #5d977e;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #1f5b45;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.power-duration-detail button:hover,
+.power-duration-error button:hover {
+  background: #2c7155;
+}
+
+.power-duration-state {
+  display: grid;
+  min-height: 220px;
+  place-content: center;
+  gap: 6px;
+  text-align: center;
+  color: #c2d2ca;
+}
+
+.power-duration-state strong {
+  color: #ffffff;
+  font-size: 1.1rem;
+}
+
+.power-duration-state p {
+  max-width: 46ch;
+  margin: 0;
+}
+
+.power-duration-error button {
+  justify-self: center;
+  margin-top: 10px;
+}
+
+@media (max-width: 620px) {
+  .power-duration-card {
+    gap: 14px;
+    padding: 16px 13px;
+  }
+
+  .power-duration-card > header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .power-duration-card > header p {
+    grid-column: 1 / -1;
+    font-size: 0.78rem;
+  }
+
+  .power-duration-cp {
+    min-width: 94px;
+    padding: 8px 9px;
+  }
+
+  .power-duration-chart {
+    min-height: 290px;
+  }
+
+  .power-duration-legend {
+    justify-content: space-between;
+    gap: 5px;
+    font-size: 0.61rem;
+  }
+
+  .power-duration-legend span {
+    gap: 4px;
+  }
+
+  .power-duration-legend i {
+    width: 8px;
+    height: 8px;
+  }
+
+  .power-duration-detail {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .power-duration-detail button {
+    align-self: flex-start;
+  }
 }

@@ -161,7 +161,7 @@ export function CoachPanel(props: CoachPanelProps) {
         onSubmit={submitGoal}
       />
 
-      <section className="coach-mission-grid" aria-label="Scullion training read">
+      <section className="coach-mission-grid" aria-label="Goal-based training read">
         <div className="coach-mission-column">
       <header className={`coach-hero coach-mission-card coach-read-${props.currentRead.tone}`}>
         <div>
@@ -327,7 +327,7 @@ function GoalHeader({
         </div>
         <div className={`coach-goal-status status-${read.overallStatus}`}>
           <span><i aria-hidden="true" /> {status}</span>
-          <small>Scullion-informed block read</small>
+          <small>Evidence-informed block read</small>
         </div>
       </div>
       <form className="coach-goal-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>

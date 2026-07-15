@@ -2444,6 +2444,15 @@ export async function saveActivityLaps(db: D1Database, activityId: string, laps:
     .run();
 }
 
+/** Read only compact device-recorded lap summaries, without loading heavy streams. */
+export async function getActivityLaps(db: D1Database, activityId: string): Promise<ActivityLap[]> {
+  const row = await db
+    .prepare('SELECT laps FROM activity_streams WHERE activity_id = ?1')
+    .bind(activityId)
+    .first<{ laps: string | null }>();
+  return parseJson<ActivityLap[]>(row?.laps ?? null) ?? [];
+}
+
 export async function getStreams(db: D1Database, activityId: string): Promise<ActivityStreams | null> {
   const row = await db
     .prepare('SELECT * FROM activity_streams WHERE activity_id = ?1')

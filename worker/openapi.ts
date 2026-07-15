@@ -21,6 +21,27 @@ export function buildOpenApiDocument(origin: string): unknown {
 
   const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
 
+  const activityProperties = {
+    id: str,
+    name: str,
+    sportType: str,
+    startDate: str,
+    startDateLocal: str,
+    distanceKm: num,
+    movingTimeSec: num,
+    elapsedTimeSec: num,
+    averageHeartRate: num,
+    maxHeartRate: num,
+    averageCadenceSpm: num,
+    elevationGainM: num,
+    relativeEffort: num,
+    averageWatts: num,
+    averageSpeed: num,
+    hasStreams: bool,
+    decouplingPct: num,
+    activityNote: str,
+  };
+
   const schemas = {
     PlanContext: {
       type: 'object',
@@ -160,25 +181,43 @@ export function buildOpenApiDocument(origin: string): unknown {
     },
     Activity: {
       type: 'object',
+      properties: activityProperties,
+    },
+    ActivityLap: {
+      type: 'object',
+      description: 'One device-recorded lap. Distance and duration preserve the original lap boundary; optional metrics are omitted when the device did not provide them.',
       properties: {
-        id: str,
-        name: str,
-        sportType: str,
-        startDate: str,
-        startDateLocal: str,
-        distanceKm: num,
-        movingTimeSec: num,
-        elapsedTimeSec: num,
+        index: int,
+        distanceM: num,
+        durationSec: num,
+        elapsedSec: num,
         averageHeartRate: num,
         maxHeartRate: num,
-        averageCadenceSpm: num,
-        elevationGainM: num,
-        relativeEffort: num,
-        averageWatts: num,
-        averageSpeed: num,
-        hasStreams: bool,
-        decouplingPct: num,
+        averagePower: num,
+        maxPower: num,
+        averageSpeedMps: num,
       },
+    },
+    ActivityDetail: {
+      type: 'object',
+      description: 'One activity plus compact device-recorded lap summaries. This response never invents or derives interval boundaries.',
+      properties: {
+        ...activityProperties,
+        lapDataStatus: {
+          type: 'string',
+          enum: ['recorded', 'unavailable'],
+          description: '`recorded` means laps came from the source device; `unavailable` means no recorded lap data is stored.',
+        },
+        laps: {
+          type: 'array',
+          description: 'Device-recorded laps in source order. Empty when lapDataStatus is unavailable.',
+          items: ref('ActivityLap'),
+        },
+      },
+    },
+    ErrorResponse: {
+      type: 'object',
+      properties: { error: str },
     },
     WeeksResponse: {
       type: 'object',
@@ -317,8 +356,33 @@ export function buildOpenApiDocument(origin: string): unknown {
         get: {
           operationId: 'getActivities',
           summary: 'Per-activity metrics for a date range',
+          description:
+            'Use this summary feed to locate an activity id. For a review of a particular session, laps, or reps, ' +
+            'follow this call with getActivityDetail; whole-run averages cannot verify individual targets.',
           parameters: [dateParam('from', 'Start date (inclusive).'), dateParam('to', 'End date (inclusive).')],
           responses: { '200': jsonResponse('Activities', 'ActivitiesResponse') },
+        },
+      },
+      '/api/agent/activities/{id}': {
+        get: {
+          operationId: 'getActivityDetail',
+          summary: 'Get one activity with recorded lap and rep metrics',
+          description:
+            'Use after getActivities when reviewing a particular session or checking whether work reps met pace, power, or heart-rate targets. ' +
+            'Returns compact source-device lap summaries, not second-by-second streams or inferred interval boundaries.',
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+              description: 'Activity id returned by getActivities.',
+            },
+          ],
+          responses: {
+            '200': jsonResponse('Activity and recorded laps', 'ActivityDetail'),
+            '404': jsonResponse('Activity not found', 'ErrorResponse'),
+          },
         },
       },
       '/api/agent/sync': {

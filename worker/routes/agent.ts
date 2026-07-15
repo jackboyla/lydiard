@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../env';
-import { getActivities, getAthlete, getWeeklyFeatures } from '../db';
+import { getActivities, getActivity, getActivityLaps, getAthlete, getWeeklyFeatures } from '../db';
 import { normalizeFrom, normalizeTo } from '../http';
 import { buildPlanContext } from '../planContext';
 import { runSync } from '../sync';
@@ -48,6 +48,20 @@ export function agentRoutes(): Hono<{ Bindings: Env }> {
     // Strip heavy polyline strings from the agent list; agents want metrics, not geometry.
     const trimmed = activities.map(({ summaryPolyline, ...rest }) => rest);
     return c.json({ activities: trimmed });
+  });
+
+  app.get('/activities/:id', async (c) => {
+    const activity = await getActivity(c.env.lydiard, c.req.param('id'));
+    if (!activity) {
+      return c.json({ error: 'Activity not found.' }, 404);
+    }
+    const laps = await getActivityLaps(c.env.lydiard, activity.id);
+    const { summaryPolyline, ...summary } = activity;
+    return c.json({
+      ...summary,
+      lapDataStatus: laps.length > 0 ? 'recorded' as const : 'unavailable' as const,
+      laps,
+    });
   });
 
   app.get('/risk', async (c) => {

@@ -181,9 +181,18 @@ export interface HrCostBaselineInput {
 }
 
 export interface PowerPeak {
-  durationSec: 10 | 30 | 60 | 180 | 600 | 1200;
+  durationSec: 10 | 30 | 60 | 180 | 300 | 600 | 1200 | 1800 | 3600;
   watts?: number;
   pctCp?: number;
+}
+
+export interface PowerDurationPoint {
+  durationSec: PowerPeak['durationSec'];
+  watts: number;
+  activityId: string;
+  activityDate: string;
+  ageDays: number;
+  freshness: 'recent' | 'building' | 'historic';
 }
 
 export interface ZoneTime {
@@ -489,7 +498,7 @@ interface WeightedPoint {
 
 const DAY_MS = 86_400_000;
 const EFFORT_DURATIONS = [180, 300, 480, 600, 900, 1200, 1800, 2400] as const;
-const POWER_PEAK_DURATIONS = [10, 30, 60, 180, 600, 1200] as const;
+const POWER_PEAK_DURATIONS = [10, 30, 60, 180, 300, 600, 1200, 1800, 3600] as const;
 const POWER_ZONE_BOUNDS = [0.7, 0.8, 0.9, 1] as const;
 
 /** Return the CP record that was actually in force on the activity date. */
@@ -1083,6 +1092,19 @@ export function scoreLydiardSession(input: SessionScoringInput): SessionStressAs
   let powerHrDecouplingPct: number | undefined;
   let externalStress: ExternalStressResult;
 
+  // Peak power is useful evidence even before a dated Critical Power exists.
+  // CP remains mandatory for stress, zones, and percentage-of-CP calculations.
+  if (series?.power && powerCoverage >= 0.6) {
+    peaks = POWER_PEAK_DURATIONS.map((peakDuration) => {
+      const watts = bestRollingAverage(series.time, series.power as number[], peakDuration, usefulPower);
+      return {
+        durationSec: peakDuration,
+        watts: watts ? Math.round(watts) : undefined,
+        pctCp: watts && cp ? round(watts / cp.criticalPowerWatts, 3) : undefined,
+      };
+    });
+  }
+
   if (series?.power && cp && powerCoverage >= 0.6) {
     const powerStress = scorePowerSeries(series.time, series.power, cp.criticalPowerWatts);
     lydiardPowerStress = powerStress.total;
@@ -1092,14 +1114,6 @@ export function scoreLydiardSession(input: SessionScoringInput): SessionStressAs
     weightedPowerWatts = weightedPower(series.time, series.power);
     weightedPctCp = weightedPowerWatts ? weightedPowerWatts / cp.criticalPowerWatts : undefined;
     powerZoneTime = powerStress.zoneTime;
-    peaks = POWER_PEAK_DURATIONS.map((peakDuration) => {
-      const watts = bestRollingAverage(series.time, series.power as number[], peakDuration, usefulPower);
-      return {
-        durationSec: peakDuration,
-        watts: watts ? Math.round(watts) : undefined,
-        pctCp: watts ? round(watts / cp.criticalPowerWatts, 3) : undefined,
-      };
-    });
     latePowerChangePct = lateChangePercent(series.time, series.power, usefulPower);
     powerHrDecouplingPct = externalHrDecoupling(series.time, series.power, series.heartRate);
     externalStress = {
@@ -1157,6 +1171,35 @@ export function scoreLydiardSession(input: SessionScoringInput): SessionStressAs
     },
     warnings,
   };
+}
+
+/** Best measured rolling power at each supported duration, with evidence age. */
+export function buildPowerDurationCurve(
+  assessments: SessionStressAssessment[],
+  asOf: string,
+): PowerDurationPoint[] {
+  const asOfMs = Date.parse(asOf);
+  if (!Number.isFinite(asOfMs)) return [];
+
+  return POWER_PEAK_DURATIONS.flatMap((durationSec) => {
+    const candidates = assessments.flatMap((assessment) => {
+      const watts = assessment.peaks.find((peak) => peak.durationSec === durationSec)?.watts;
+      const activityMs = Date.parse(assessment.activityDate);
+      if (!watts || watts <= 0 || !Number.isFinite(activityMs) || activityMs > asOfMs + DAY_MS) return [];
+      return [{ assessment, watts, activityMs }];
+    });
+    const best = candidates.sort((a, b) => b.watts - a.watts || b.activityMs - a.activityMs)[0];
+    if (!best) return [];
+    const ageDays = Math.max(0, Math.floor((asOfMs - best.activityMs) / DAY_MS));
+    return [{
+      durationSec,
+      watts: best.watts,
+      activityId: best.assessment.activityId,
+      activityDate: best.assessment.activityDate,
+      ageDays,
+      freshness: ageDays <= 30 ? 'recent' as const : ageDays <= 75 ? 'building' as const : 'historic' as const,
+    }];
+  });
 }
 
 function scorePowerSeries(time: number[], power: number[], cp: number): {

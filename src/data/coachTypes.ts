@@ -3,6 +3,7 @@ import type {
   LydiardBlockPlan,
   PhysiologyEstimate,
   PostRunEvaluation,
+  PowerDurationPoint,
   RecentTrainingWeek,
   SessionStressAssessment,
 } from '../analysis/coachEngine';
@@ -175,6 +176,7 @@ export interface CoachContextData {
   recentWeeks: RecentTrainingWeek[];
   recentRuns: CoachRecentRun[];
   recentSessions: SessionStressAssessment[];
+  powerDuration: PowerDurationPoint[];
   recentFeedback: CoachFeedbackRecord[];
   recentCheckins: Array<Record<string, unknown>>;
   recentDecisions: CoachDecisionRecord[];

@@ -44,6 +44,16 @@ export class PlanSaveConflictError extends Error {
   }
 }
 
+class ApiResponseError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiResponseError';
+    this.status = status;
+  }
+}
+
 export function getSiteKey(): string {
   try {
     return window.localStorage.getItem(SITE_KEY_STORAGE) ?? '';
@@ -89,7 +99,7 @@ async function getJson<T>(path: string): Promise<T> {
   }
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(payload?.error ?? `Request failed: ${response.status}`);
+    throw new ApiResponseError(payload?.error ?? `Request failed: ${response.status}`, response.status);
   }
   return (await response.json()) as T;
 }
@@ -157,12 +167,25 @@ export async function getGymSessions(range?: DateRange): Promise<GymSession[]> {
   return data.sessions;
 }
 
-export function getCoachContext(opts: { weekStart?: string; asOf?: string } = {}): Promise<CoachContextData> {
+export async function getCoachContext(opts: { weekStart?: string; asOf?: string } = {}): Promise<CoachContextData> {
   const params = new URLSearchParams();
   if (opts.weekStart) params.set('weekStart', opts.weekStart);
   if (opts.asOf) params.set('asOf', opts.asOf);
   const query = params.toString();
-  return getJson<CoachContextData>(`/api/coach/context${query ? `?${query}` : ''}`);
+  const path = `/api/coach/context${query ? `?${query}` : ''}`;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await getJson<CoachContextData>(path);
+    } catch (error) {
+      lastError = error;
+      const transientResponse = error instanceof ApiResponseError && [429, 500, 502, 503, 504].includes(error.status);
+      const transientNetworkFailure = error instanceof TypeError;
+      if (attempt === 2 || (!transientResponse && !transientNetworkFailure)) throw error;
+      await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw lastError;
 }
 
 export async function saveCoachPhase(
