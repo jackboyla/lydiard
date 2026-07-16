@@ -167,10 +167,11 @@ export async function getGymSessions(range?: DateRange): Promise<GymSession[]> {
   return data.sessions;
 }
 
-export async function getCoachContext(opts: { weekStart?: string; asOf?: string } = {}): Promise<CoachContextData> {
+export async function getCoachContext(opts: { weekStart?: string; asOf?: string; horizonWeeks?: number } = {}): Promise<CoachContextData> {
   const params = new URLSearchParams();
   if (opts.weekStart) params.set('weekStart', opts.weekStart);
   if (opts.asOf) params.set('asOf', opts.asOf);
+  if (opts.horizonWeeks) params.set('horizonWeeks', String(opts.horizonWeeks));
   const query = params.toString();
   const path = `/api/coach/context${query ? `?${query}` : ''}`;
   let lastError: unknown;

@@ -447,7 +447,7 @@ function PlanPageIntro() {
           Plan
         </p>
         <h2>Your training plan</h2>
-        <p>Review the next 1–3 weeks, accept a draft, and adjust only what needs changing.</p>
+        <p>Review the weeks ahead, accept a draft or GPT-authored plan, and adjust only what needs changing.</p>
       </div>
     </section>
   );

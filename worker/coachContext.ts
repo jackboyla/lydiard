@@ -146,23 +146,24 @@ export interface CoachRuntime {
 
 export async function buildCoachContext(
   db: D1Database,
-  opts: { asOf?: string; lookbackDays?: number; weekStart?: string; excludeActivityFromHrBaseline?: string } = {},
+  opts: { asOf?: string; lookbackDays?: number; weekStart?: string; horizonWeeks?: number; excludeActivityFromHrBaseline?: string } = {},
 ): Promise<CoachContextBundle> {
   return (await loadCoachRuntime(db, opts)).context;
 }
 
 export async function loadCoachRuntime(
   db: D1Database,
-  opts: { asOf?: string; lookbackDays?: number; weekStart?: string; excludeActivityFromHrBaseline?: string } = {},
+  opts: { asOf?: string; lookbackDays?: number; weekStart?: string; horizonWeeks?: number; excludeActivityFromHrBaseline?: string } = {},
 ): Promise<CoachRuntime> {
   const asOf = normalizeAsOf(opts.asOf);
   const lookbackDays = clamp(Math.floor(opts.lookbackDays ?? DEFAULT_LOOKBACK_DAYS), 30, DEFAULT_LOOKBACK_DAYS);
   const from = new Date(Date.parse(asOf) - lookbackDays * DAY_MS).toISOString();
   const weekStart = opts.weekStart ? normalizeDay(opts.weekStart) : mondayOf((asOf || new Date().toISOString()).slice(0, 10));
   const weekEnd = addDays(weekStart, 6);
-  // Keep the current week plus three complete future weeks visible. This lets
-  // a block beginning next Monday remain fully inspectable after acceptance.
-  const planningHorizonEnd = addDays(weekStart, 27);
+  // Keep the accepted GPT horizon visible; deterministic blocks remain one to
+  // three weeks, while the conversational planner can publish up to twelve.
+  const horizonWeeks = clamp(Math.floor(opts.horizonWeeks ?? 4), 1, 12);
+  const planningHorizonEnd = addDays(weekStart, horizonWeeks * 7 - 1);
 
   const [profile, cpRows, activities, plannedSessions, checkins, decisions] = await Promise.all([
     getCoachProfile(db),

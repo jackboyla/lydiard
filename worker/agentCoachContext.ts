@@ -1,0 +1,104 @@
+import type { CoachContextBundle } from './coachContext';
+import type { PlannedSession } from './db';
+
+export function compactAgentCoachContext(context: CoachContextBundle) {
+  return {
+    generatedAt: context.generatedAt,
+    asOf: context.asOf,
+    lookbackDays: context.lookbackDays,
+    policyVersion: context.policyVersion,
+    goals: context.goals,
+    profile: context.profile,
+    physiology: {
+      asOf: context.physiology.asOf,
+      criticalSpeed: context.physiology.criticalSpeed,
+      canonicalCriticalPower: context.physiology.canonicalCriticalPower,
+      platformCriticalPower: context.physiology.platformCriticalPower,
+      lt1HeartRate: context.physiology.lt1HeartRate,
+      lt2HeartRate: context.physiology.lt2HeartRate,
+      raceEquivalents: context.physiology.raceEquivalents,
+      zones: context.physiology.zones,
+      limitations: context.physiology.limitations,
+    },
+    backgroundLoad: context.backgroundLoad,
+    observedState: context.observedState,
+    currentWeek: {
+      weekStart: context.currentWeek.weekStart,
+      weekEnd: context.currentWeek.weekEnd,
+      accepted: context.currentWeek.accepted,
+      pendingProposal: context.currentWeek.pendingProposal,
+    },
+    upcomingPlan: {
+      from: context.upcomingPlan.from,
+      to: context.upcomingPlan.to,
+      sessions: context.upcomingPlan.sessions.map(compactPlannedSession),
+      proposedDecisionIds: context.upcomingPlan.proposedDecisionIds,
+      acceptedDecisionIds: context.upcomingPlan.acceptedDecisionIds,
+    },
+    recentWeeks: context.recentWeeks.slice(-12),
+    recentRuns: context.recentRuns.slice(-21).map((run) => ({
+      id: run.id,
+      name: run.name,
+      startDate: run.startDate,
+      startDateLocal: run.startDateLocal,
+      distanceKm: run.distanceKm,
+      movingTimeSec: run.movingTimeSec,
+      averageHeartRate: run.averageHeartRate,
+      averageWatts: run.averageWatts,
+      verdict: run.verdict,
+      feedback: run.feedback,
+      plannedSessionIds: run.plannedSessionIds,
+      response: {
+        externalStress: run.assessment.externalStress,
+        heartRateCost: run.assessment.heartRateCost,
+        dataCoverage: run.assessment.dataCoverage,
+        warnings: run.assessment.warnings,
+      },
+    })),
+    powerDuration: context.powerDuration,
+    recentFeedback: context.recentFeedback.slice(-21),
+    recentCheckins: context.recentCheckins.slice(-21),
+    recentDecisions: context.recentDecisions.slice(0, 12).map((decision) => ({
+      id: decision.id,
+      decisionType: decision.decisionType,
+      asOf: decision.asOf,
+      weekStart: decision.weekStart,
+      status: decision.status,
+      summary: decision.summary,
+      reasoning: decision.reasoning,
+    })),
+    limitations: context.limitations,
+    instructions:
+      'Use this as the current evidence snapshot. Read expert wisdom before planning. Treat later weeks as contingent, ' +
+      'and use getPlannedSessions for exact stored workout steps one week at a time when revising an existing plan.',
+  };
+}
+
+export function compactPlannedSession(session: PlannedSession) {
+  return {
+    id: session.id,
+    plannedDate: session.plannedDate,
+    sequence: session.sequence,
+    title: session.title,
+    sessionType: session.sessionType,
+    trainingPhase: session.trainingPhase,
+    priority: session.priority,
+    plannedDurationSec: session.plannedDurationSec,
+    plannedDistanceKm: session.plannedDistanceKm,
+    targetPowerLowW: session.targetPowerLowW,
+    targetPowerHighW: session.targetPowerHighW,
+    targetPowerLowPctCp: session.targetPowerLowPctCp,
+    targetPowerHighPctCp: session.targetPowerHighPctCp,
+    targetHrLow: session.targetHrLow,
+    targetHrHigh: session.targetHrHigh,
+    targetHrCeiling: session.targetHrCeiling,
+    targetGapLowSecPerKm: session.targetGapLowSecPerKm,
+    targetGapHighSecPerKm: session.targetGapHighSecPerKm,
+    purpose: session.purpose,
+    fallbackPlan: session.fallbackPlan,
+    coachReasoning: session.coachReasoning,
+    status: session.status,
+    source: session.source,
+    revision: session.revision,
+  };
+}

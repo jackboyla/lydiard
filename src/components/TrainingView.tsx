@@ -1470,6 +1470,7 @@ function LapSplitsTable({
               <tr>
                 <th>Lap</th>
                 <th>Dist</th>
+                <th title="Net elevation change">Elev Δ</th>
                 <th>Time</th>
                 <th>Pace</th>
                 <th>HR avg</th>
@@ -1483,6 +1484,7 @@ function LapSplitsTable({
                 <tr key={split.label}>
                   <td>{split.label}</td>
                   <td>{split.distanceKm.toFixed(split.distanceKm >= 0.95 ? 1 : 2)}</td>
+                  <td>{formatElevationChange(split.elevationChangeM)}</td>
                   <td>{formatDuration(split.durationSec)}</td>
                   <td>{formatCompactPace(split.paceSecPerKm)}</td>
                   <td>{split.averageHeartRate ? Math.round(split.averageHeartRate) : '-'}</td>
@@ -1500,6 +1502,14 @@ function LapSplitsTable({
       {showStrideDefinition && splits.length > 0 && <p className="lap-zone-definition">Strides are recorded laps under 200 m at a distinctly faster pace than the run average.</p>}
     </section>
   );
+}
+
+function formatElevationChange(value: number | undefined): string {
+  if (value === undefined || !Number.isFinite(value)) return '—';
+  const rounded = Math.round(value);
+  if (rounded > 0) return `+${rounded} m`;
+  if (rounded < 0) return `−${Math.abs(rounded)} m`;
+  return '0 m';
 }
 
 function TrainingKpi({

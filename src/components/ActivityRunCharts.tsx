@@ -259,17 +259,26 @@ function LapProfileChart({ detail, laps }: { detail: ActivityDetail | null; laps
             <div><dt>Pace</dt><dd>{formatPace(activeLap.paceSecPerKm)}</dd></div>
             <div><dt>Avg HR</dt><dd>{activeLap.averageHeartRate ? `${Math.round(activeLap.averageHeartRate)} bpm` : '—'}</dd></div>
             <div><dt>Avg power</dt><dd>{activeLap.averagePower ? `${Math.round(activeLap.averagePower)} W` : '—'}</dd></div>
+            <div><dt>Elev change</dt><dd>{formatElevationChange(activeLap.elevationChangeM)}</dd></div>
           </dl>
         </div>
       ) : (
-        <p>Hover, focus, or tap a column for split distance, time, pace, heart rate, and power. Bar width follows split distance.</p>
+        <p>Hover, focus, or tap a column for split distance, time, pace, heart rate, power, and elevation change. Bar width follows split distance.</p>
       )}
     </div>
   );
 }
 
 function lapDetailLabel(lap: ActivityLapView): string {
-  return `Split ${lap.label}: ${formatLapDistance(lap.distanceKm)}, ${formatLapDuration(lap.durationSec)}, ${formatPace(lap.paceSecPerKm)}, average heart rate ${lap.averageHeartRate ? `${Math.round(lap.averageHeartRate)} bpm` : 'unavailable'}, average power ${lap.averagePower ? `${Math.round(lap.averagePower)} watts` : 'unavailable'}`;
+  return `Split ${lap.label}: ${formatLapDistance(lap.distanceKm)}, ${formatLapDuration(lap.durationSec)}, ${formatPace(lap.paceSecPerKm)}, average heart rate ${lap.averageHeartRate ? `${Math.round(lap.averageHeartRate)} bpm` : 'unavailable'}, average power ${lap.averagePower ? `${Math.round(lap.averagePower)} watts` : 'unavailable'}, elevation change ${formatElevationChange(lap.elevationChangeM, 'unavailable')}`;
+}
+
+function formatElevationChange(value: number | undefined, unavailable = '—'): string {
+  if (value === undefined || !Number.isFinite(value)) return unavailable;
+  const rounded = Math.round(value);
+  if (rounded > 0) return `+${rounded} m`;
+  if (rounded < 0) return `−${Math.abs(rounded)} m`;
+  return '0 m';
 }
 
 function formatLapDistance(distanceKm: number): string {

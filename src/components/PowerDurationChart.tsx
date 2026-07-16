@@ -5,6 +5,7 @@ import type { PowerDurationPoint } from '../analysis/coachEngine';
 const X_TICKS = [10, 60, 300, 600, 1200, 3600] as const;
 const MIN_DURATION = 10;
 const MAX_DURATION = 3600;
+const SERIES_ORDER: PowerDurationPoint['freshness'][] = ['historic', 'building', 'recent'];
 
 export function PowerDurationChart({
   points,
@@ -23,7 +24,7 @@ export function PowerDurationChart({
 }) {
   const shellRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(720);
-  const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
+  const [selectedPointKey, setSelectedPointKey] = useState<string | null>(null);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -36,7 +37,7 @@ export function PowerDurationChart({
   }, [loading, points?.length]);
 
   const chart = useMemo(() => buildChart(points ?? [], width), [points, width]);
-  const selected = points?.find((point) => point.durationSec === selectedDuration);
+  const selected = points?.find((point) => pointKey(point) === selectedPointKey);
 
   return (
     <section className="product-card power-duration-card" aria-labelledby="power-duration-title">
@@ -44,7 +45,7 @@ export function PowerDurationChart({
         <div>
           <span><Zap size={14} aria-hidden="true" /> Power profile</span>
           <h2 id="power-duration-title">Power duration curve</h2>
-          <p>Your best measured rolling power at each duration from the last 12 months.</p>
+          <p>Compare your best measured rolling power across three periods from the last 12 months.</p>
         </div>
         <div className="power-duration-cp" aria-label={criticalPowerWatts ? `Critical Power ${Math.round(criticalPowerWatts)} watts` : 'Critical Power unavailable'}>
           <small>Critical Power</small>
@@ -60,22 +61,16 @@ export function PowerDurationChart({
           <p>{error}</p>
           <button type="button" onClick={onRetry}>Try again</button>
         </div>
-      ) : chart.points.length >= 2 ? (
+      ) : chart.series.length > 0 ? (
         <>
           <div ref={shellRef} className="power-duration-chart-shell">
             <svg
               className="power-duration-chart"
               viewBox={`0 0 ${chart.width} ${chart.height}`}
               role="img"
-              aria-label={`Power duration curve with ${chart.points.length} measured duration records`}
+              aria-label={`Power duration chart with ${chart.series.length} time period curves and ${chart.points.length} measured duration records`}
             >
-              <desc>Best rolling-average running power by duration. Point colors show how recently each record was set.</desc>
-              <defs>
-                <linearGradient id="power-duration-area" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stopColor="var(--power-recent)" stopOpacity="0.28" />
-                  <stop offset="1" stopColor="var(--power-recent)" stopOpacity="0.02" />
-                </linearGradient>
-              </defs>
+              <desc>Best rolling-average running power by duration, shown as simultaneous curves for 1–30 days, 31–75 days, and 76 or more days ago.</desc>
               {chart.yTicks.map((tick) => (
                 <g key={tick.value} className="power-duration-grid">
                   <line x1={chart.left} y1={tick.y} x2={chart.rightEdge} y2={tick.y} />
@@ -89,42 +84,38 @@ export function PowerDurationChart({
                 </g>
               ))}
               <text className="power-duration-y-unit" x={chart.left} y={15}>W</text>
-              <path className="power-duration-area" d={chart.areaPath} />
-              {chart.segments.map((segment) => (
-                <line
-                  key={`${segment.from.durationSec}-${segment.to.durationSec}`}
-                  className={`power-duration-segment freshness-${segment.to.freshness}`}
-                  x1={segment.from.x}
-                  y1={segment.from.y}
-                  x2={segment.to.x}
-                  y2={segment.to.y}
+              {chart.series.map((series) => (
+                <path
+                  key={series.freshness}
+                  className={`power-duration-segment freshness-${series.freshness}`}
+                  d={series.linePath}
                 />
               ))}
               {chart.points.map((point) => (
                 <g
-                  key={point.durationSec}
-                  className={`power-duration-point freshness-${point.freshness}${selectedDuration === point.durationSec ? ' selected' : ''}`}
+                  key={pointKey(point)}
+                  className={`power-duration-point freshness-${point.freshness}${selectedPointKey === pointKey(point) ? ' selected' : ''}`}
                   role="button"
                   tabIndex={0}
-                  aria-label={`${formatDuration(point.durationSec)}, ${point.watts} watts, set ${freshnessLabel(point.ageDays)}`}
-                  onMouseEnter={() => setSelectedDuration(point.durationSec)}
-                  onFocus={() => setSelectedDuration(point.durationSec)}
-                  onClick={() => setSelectedDuration(point.durationSec)}
+                  aria-label={`${periodLabel(point.freshness)} curve, ${formatDuration(point.durationSec)}, ${point.watts} watts, set ${freshnessLabel(point.ageDays)}`}
+                  onMouseEnter={() => setSelectedPointKey(pointKey(point))}
+                  onFocus={() => setSelectedPointKey(pointKey(point))}
+                  onClick={() => setSelectedPointKey(pointKey(point))}
                   onKeyDown={(event) => {
                     if (event.key !== 'Enter' && event.key !== ' ') return;
                     event.preventDefault();
-                    setSelectedDuration(point.durationSec);
+                    setSelectedPointKey(pointKey(point));
                   }}
                 >
                   <circle className="power-duration-hit" cx={point.x} cy={point.y} r={14} />
                   <circle className="power-duration-dot" cx={point.x} cy={point.y} r={5} />
-                  <title>{`${formatDuration(point.durationSec)} · ${point.watts} W · ${freshnessLabel(point.ageDays)}`}</title>
+                  <title>{`${periodLabel(point.freshness)} · ${formatDuration(point.durationSec)} · ${point.watts} W · ${freshnessLabel(point.ageDays)}`}</title>
                 </g>
               ))}
             </svg>
           </div>
 
-          <div className="power-duration-legend" aria-label="Record freshness">
+          <div className="power-duration-legend" aria-label="Power duration periods">
             <span><i className="freshness-recent" />1–30 days</span>
             <span><i className="freshness-building" />31–75 days</span>
             <span><i className="freshness-historic" />76+ days</span>
@@ -134,7 +125,7 @@ export function PowerDurationChart({
             {selected ? (
               <>
                 <div>
-                  <small>Selected effort</small>
+                  <small>Selected {periodLabel(selected.freshness)} effort</small>
                   <strong>{formatDuration(selected.durationSec)} at {selected.watts} W</strong>
                   <span>{freshnessLabel(selected.ageDays)} · {formatDate(selected.activityDate)}</span>
                 </div>
@@ -171,12 +162,19 @@ function buildChart(points: PowerDurationPoint[], width: number) {
       * (rightEdge - left);
   const y = (watts: number) => top + (1 - watts / yMax) * (bottom - top);
   const plotted = [...points]
-    .sort((a, b) => a.durationSec - b.durationSec)
+    .sort((a, b) => SERIES_ORDER.indexOf(a.freshness) - SERIES_ORDER.indexOf(b.freshness)
+      || a.durationSec - b.durationSec)
     .map((point) => ({ ...point, x: x(point.durationSec), y: y(point.watts) }));
-  const linePath = plotted.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
-  const areaPath = plotted.length > 1
-    ? `${linePath} L ${plotted.at(-1)?.x} ${bottom} L ${plotted[0].x} ${bottom} Z`
-    : '';
+  const series = SERIES_ORDER.flatMap((freshness) => {
+    const seriesPoints = plotted.filter((point) => point.freshness === freshness);
+    if (seriesPoints.length < 2) return [];
+    return [{
+      freshness,
+      linePath: seriesPoints
+        .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
+        .join(' '),
+    }];
+  });
 
   return {
     width,
@@ -185,15 +183,24 @@ function buildChart(points: PowerDurationPoint[], width: number) {
     rightEdge,
     top,
     bottom,
-    areaPath,
     points: plotted,
-    segments: plotted.slice(1).map((point, index) => ({ from: plotted[index], to: point })),
+    series,
     xTicks: X_TICKS.map((value) => ({ value, x: x(value) })),
     yTicks: Array.from({ length: yMax / step + 1 }, (_, index) => {
       const value = index * step;
       return { value, y: y(value) };
     }),
   };
+}
+
+function pointKey(point: PowerDurationPoint): string {
+  return `${point.freshness}:${point.durationSec}`;
+}
+
+function periodLabel(freshness: PowerDurationPoint['freshness']): string {
+  if (freshness === 'recent') return '1–30 day';
+  if (freshness === 'building') return '31–75 day';
+  return '76+ day';
 }
 
 function formatDuration(seconds: number): string {

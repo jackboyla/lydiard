@@ -17,6 +17,7 @@
     "plan:import": "tsx scripts/import-plan-csv.ts",
     "garmin:sync": "npm run garmin:import-db",
     "coach:smoke": "tsx scripts/coach-engine-smoke.ts",
+    "agent-plan:smoke": "tsx scripts/agent-plan-smoke.ts",
     "best-efforts:smoke": "tsx scripts/best-efforts-smoke.ts",
     "product:smoke": "tsx scripts/product-journey-smoke.ts",
     "build": "tsc -b && vite build",

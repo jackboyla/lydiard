@@ -1,11 +1,14 @@
 import { Hono } from 'hono';
 import type { Env } from '../env';
-import { getActivities, getActivity, getActivityLaps, getAthlete, getWeeklyFeatures } from '../db';
+import { getActivities, getActivity, getActivityLaps, getAthlete, getPlannedSessions, getWeeklyFeatures } from '../db';
 import { normalizeFrom, normalizeTo } from '../http';
 import { buildPlanContext } from '../planContext';
 import { runSync } from '../sync';
 import { loadAnalyses } from './public';
 import { buildCoachContext } from '../coachContext';
+import { AgentPlanConflictError, AgentPlanInputError, parseAgentPlanSubmission, publishAgentPlan } from '../agentPlan';
+import { EXPERT_WISDOM_SOURCES, getExpertWisdom } from '../expertWisdom';
+import { compactAgentCoachContext } from '../agentCoachContext';
 
 function athleteName(firstname: string | null | undefined, lastname: string | null | undefined): string | null {
   const name = [firstname, lastname].filter(Boolean).join(' ').trim();
@@ -88,15 +91,52 @@ export function agentRoutes(): Hono<{ Bindings: Env }> {
     return c.json(context);
   });
 
+  app.get('/planned-sessions', async (c) => {
+    const from = agentDate(c.req.query('from'));
+    const to = agentDate(c.req.query('to'));
+    if (!from || !to) return c.json({ error: 'from and to are required in YYYY-MM-DD form.' }, 400);
+    const fromTime = Date.parse(`${from}T00:00:00Z`);
+    const toTime = Date.parse(`${to}T00:00:00Z`);
+    if (toTime < fromTime || toTime - fromTime > 6 * 86_400_000) {
+      return c.json({ error: 'Request one calendar week at a time: to must be from through at most from + 6 days.' }, 400);
+    }
+    return c.json({ from, to, sessions: await getPlannedSessions(c.env.lydiard, { from, to }) });
+  });
+
   app.get('/coach-context', async (c) => {
     const rawLookback = c.req.query('lookbackDays');
     const lookbackDays = rawLookback && /^\d+$/.test(rawLookback) ? Number(rawLookback) : undefined;
+    const rawHorizon = c.req.query('horizonWeeks');
+    const horizonWeeks = rawHorizon && /^\d+$/.test(rawHorizon) ? Number(rawHorizon) : undefined;
     const context = await buildCoachContext(c.env.lydiard, {
       asOf: c.req.query('asOf'),
       weekStart: c.req.query('weekStart'),
       lookbackDays,
+      horizonWeeks,
     });
-    return c.json(context);
+    return c.json(compactAgentCoachContext(context));
+  });
+
+  app.get('/expert-wisdom', (c) => {
+    const source = c.req.query('source') ?? 'all';
+    if (source !== 'all' && !EXPERT_WISDOM_SOURCES.some((item) => item.id === source)) {
+      return c.json({ error: 'source must be all, scullion, or magness.' }, 400);
+    }
+    return c.json(getExpertWisdom(source));
+  });
+
+  app.post('/plans', async (c) => {
+    try {
+      const body = await c.req.json<unknown>();
+      const submission = parseAgentPlanSubmission(body);
+      const result = await publishAgentPlan(c.env.lydiard, submission);
+      return c.json(result, result.idempotent ? 200 : 201);
+    } catch (error) {
+      if (error instanceof AgentPlanInputError) return c.json({ error: error.message }, 400);
+      if (error instanceof AgentPlanConflictError) return c.json({ error: error.message }, 409);
+      if (error instanceof SyntaxError) return c.json({ error: 'Request body must be valid JSON.' }, 400);
+      throw error;
+    }
   });
 
   app.post('/sync', async (c) => {
@@ -111,4 +151,10 @@ export function agentRoutes(): Hono<{ Bindings: Env }> {
   });
 
   return app;
+}
+
+function agentDate(value: string | undefined): string | undefined {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value ? value : undefined;
 }

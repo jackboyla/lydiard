@@ -352,7 +352,7 @@ export default function App() {
     setCoachLoading(true);
     setCoachError('');
     try {
-      const nextContext = await getCoachContext({ weekStart });
+      const nextContext = await getCoachContext({ weekStart, horizonWeeks: 12 });
       if (request !== coachLoadRequest.current) {
         return;
       }

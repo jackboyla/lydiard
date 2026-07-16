@@ -1,7 +1,7 @@
 # Lydiard
 
 A private running diary with a coach behind it: a Strava-style training log with direct activity
-notes, all-time and seasonal best efforts, clear weekly progression, and an editable 1–3 week plan.
+notes, all-time and seasonal best efforts, clear weekly progression, and an editable future plan.
 The deeper physiology and load models remain available without dominating the daily workflow. Runs
 free on Cloudflare with no always-on local machine.
 
@@ -34,15 +34,17 @@ run in **both** the Worker and the browser.
 - **Progress and personal bests:** one 12-week time/distance view, one consistent current-load read,
   explicit All time / Season best-effort scopes for 200m through marathon, and fastest measured
   distance segments on each individual run.
-- **One visible future plan:** the deterministic coach proposes an approval-gated 1–3 week block in
-  the same Plan surface where sessions can be reviewed and edited. Legacy RUNMASTER rows remain in a
-  collapsed provenance/day-note editor rather than competing with the current plan.
+- **One visible future plan:** the deterministic coach proposes an approval-gated 1–3 week block,
+  while a connected GPT can discuss and publish an agreed, deeply specified 1–12 week plan grounded
+  in current performance plus the Scullion/Magness wisdom files. Both use the same editable Plan
+  surface. Legacy RUNMASTER rows remain collapsed provenance rather than a competing plan.
 - **Route explorer:** the all-routes MapLibre view remains available under settings as a secondary
   tool, with fatigue / pace / recency coloring and range controls.
 - **Cloud sync:** an hourly GitHub Action runs `garmin-health-data`, verifies the SQLite DB,
   audits coverage, and imports Garmin runs with full GPS + HR/cadence/power streams.
-- **Agent-native:** a Bearer-key REST API + OpenAPI schema for ChatGPT to assess injury risk and
-  plan the next 1–3 weeks. See [docs/agent-api.md](docs/agent-api.md).
+- **Agent-native:** a Bearer-key REST API + OpenAPI schema lets ChatGPT read training and expert
+  wisdom, discuss the next 1–12 weeks, and publish only the agreed plan. See
+  [docs/agent-api.md](docs/agent-api.md).
 - **Personalized:** all signals compare each week to the runner's own rolling baselines.
 - **Stateful Lydiard coach:** date-effective Stryd Critical Power, evidence-backed CS/CP and LT1/LT2
   bands, power-first load with separate HR cost, coherent future blocks, post-run feedback, and an

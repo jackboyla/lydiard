@@ -499,6 +499,15 @@ interface WeightedPoint {
 const DAY_MS = 86_400_000;
 const EFFORT_DURATIONS = [180, 300, 480, 600, 900, 1200, 1800, 2400] as const;
 const POWER_PEAK_DURATIONS = [10, 30, 60, 180, 300, 600, 1200, 1800, 3600] as const;
+const POWER_DURATION_PERIODS: Array<{
+  freshness: PowerDurationPoint['freshness'];
+  minAgeDays: number;
+  maxAgeDays: number;
+}> = [
+  { freshness: 'recent', minAgeDays: 0, maxAgeDays: 30 },
+  { freshness: 'building', minAgeDays: 31, maxAgeDays: 75 },
+  { freshness: 'historic', minAgeDays: 76, maxAgeDays: Number.POSITIVE_INFINITY },
+];
 const POWER_ZONE_BOUNDS = [0.7, 0.8, 0.9, 1] as const;
 
 /** Return the CP record that was actually in force on the activity date. */
@@ -1173,7 +1182,7 @@ export function scoreLydiardSession(input: SessionScoringInput): SessionStressAs
   };
 }
 
-/** Best measured rolling power at each supported duration, with evidence age. */
+/** Best measured rolling power at each supported duration for every recency period. */
 export function buildPowerDurationCurve(
   assessments: SessionStressAssessment[],
   asOf: string,
@@ -1181,25 +1190,28 @@ export function buildPowerDurationCurve(
   const asOfMs = Date.parse(asOf);
   if (!Number.isFinite(asOfMs)) return [];
 
-  return POWER_PEAK_DURATIONS.flatMap((durationSec) => {
-    const candidates = assessments.flatMap((assessment) => {
-      const watts = assessment.peaks.find((peak) => peak.durationSec === durationSec)?.watts;
-      const activityMs = Date.parse(assessment.activityDate);
-      if (!watts || watts <= 0 || !Number.isFinite(activityMs) || activityMs > asOfMs + DAY_MS) return [];
-      return [{ assessment, watts, activityMs }];
-    });
-    const best = candidates.sort((a, b) => b.watts - a.watts || b.activityMs - a.activityMs)[0];
-    if (!best) return [];
-    const ageDays = Math.max(0, Math.floor((asOfMs - best.activityMs) / DAY_MS));
-    return [{
-      durationSec,
-      watts: best.watts,
-      activityId: best.assessment.activityId,
-      activityDate: best.assessment.activityDate,
-      ageDays,
-      freshness: ageDays <= 30 ? 'recent' as const : ageDays <= 75 ? 'building' as const : 'historic' as const,
-    }];
-  });
+  return POWER_DURATION_PERIODS.flatMap((period) =>
+    POWER_PEAK_DURATIONS.flatMap((durationSec) => {
+      const candidates = assessments.flatMap((assessment) => {
+        const watts = assessment.peaks.find((peak) => peak.durationSec === durationSec)?.watts;
+        const activityMs = Date.parse(assessment.activityDate);
+        if (!watts || watts <= 0 || !Number.isFinite(activityMs) || activityMs > asOfMs + DAY_MS) return [];
+        const ageDays = Math.max(0, Math.floor((asOfMs - activityMs) / DAY_MS));
+        if (ageDays < period.minAgeDays || ageDays > period.maxAgeDays) return [];
+        return [{ assessment, watts, activityMs, ageDays }];
+      });
+      const best = candidates.sort((a, b) => b.watts - a.watts || b.activityMs - a.activityMs)[0];
+      if (!best) return [];
+      return [{
+        durationSec,
+        watts: best.watts,
+        activityId: best.assessment.activityId,
+        activityDate: best.assessment.activityDate,
+        ageDays: best.ageDays,
+        freshness: period.freshness,
+      }];
+    }),
+  );
 }
 
 function scorePowerSeries(time: number[], power: number[], cp: number): {

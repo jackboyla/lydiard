@@ -472,6 +472,9 @@ function SessionCard({
   const actual = links.map((link) => context.recentRuns.find((run) => run.id === link.activityId)).filter(Boolean);
   const editable = ['proposed', 'accepted', 'planned'].includes(session.status);
   const components = workoutComponents(session);
+  const adaptationGuidance = typeof session.workoutStructure.adaptationGuidance === 'string'
+    ? session.workoutStructure.adaptationGuidance
+    : '';
   const keySession = session.priority === 'key';
   const save = async () => {
     const duration = Number(minutes);
@@ -526,6 +529,7 @@ function SessionCard({
         )}
         {session.fallbackPlan && <p className="coach-fallback"><strong>Fallback:</strong> {session.fallbackPlan}</p>}
         {session.coachReasoning && <p className="coach-session-reason"><strong>Why now:</strong> {session.coachReasoning}</p>}
+        {adaptationGuidance && <p className="coach-session-adaptation"><strong>Adjust if:</strong> {adaptationGuidance}</p>}
         {actual.length > 0 && <p className="coach-actual"><Check size={13} /> Actual linked · {actual.map((run) => run?.name).join(', ')}</p>}
         {editable && !editing && <button type="button" className="coach-session-edit" onClick={() => setEditing(true)}><Pencil size={13} /> Edit session</button>}
         {editing && (

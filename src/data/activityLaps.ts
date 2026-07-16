@@ -13,6 +13,7 @@ export interface ActivityLapView {
   maxHeartRate?: number;
   averagePower?: number;
   maxPower?: number;
+  elevationChangeM?: number;
   zone: {
     key: ActivityLapZoneKey;
     label: string;
@@ -23,8 +24,20 @@ export function buildActivityLaps(detail: ActivityDetail, thresholdPaceSecPerKm:
   const activityAveragePace = detail.distanceKm > 0 && detail.movingTimeSec > 0
     ? detail.movingTimeSec / detail.distanceKm
     : undefined;
+  let distanceCursorM = 0;
   const recorded = detail.streams?.laps
-    ?.map((lap, index) => recordedLapView(lap, index, thresholdPaceSecPerKm, activityAveragePace))
+    ?.map((lap, index) => {
+      const distanceM = positive(lap.distanceM);
+      const startDistanceM = distanceCursorM;
+      if (distanceM) distanceCursorM += distanceM;
+      return recordedLapView(
+        lap,
+        index,
+        thresholdPaceSecPerKm,
+        activityAveragePace,
+        elevationChangeForRange(detail, startDistanceM, distanceCursorM),
+      );
+    })
     .filter((lap): lap is ActivityLapView => Boolean(lap));
   if (recorded?.length) return recorded;
   return buildDerivedKilometreLaps(detail, thresholdPaceSecPerKm);
@@ -56,6 +69,7 @@ function recordedLapView(
   fallbackIndex: number,
   thresholdPaceSecPerKm: number,
   activityAveragePace: number | undefined,
+  elevationChangeM: number | undefined,
 ): ActivityLapView | undefined {
   const distanceM = positive(lap.distanceM);
   const durationSec = positive(lap.durationSec);
@@ -75,6 +89,7 @@ function recordedLapView(
     maxHeartRate: usefulHeartRate(lap.maxHeartRate),
     averagePower: usefulPower(lap.averagePower),
     maxPower: usefulPower(lap.maxPower),
+    elevationChangeM,
     zone: classifyActivityLapZone(distanceM, paceSecPerKm, thresholdPaceSecPerKm, 'recorded', activityAveragePace),
   };
 }
@@ -115,10 +130,49 @@ export function buildDerivedKilometreLaps(detail: ActivityDetail, thresholdPaceS
       maxHeartRate: maxStream(time, detail.streams?.heartrate, startTime, endTime, usefulHeartRate),
       averagePower: weightedAverageStream(time, detail.streams?.power, startTime, endTime, usefulPower),
       maxPower: maxStream(time, detail.streams?.power, startTime, endTime, usefulPower),
+      elevationChangeM: elevationChangeForRange(detail, startM, endM),
       zone: classifyActivityLapZone(distanceM, paceSecPerKm, thresholdPaceSecPerKm, 'derived'),
     });
   }
   return laps;
+}
+
+function elevationChangeForRange(
+  detail: ActivityDetail,
+  startOffsetM: number,
+  endOffsetM: number,
+): number | undefined {
+  const distance = detail.streams?.distanceM;
+  const altitude = detail.streams?.altitude;
+  if (!distance || !altitude || Math.min(distance.length, altitude.length) < 2) return undefined;
+  const firstDistance = firstFinite(distance);
+  if (firstDistance === undefined) return undefined;
+  const startAltitude = valueAtDistance(distance, altitude, firstDistance + startOffsetM);
+  const endAltitude = valueAtDistance(distance, altitude, firstDistance + endOffsetM);
+  if (startAltitude === undefined || endAltitude === undefined) return undefined;
+  const change = endAltitude - startAltitude;
+  return Math.abs(change) < 0.05 ? 0 : change;
+}
+
+function valueAtDistance(distance: number[], values: number[], targetM: number): number | undefined {
+  const count = Math.min(distance.length, values.length);
+  let previousIndex = -1;
+  for (let index = 0; index < count; index += 1) {
+    if (!Number.isFinite(distance[index]) || !Number.isFinite(values[index])) continue;
+    if (previousIndex < 0) {
+      if (targetM <= distance[index]) return values[index];
+      previousIndex = index;
+      continue;
+    }
+    if (distance[index] >= targetM) {
+      const distanceDelta = distance[index] - distance[previousIndex];
+      if (distanceDelta <= 0) return values[index];
+      const ratio = Math.min(1, Math.max(0, (targetM - distance[previousIndex]) / distanceDelta));
+      return values[previousIndex] + (values[index] - values[previousIndex]) * ratio;
+    }
+    previousIndex = index;
+  }
+  return previousIndex >= 0 ? values[previousIndex] : undefined;
 }
 
 function timeAtDistance(time: number[], distance: number[], targetM: number): number | undefined {

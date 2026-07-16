@@ -2,6 +2,7 @@ import {
   buildHrCostBaseline,
   buildLydiardBlock,
   buildLydiardWeek,
+  buildPowerDurationCurve,
   estimatePhysiology,
   evaluatePlannedVsActual,
   scoreLydiardSession,
@@ -53,6 +54,18 @@ const cpHour = constantRun('cp-hour', '2026-07-10T08:00:00.000Z', 3600, CS, CP, 
 const stress = scoreLydiardSession({ activity: cpHour, criticalPowerHistory: cpHistory, physiology, hrCostBaseline: baseline });
 assert(stress.lydiardPowerStress !== undefined && Math.abs(stress.lydiardPowerStress - 100) < 0.2, 'one hour at CP should equal 100 Lydiard Power Stress');
 assert(stress.externalStress.source === 'power', 'valid Stryd power must exclusively anchor external stress');
+
+const periodAssessments = [
+  constantRun('power-recent', '2026-07-01T08:00:00.000Z', 3600, CS, 320, 170, 'workout'),
+  constantRun('power-building', '2026-05-20T08:00:00.000Z', 3600, CS, 310, 168, 'workout'),
+  constantRun('power-historic', '2026-03-01T08:00:00.000Z', 3600, CS, 300, 166, 'workout'),
+].map((activity) => scoreLydiardSession({ activity, criticalPowerHistory: cpHistory, physiology, hrCostBaseline: baseline }));
+const periodCurve = buildPowerDurationCurve(periodAssessments, asOf);
+for (const [freshness, watts] of [['recent', 320], ['building', 310], ['historic', 300]] as const) {
+  const series = periodCurve.filter((point) => point.freshness === freshness);
+  assert(series.length === 9, `${freshness} power-duration series should include all nine durations`);
+  assert(series.every((point) => point.watts === watts), `${freshness} power-duration series should use its own period maximum`);
+}
 
 const plan = buildLydiardWeek({
   weekStart: '2026-07-13',

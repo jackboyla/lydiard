@@ -68,6 +68,7 @@ export function coachRoutes(): Hono<{ Bindings: Env }> {
         asOf: c.req.query('asOf'),
         lookbackDays: optionalInteger(c.req.query('lookbackDays')),
         weekStart: c.req.query('weekStart'),
+        horizonWeeks: optionalInteger(c.req.query('horizonWeeks')),
       });
       return c.json(context);
     } catch (error) {

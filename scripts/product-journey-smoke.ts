@@ -138,7 +138,7 @@ try {
   const splitReadout = page.locator('.activity-lap-profile .lap-profile-detail');
   assert(await splitReadout.isVisible(), 'Tapping a split column did not expose its readout.');
   const splitReadoutText = (await splitReadout.textContent()) ?? '';
-  for (const label of ['Selected split', 'Distance', 'Time', 'Pace', 'Avg HR', 'Avg power']) {
+  for (const label of ['Selected split', 'Distance', 'Time', 'Pace', 'Avg HR', 'Avg power', 'Elev change']) {
     assert(splitReadoutText.includes(label), `Split readout is missing ${label}.`);
   }
   const mobileOverview = page.locator('.activity-mobile-overview');
@@ -165,6 +165,7 @@ try {
   assert(await page.locator('.lap-split-table th', { hasText: 'HR avg' }).first().isVisible(), 'Average HR split column is missing.');
   assert(await page.locator('.lap-split-table th', { hasText: 'HR max' }).first().isVisible(), 'Maximum HR split column is missing.');
   assert(await page.locator('.lap-split-table th', { hasText: 'Zone' }).first().isVisible(), 'Split zone column is missing.');
+  assert(await page.locator('.lap-split-table th', { hasText: 'Elev Δ' }).first().isVisible(), 'Split elevation-change column is missing.');
   assert(await page.getByRole('region', { name: 'Device-recorded laps' }).isVisible(), 'Device-recorded lap table is missing.');
   assert(await page.getByRole('region', { name: 'Kilometre splits' }).isVisible(), 'Independent kilometre split table is missing.');
   assert(await page.locator('.activity-analysis-panel details').count() === 0, 'Activity analysis is still hidden in a disclosure.');

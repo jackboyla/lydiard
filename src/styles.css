@@ -108,7 +108,7 @@
 
 .lap-profile-detail dl {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
   margin: 0;
 }
@@ -4368,7 +4368,7 @@ dd {
 
 .lap-split-table {
   width: 100%;
-  min-width: 760px;
+  min-width: 840px;
   border-collapse: collapse;
 }
 
@@ -10672,6 +10672,7 @@ select {
 }
 
 .coach-session-reason,
+.coach-session-adaptation,
 .coach-fallback {
   padding: 12px 14px;
   border-left: 3px solid var(--green);
@@ -10682,6 +10683,10 @@ select {
 
 .coach-fallback {
   border-left-color: var(--warning);
+}
+
+.coach-session-adaptation {
+  border-left-color: var(--accent-strong);
 }
 
 .coach-session-edit {
@@ -11112,13 +11117,11 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
-.power-duration-area {
-  fill: url(#power-duration-area);
-}
-
 .power-duration-segment {
+  fill: none;
   stroke-width: 3;
   stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .power-duration-segment.freshness-recent,
@@ -11167,9 +11170,9 @@ select {
 }
 
 .power-duration-legend i {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
 }
 
 .power-duration-legend .freshness-recent { background: var(--power-recent); }
@@ -11297,8 +11300,8 @@ select {
   }
 
   .power-duration-legend i {
-    width: 8px;
-    height: 8px;
+    width: 13px;
+    height: 3px;
   }
 
   .power-duration-detail {

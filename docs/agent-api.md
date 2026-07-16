@@ -2,8 +2,8 @@
 
 Lydiard's Cloudflare Worker serves both the phone-accessible web app and a small,
 **API-key-secured** REST surface designed for AI agents. It reads the same D1 store the map,
-training log, and dashboard use, so an agent can analyze any time period and produce injury-risk
-assessments and 1–3 week training plans.
+training log, and dashboard use, so an agent can analyze any time period, discuss a plan, and publish
+an agreed 1–12 week training plan into the same Plan section used by the web app.
 
 - **Base URL:** `https://lydiard.<your-subdomain>.workers.dev`
 - **Auth:** every `/api/agent/*` call needs `Authorization: Bearer <AGENT_API_KEY>`
@@ -14,31 +14,55 @@ assessments and 1–3 week training plans.
 | Method + path | Purpose |
 | --- | --- |
 | `GET /api/agent/plan-context?from&to` | **Start here.** One bundle: latest-week risk, acute/chronic load status, a weekly trend, and planning instructions. |
-| `GET /api/agent/coach-context?asOf&weekStart&lookbackDays` | **Authoritative coach state.** Physiology and confidence, Lydiard phase, current plus future structured sessions, recent run responses, and pending adaptations. |
+| `GET /api/agent/coach-context?asOf&weekStart&lookbackDays&horizonWeeks` | **Authoritative coach state.** Goals/constraints, physiology and confidence, current/future sessions, recent training responses, and pending adaptations. `horizonWeeks` supports 1–12. |
+| `GET /api/agent/expert-wisdom?source=all` | Read the version-controlled Scullion and Magness principle files. `source` may be `all`, `scullion`, or `magness`. |
+| `GET /api/agent/planned-sessions?from&to` | Read full execution detail for one existing plan week. The inclusive range is capped at seven dates to stay within GPT Action response limits. |
 | `GET /api/agent/risk?asOf` | Full fatigue analysis (risk score, severity, 6 indicators) for the latest week or the week at `asOf`. |
 | `GET /api/agent/weeks?from&to` | Weekly training features for a date range. |
 | `GET /api/agent/activities?from&to` | Per-activity metrics for a date range (no route geometry). |
+| `GET /api/agent/activities/{id}` | One run plus compact source-device laps for detailed session/rep review. |
+| `POST /api/agent/plans` | Publish a conversationally agreed, fully structured 1–12 week plan. This is explicitly consequential and writes accepted sessions into Plan. |
 | `POST /api/agent/sync` | Legacy Strava sync trigger. Scheduled Garmin updates run from GitHub Actions. |
 
 `from` / `to` / `asOf` accept `YYYY-MM-DD`. Ranges are inclusive.
 
-## Use it in ChatGPT (Scheduled Tasks)
+## Use it in a Custom GPT
 
 **Option A — Custom GPT Action (most native).** In a Custom GPT → *Actions* → *Import from URL*,
 paste `https://lydiard.<your-subdomain>.workers.dev/openapi.json`. Set Authentication to
-*API Key → Bearer* and paste your `AGENT_API_KEY`. Then schedule a task with a prompt like:
+*API Key → Bearer* and paste your `AGENT_API_KEY`. Re-import the schema after deploying endpoint
+changes. The publish operation is marked consequential, so ChatGPT asks for confirmation before it
+writes.
 
-> Every Monday at 7am, call `getPlanContext` for the last 12 weeks. Assess my injury risk from the
-> current-week risk score, the acute/chronic ratio, and any stride-length / easy-pace / decoupling
-> drift versus my own baselines. Then give me a specific plan for the next 1–3 weeks: target weekly
-> km, number of quality sessions, long-run distance, and recovery guidance. Be conservative if
-> severity is "watch" or "high".
+Add instructions along these lines to the GPT:
+
+> For planning, first call `getExpertWisdom` and `getCoachContext`, setting `horizonWeeks` to the
+> number of weeks I requested. Ground recommendations in my saved goal and constraints, current
+> physiology/confidence, recent weeks, recent run responses, feedback, and existing future plan.
+> Apply Scullion and Magness as principles rather than copying elite or context-specific examples.
+> Discuss the proposal with me and revise it conversationally. Do not call `publishTrainingPlan`
+> until I explicitly agree to save the plan. Every run must have a date, duration, optional distance
+> and evidence-supported targets, ordered warm-up/main-set/recovery/cool-down steps, intent, why it
+> belongs now, fallback, and clear rules for adjusting it based on fatigue, pain, conditions, or the
+> preceding training response. On publication, use the profile version and context timestamp from
+> `getCoachContext` plus a new stable request ID. If publication returns a profile conflict, refresh
+> context, explain what changed, and revise before asking to save again.
+
+The GPT-facing coach context is compact by design so a production response stays below ChatGPT
+Actions' 100,000-character payload limit. It preserves goals, profile version, physiology, recent
+weeks/runs/responses, load, constraints, future-session summaries, and decision summaries. When a
+conversation needs the exact steps of an already stored workout, call `getPlannedSessions` for that
+single week rather than asking for the entire multi-week plan in one response.
+
+This keeps the conversation in ChatGPT while the API provides fresh evidence, source material, strict
+validation, idempotency, an audit record, and the final write into Plan. A publication supersedes only
+overlapping active future sessions; completed, skipped, cancelled, and historical records are retained.
 
 **Option B — raw fetch in the task prompt.** If you'd rather not add an Action, tell the task:
 
 > Fetch `https://lydiard.<your-subdomain>.workers.dev/api/agent/plan-context?from=2026-04-01`
 > with header `Authorization: Bearer <YOUR_KEY>`. Using the returned JSON (current risk, load
-> status, weekly trend), assess my injury risk and propose the next 1–3 weeks of training.
+> status, weekly trend), assess my injury risk and propose the next few weeks of training.
 
 ## One-time setup
 
@@ -80,7 +104,11 @@ with
 `GARMIN_INCREMENTAL_DAYS` / `GARMIN_EXTRACT_START` / `GARMIN_EXTRACT_END` / `GARMIN_DATA_TYPES`
 available for override.
 
-For coaching questions, prefer `coach-context` over reconstructing zones or a plan from raw activities. It exposes the deterministic policy output used by the web app, including a full one-to-three-week horizon. Weeks after the first are explicitly contingent on the preceding week being absorbed; post-run changes remain proposed until accepted.
+For coaching questions, prefer `coach-context` over reconstructing zones or a plan from raw activities.
+The deterministic in-app generator still creates conservative one-to-three-week proposals. The Custom
+GPT can discuss and publish up to twelve weeks, and the Plan UI requests that full horizon. Later weeks
+should remain contingent on earlier training being absorbed; detailed per-session adaptation guidance
+is displayed alongside the workout steps, intent, fallback, and reasoning.
 
 ## Script ingest
 
