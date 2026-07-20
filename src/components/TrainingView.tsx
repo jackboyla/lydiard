@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   BookOpen,
   CalendarDays,
+  CloudSun,
   Dumbbell,
   Gauge,
   MessageSquareText,
@@ -24,11 +25,11 @@ import {
   type WeekLoadSummary,
 } from '../analysis/loadModel';
 import type { PhysiologyEstimate, PracticalZone } from '../analysis/coachEngine';
-import { getActivity } from '../data/api';
+import { getActivity, getActivityWeather } from '../data/api';
 import { buildActivityLaps, buildDerivedKilometreLaps, type ActivityLapView } from '../data/activityLaps';
 import { localWeekId, millisecondsUntilNextLocalWeek } from '../data/calendar';
 import { activityPaceSecPerKm, toWeekIdUtc } from '../data/mapRoutes';
-import type { ActivityDetail, ActivitySummary, GymSession, TrainingPlanDay, WeeklyAnalysis } from '../types';
+import type { ActivityDetail, ActivitySummary, ActivityWeather, GymSession, TrainingPlanDay, WeeklyAnalysis } from '../types';
 import { MetricInfo, MetricsGuide, type MetricKey } from './MetricInfo';
 
 const LazyActivityRouteMap = lazy(() => import('./ActivityRouteMap'));
@@ -72,6 +73,7 @@ interface TrainingViewProps {
   physiology?: PhysiologyEstimate;
   onJumpApi?: (api: TrainingJumpApi | null) => void;
   activityFocus?: { id: string; request: number } | null;
+  weekFocus?: { weekId: string; request: number } | null;
   onSaveActivityNote: (activityId: string, note: string) => Promise<string>;
   onSaveDayNote: (date: string, note: string, expectedUpdatedAt: string | null) => Promise<TrainingPlanDay>;
   onRequestFullHistory: () => Promise<void>;
@@ -127,6 +129,7 @@ interface TrainingZoneModel {
   title: string;
   context: string;
   physiologyBacked: boolean;
+  calibration?: PhysiologyEstimate['calibration'];
 }
 
 interface HrZoneTotal {
@@ -169,6 +172,7 @@ export function TrainingView({
   physiology,
   onJumpApi,
   activityFocus,
+  weekFocus,
   onSaveActivityNote,
   onSaveDayNote,
   onRequestFullHistory,
@@ -359,6 +363,7 @@ export function TrainingView({
     // then scroll.
     let cancelled = false;
     let frame = 0;
+    let alignedFrames = 0;
     let prevDesired = Number.NaN;
     const attempt = () => {
       if (cancelled) {
@@ -370,8 +375,16 @@ export function TrainingView({
         const desired = root.scrollTop + target.getBoundingClientRect().top - root.getBoundingClientRect().top - 10;
         const reachable = root.scrollHeight - root.clientHeight >= desired - 1;
         const stable = Math.abs(desired - prevDesired) < 1;
-        if ((reachable && stable) || frame > 90) {
+        if (reachable) {
           root.scrollTop = desired;
+          alignedFrames += 1;
+        } else {
+          alignedFrames = 0;
+        }
+        // Keep the target pinned while content-visibility and responsive week
+        // cards finish laying out; a one-frame scroll can drift by a card or
+        // two after a deep Progress-to-Log jump.
+        if ((reachable && stable && alignedFrames >= 30) || frame > 120) {
           setPendingJump(null);
           return;
         }
@@ -401,6 +414,20 @@ export function TrainingView({
     revealActivityWeek(activityFocus.id);
     setPendingJump(session.weekId);
   }, [activityFocus?.id, activityFocus?.request, loadModel.sessionsById, revealActivityWeek]);
+
+  useEffect(() => {
+    const requestedWeekId = weekFocus?.weekId ?? new URLSearchParams(window.location.search).get('week');
+    if (!requestedWeekId) {
+      return;
+    }
+    const index = scoped.weekEntries.findIndex((entry) => entry.weekId === requestedWeekId);
+    if (index < 0) {
+      return;
+    }
+    setPreviewId(null);
+    setVisibleWeekCount((current) => Math.max(current, index + 1 + JUMP_BUFFER_WEEKS));
+    setPendingJump(requestedWeekId);
+  }, [scoped.weekEntries, weekFocus?.request, weekFocus?.weekId]);
 
   useEffect(() => {
     const onPopState = (event: PopStateEvent) => {
@@ -464,8 +491,11 @@ export function TrainingView({
   }, [previewId]);
 
   useEffect(() => {
-    setVisibleWeekCount(INITIAL_WEEK_COUNT);
-  }, [loadModel.sessions.length]);
+    const requestedWeekId = weekFocus?.weekId ?? new URLSearchParams(window.location.search).get('week');
+    if (!activityFocus && !requestedWeekId) {
+      setVisibleWeekCount(INITIAL_WEEK_COUNT);
+    }
+  }, [activityFocus, loadModel.sessions.length, weekFocus?.weekId]);
 
   const revealHistoryAhead = useCallback((root: HTMLElement) => {
     if (historyExpansionPending.current || visibleWeekCount >= scoped.weekEntries.length) return;
@@ -602,16 +632,6 @@ export function TrainingView({
           </div>
         </div>
       </section>
-
-      {scoped.months.length > 0 && (
-        <label className="training-inline-jump log-history-jump">
-          <span><CalendarDays size={14} aria-hidden="true" /> Jump to</span>
-          <select aria-label="Jump to month" value="" onChange={(event) => event.target.value && jumpToMonth(event.target.value)}>
-            <option value="">Month…</option>
-            {scoped.months.map((month) => <option key={month.id} value={month.id}>{month.label} ({month.count})</option>)}
-          </select>
-        </label>
-      )}
 
       <section className="training-log-shell" aria-label="Activity log">
         <div
@@ -758,6 +778,7 @@ export function TrainingZoneSummary({
 }
 
 function ZoneSummary({ model }: { model: TrainingZoneModel }) {
+  const calibration = model.calibration;
   return (
     <section
       className="training-zone-panel"
@@ -782,6 +803,17 @@ function ZoneSummary({ model }: { model: TrainingZoneModel }) {
           <span>{model.physiologyBacked ? 'Power · CP' : 'Power'}</span>
         </div>
       </header>
+      {calibration && (
+        <div className={`zone-calibration-status status-${calibration.status}`}>
+          <div>
+            <strong>{zoneCalibrationTitle(calibration.status)}</strong>
+            <span>{calibration.changes.length > 0 ? calibration.changes.join(' · ') : calibration.explanation}</span>
+          </div>
+          <small>
+            Reviewed {formatEvidenceDate(calibration.reviewedAt)} · {calibration.newActivityCount}/{calibration.minimumActivitiesForScheduledReview} new runs · next routine review {formatEvidenceDate(calibration.nextReviewAt)}
+          </small>
+        </div>
+      )}
       <div className="zone-card-grid">
         {model.zones.map((zone) => (
           <article key={zone.key} className={`zone-card tone-${zone.tone}`}>
@@ -1186,6 +1218,7 @@ function ActivityDetailPage({
               <RunRead classification={runKind} session={session} />
               <PrimaryRunMetrics activity={activity} session={session} />
             </div>
+            <ActivityWeatherPanel activity={activity} />
             <ActivityEffortStrip totals={hrZoneTotals} loading={loading} />
             <ActivityBestEfforts groups={bestEfforts} loading={loading} />
             <section className="activity-analysis-panel" aria-labelledby="activity-analysis-heading">
@@ -1258,6 +1291,106 @@ function ActivityDetailPage({
       </article>
     </section>
   );
+}
+
+function ActivityWeatherPanel({ activity }: { activity: ActivitySummary }) {
+  const [weather, setWeather] = useState<ActivityWeather | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const hasLocation = Number.isFinite(activity.startLat) && Number.isFinite(activity.startLng);
+
+  useEffect(() => {
+    let active = true;
+    setWeather(null);
+    if (!hasLocation) {
+      setLoading(false);
+      setError('Weather is unavailable because this run has no recorded start location.');
+      return () => { active = false; };
+    }
+    setLoading(true);
+    setError('');
+    void getActivityWeather(activity.id)
+      .then((next) => {
+        if (active) setWeather(next);
+      })
+      .catch(() => {
+        if (active) setError('Historical weather could not be loaded right now.');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, [activity.id, hasLocation]);
+
+  return (
+    <section className="activity-weather-panel" aria-labelledby="activity-weather-heading">
+      <header>
+        <div>
+          <CloudSun size={19} aria-hidden="true" />
+          <span>Conditions</span>
+          <h3 id="activity-weather-heading">Weather at start</h3>
+        </div>
+        <small>
+          Historical hourly estimate ·{' '}
+          <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a>
+        </small>
+      </header>
+      {loading && <p className="activity-weather-status">Finding conditions for this time and location…</p>}
+      {!loading && error && <p className="activity-weather-status">{error}</p>}
+      {!loading && weather && (
+        <>
+          <div className="activity-weather-summary">
+            <strong>{weather.condition}</strong>
+            <span>{formatTemperature(weather.temperatureC)} · feels like {formatTemperature(weather.feelsLikeC)}</span>
+          </div>
+          <dl className="activity-weather-metrics">
+            <WeatherMetric label="Temperature" value={formatTemperature(weather.temperatureC)} />
+            <WeatherMetric label="Feels like" value={formatTemperature(weather.feelsLikeC)} />
+            <WeatherMetric
+              label="Wind"
+              value={`${formatWeatherNumber(weather.windSpeedKph)} km/h ${windCompass(weather.windDirectionDeg)}`}
+            />
+            <WeatherMetric label="Wind gusts" value={`${formatWeatherNumber(weather.windGustKph)} km/h`} />
+            <WeatherMetric
+              label="Precipitation"
+              value={formatPrecipitation(weather.precipitationMm)}
+              note={weather.snowfallCm > 0 ? `${formatWeatherNumber(weather.snowfallCm)} cm snow` : undefined}
+            />
+            <WeatherMetric label="Humidity" value={`${Math.round(weather.relativeHumidityPct)}%`} />
+          </dl>
+        </>
+      )}
+    </section>
+  );
+}
+
+function WeatherMetric({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+      {note && <small>{note}</small>}
+    </div>
+  );
+}
+
+function formatTemperature(value: number): string {
+  return `${formatWeatherNumber(value)}°C`;
+}
+
+function formatWeatherNumber(value: number): string {
+  return Math.abs(value - Math.round(value)) < 0.05 ? String(Math.round(value)) : value.toFixed(1);
+}
+
+function formatPrecipitation(value: number): string {
+  if (value > 0 && value < 0.1) return '<0.1 mm';
+  return `${formatWeatherNumber(value)} mm`;
+}
+
+function windCompass(degrees: number): string {
+  const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const normalized = ((degrees % 360) + 360) % 360;
+  return directions[Math.round(normalized / 45) % directions.length];
 }
 
 function ActivityBestEfforts({ groups, loading }: { groups: ReturnType<typeof streamBestEffortsForActivity>; loading: boolean }) {
@@ -1645,6 +1778,7 @@ function buildTrainingZoneModel(
       title: 'Physiology pace, HR and power',
       context: physiologyEvidenceContext(physiology),
       physiologyBacked: true,
+      calibration: physiology.calibration,
     };
   }
   return {
@@ -1653,6 +1787,14 @@ function buildTrainingZoneModel(
     context: 'Low-confidence fallback: summary pace percentiles and inferred HR threshold. No effective physiology estimate was supplied.',
     physiologyBacked: false,
   };
+}
+
+function zoneCalibrationTitle(status: NonNullable<PhysiologyEstimate['calibration']>['status']): string {
+  if (status === 'initialized') return 'Personal zones established';
+  if (status === 'updated') return 'Zones updated from new evidence';
+  if (status === 'held') return 'Zones reviewed and held';
+  if (status === 'awaiting_evidence') return 'Waiting for enough evidence';
+  return 'Learning from your training';
 }
 
 function physiologyTrainingZone(zone: PracticalZone, index: number): TrainingZone {

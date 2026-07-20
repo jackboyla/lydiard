@@ -3,6 +3,7 @@
 
 import type {
   ActivityDetail,
+  ActivityWeather,
   BestEffortDistance,
   ActivitySummary,
   GymSession,
@@ -138,6 +139,20 @@ export async function getActivities(range?: DateRange): Promise<ActivitySummary[
 
 export function getActivity(id: string): Promise<ActivityDetail> {
   return getJson<ActivityDetail>(`/api/activities/${encodeURIComponent(id)}`);
+}
+
+const weatherCache = new Map<string, Promise<ActivityWeather>>();
+
+export function getActivityWeather(id: string): Promise<ActivityWeather> {
+  const cached = weatherCache.get(id);
+  if (cached) return cached;
+  const request = getJson<ActivityWeather>(`/api/activities/${encodeURIComponent(id)}/weather`)
+    .catch((error) => {
+      weatherCache.delete(id);
+      throw error;
+    });
+  weatherCache.set(id, request);
+  return request;
 }
 
 export async function saveActivityNote(id: string, note: string): Promise<{ note: string; updatedAt: string }> {

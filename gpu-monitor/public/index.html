@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#09100f" />
+    <meta name="color-scheme" content="dark" />
+    <title>Radiance GPU Monitor</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32"><path d="M7 21.5V11l9-5 9 5v10.5l-9 5-9-5Z"/><path d="m11 13 5-2.7 5 2.7v6l-5 2.7-5-2.7v-6Z"/></svg>
+          </div>
+          <div>
+            <p class="eyebrow">Radiance workstation</p>
+            <h1>GPU pulse</h1>
+          </div>
+        </div>
+        <div class="connection" id="connection" data-state="loading">
+          <span class="connection-dot"></span>
+          <span id="connection-label">Connecting</span>
+        </div>
+      </header>
+
+      <section class="hero" aria-labelledby="overview-title">
+        <div>
+          <p class="section-kicker">Live overview</p>
+          <h2 id="overview-title">See what the GPUs are doing.</h2>
+          <p class="hero-copy">Utilization, memory pressure, owning processes, and tmux output in one read-only view.</p>
+        </div>
+        <div class="timestamp-block">
+          <span>Last sample</span>
+          <strong id="last-updated">—</strong>
+          <small id="host-label">Waiting for workstation</small>
+        </div>
+      </section>
+
+      <section class="summary-grid" id="summary" aria-label="GPU summary">
+        <article class="summary-card skeleton-card"></article>
+        <article class="summary-card skeleton-card"></article>
+        <article class="summary-card skeleton-card"></article>
+        <article class="summary-card skeleton-card"></article>
+      </section>
+
+      <section class="content-section" aria-labelledby="gpu-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Hardware</p>
+            <h2 id="gpu-title">GPU activity</h2>
+          </div>
+          <p class="section-note">Updates every 2 seconds</p>
+        </div>
+        <div class="gpu-grid" id="gpus">
+          <div class="loading-panel"><span class="spinner"></span> Reading NVIDIA state…</div>
+        </div>
+      </section>
+
+      <section class="content-section" aria-labelledby="process-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Workloads</p>
+            <h2 id="process-title">GPU processes</h2>
+          </div>
+          <p class="section-note" id="process-note">Matching compute PIDs</p>
+        </div>
+        <div class="process-list" id="processes"></div>
+      </section>
+
+      <section class="content-section terminal-section" aria-labelledby="terminal-title">
+        <div class="section-heading terminal-heading">
+          <div>
+            <p class="section-kicker">Output</p>
+            <h2 id="terminal-title">Live terminals</h2>
+          </div>
+          <button class="follow-button" id="follow-toggle" type="button" aria-pressed="true">
+            <span class="follow-dot"></span> Follow output
+          </button>
+        </div>
+        <div class="terminal-list" id="terminals"></div>
+      </section>
+
+      <footer>
+        <span>Read-only monitor</span>
+        <span class="footer-separator">•</span>
+        <span>Visible on this workstation and its tailnet</span>
+      </footer>
+    </main>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

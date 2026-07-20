@@ -18,6 +18,7 @@ export function compactAgentCoachContext(context: CoachContextBundle) {
       lt2HeartRate: context.physiology.lt2HeartRate,
       raceEquivalents: context.physiology.raceEquivalents,
       zones: context.physiology.zones,
+      calibration: context.physiology.calibration,
       limitations: context.physiology.limitations,
     },
     backgroundLoad: context.backgroundLoad,

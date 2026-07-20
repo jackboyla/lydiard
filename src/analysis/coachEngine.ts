@@ -144,6 +144,31 @@ export interface PhysiologyEstimate {
   raceEquivalents: RaceEquivalent[];
   zones: PracticalZone[];
   limitations: string[];
+  calibration?: AdaptiveZoneCalibration;
+}
+
+export type AdaptiveZoneCalibrationStatus = 'collecting' | 'initialized' | 'updated' | 'held' | 'awaiting_evidence';
+export type AdaptiveZoneReviewTrigger = 'initial' | 'scheduled' | 'race_or_time_trial' | 'critical_power' | 'none';
+
+export interface AdaptiveZoneCalibration {
+  policyVersion: 'adaptive-zones-v1';
+  status: AdaptiveZoneCalibrationStatus;
+  reviewedAt: string;
+  nextReviewAt: string;
+  trigger: AdaptiveZoneReviewTrigger;
+  newActivityCount: number;
+  minimumActivitiesForScheduledReview: number;
+  changes: string[];
+  explanation: string;
+}
+
+export interface AdaptivePhysiologyInput {
+  candidate: PhysiologyEstimate;
+  previous?: PhysiologyEstimate;
+  asOf: string;
+  newActivityCount: number;
+  strongEvidence: boolean;
+  criticalPowerChanged: boolean;
 }
 
 export interface PhysiologyInput {
@@ -152,6 +177,11 @@ export interface PhysiologyInput {
   asOf?: string;
   lookbackDays?: number;
 }
+
+export const ADAPTIVE_ZONE_REVIEW_DAYS = 7;
+export const ADAPTIVE_ZONE_MIN_NEW_ACTIVITIES = 3;
+const ADAPTIVE_ZONE_MATERIAL_CHANGE = 0.03;
+const ADAPTIVE_ZONE_HR_CHANGE_BPM = 3;
 
 export interface HrCostBin {
   lowPctCp: number;
@@ -584,6 +614,231 @@ export function estimatePhysiology(input: PhysiologyInput): PhysiologyEstimate {
     zones,
     limitations,
   };
+}
+
+/**
+ * Turn the continuously refreshed physiology candidate into stable training
+ * zones. Evidence is always collected, but adopted boundaries are reviewed on
+ * a weekly cadence unless a race/time trial or dated CP change justifies
+ * an earlier look. Changes smaller than typical field-test noise are retained
+ * as evidence without moving the athlete's prescription.
+ */
+export function calibrateAdaptivePhysiology(input: AdaptivePhysiologyInput): PhysiologyEstimate {
+  const { candidate, previous } = input;
+  const asOfMs = Date.parse(input.asOf);
+  if (!Number.isFinite(asOfMs)) throw new Error('Adaptive physiology asOf must be an ISO timestamp.');
+
+  if (!previous) {
+    return withCalibration(candidate, {
+      status: 'initialized',
+      reviewedAt: input.asOf,
+      trigger: 'initial',
+      newActivityCount: input.newActivityCount,
+      changes: initialZoneChanges(candidate),
+      explanation: 'Initial zones were established from the available multi-run evidence. New runs will be collected continuously and reviewed as a group.',
+    });
+  }
+
+  const previousReview = previous.calibration?.reviewedAt ?? previous.asOf;
+  const elapsedDays = Math.max(0, (asOfMs - Date.parse(previousReview)) / DAY_MS);
+  const scheduled = elapsedDays >= ADAPTIVE_ZONE_REVIEW_DAYS;
+  const trigger: AdaptiveZoneReviewTrigger = input.criticalPowerChanged
+    ? 'critical_power'
+    : input.strongEvidence
+      ? 'race_or_time_trial'
+      : scheduled
+        ? 'scheduled'
+        : 'none';
+
+  if (trigger === 'none') {
+    return withCalibration(previous, {
+      status: 'collecting',
+      reviewedAt: previousReview,
+      trigger,
+      newActivityCount: input.newActivityCount,
+      changes: [],
+      explanation: `Evidence is accumulating. The next routine review is after ${ADAPTIVE_ZONE_MIN_NEW_ACTIVITIES} new runs and the weekly review date.`,
+    });
+  }
+
+  if (trigger === 'scheduled' && input.newActivityCount < ADAPTIVE_ZONE_MIN_NEW_ACTIVITIES) {
+    return withCalibration(previous, {
+      status: 'awaiting_evidence',
+      reviewedAt: previousReview,
+      trigger,
+      newActivityCount: input.newActivityCount,
+      changes: [],
+      explanation: `The review date has arrived, but only ${input.newActivityCount} new ${input.newActivityCount === 1 ? 'run' : 'runs'} are available. Existing zones stay in force until at least ${ADAPTIVE_ZONE_MIN_NEW_ACTIVITIES} runs can be considered together.`,
+    });
+  }
+
+  const changes: string[] = [];
+  const criticalSpeed = adoptLinearEstimate(previous.criticalSpeed, candidate.criticalSpeed, 'Critical speed', changes);
+  const platformCriticalPower = adoptLinearEstimate(previous.platformCriticalPower, candidate.platformCriticalPower, 'Platform Critical Power', changes);
+  const canonicalCriticalPower = adoptCanonicalCriticalPower(previous, candidate, platformCriticalPower, changes);
+  const lt1HeartRate = adoptHeartRateBand(previous.lt1HeartRate, candidate.lt1HeartRate, 'LT1 heart rate', changes);
+  const lt2HeartRate = adoptHeartRateBand(previous.lt2HeartRate, candidate.lt2HeartRate, 'LT2 heart rate', changes);
+  const maxObservedHeartRate = adoptMaxHeartRate(previous.maxObservedHeartRate, candidate.maxObservedHeartRate, changes);
+  const adopted: PhysiologyEstimate = {
+    asOf: input.asOf,
+    criticalSpeed,
+    platformCriticalPower,
+    canonicalCriticalPower,
+    lt1HeartRate,
+    lt2HeartRate,
+    maxObservedHeartRate,
+    raceEquivalents: criticalSpeed ? buildRaceEquivalents(criticalSpeed) : [],
+    zones: buildPracticalZones(
+      criticalSpeed?.estimate,
+      canonicalCriticalPower?.watts,
+      lt1HeartRate,
+      lt2HeartRate,
+      maxObservedHeartRate,
+    ),
+    limitations: candidate.limitations,
+  };
+  const status = changes.length > 0 ? 'updated' : 'held';
+  return withCalibration(adopted, {
+    status,
+    reviewedAt: input.asOf,
+    trigger,
+    newActivityCount: input.newActivityCount,
+    changes,
+    explanation: changes.length > 0
+      ? `The review adopted ${changes.length} material ${changes.length === 1 ? 'change' : 'changes'} supported beyond normal day-to-day noise.`
+      : 'The new evidence was reviewed, but no boundary moved beyond the material-change gate. Existing zones remain appropriate.',
+  });
+}
+
+function withCalibration(
+  physiology: PhysiologyEstimate,
+  calibration: Omit<AdaptiveZoneCalibration, 'policyVersion' | 'nextReviewAt' | 'minimumActivitiesForScheduledReview'>,
+): PhysiologyEstimate {
+  return {
+    ...physiology,
+    calibration: {
+      ...calibration,
+      policyVersion: 'adaptive-zones-v1',
+      nextReviewAt: new Date(Date.parse(calibration.reviewedAt) + ADAPTIVE_ZONE_REVIEW_DAYS * DAY_MS).toISOString(),
+      minimumActivitiesForScheduledReview: ADAPTIVE_ZONE_MIN_NEW_ACTIVITIES,
+    },
+  };
+}
+
+function initialZoneChanges(candidate: PhysiologyEstimate): string[] {
+  const changes: string[] = [];
+  if (candidate.criticalSpeed) changes.push('Critical speed established');
+  if (candidate.canonicalCriticalPower) changes.push('Critical Power established');
+  if (candidate.lt1HeartRate) changes.push('LT1 heart-rate boundary established');
+  if (candidate.lt2HeartRate) changes.push('LT2 heart-rate boundary established');
+  return changes;
+}
+
+function adoptLinearEstimate(
+  previous: LinearCapacityEstimate | undefined,
+  candidate: LinearCapacityEstimate | undefined,
+  label: string,
+  changes: string[],
+): LinearCapacityEstimate | undefined {
+  if (!candidate) return previous;
+  if (!previous) {
+    if (candidate.confidenceScore < 0.5) return undefined;
+    changes.push(`${label} established at ${formatAdaptiveValue(label, candidate.estimate)}`);
+    return candidate;
+  }
+  const delta = Math.abs(candidate.estimate - previous.estimate) / previous.estimate;
+  if (candidate.confidenceScore >= 0.5 && delta >= ADAPTIVE_ZONE_MATERIAL_CHANGE) {
+    changes.push(`${label} ${candidate.estimate > previous.estimate ? 'rose' : 'fell'} ${Math.round(delta * 1000) / 10}% to ${formatAdaptiveValue(label, candidate.estimate)}`);
+    return candidate;
+  }
+  return refreshEstimateEvidence(previous, candidate);
+}
+
+function refreshEstimateEvidence(previous: LinearCapacityEstimate, candidate: LinearCapacityEstimate): LinearCapacityEstimate {
+  return {
+    ...previous,
+    confidence: candidate.confidence,
+    confidenceScore: candidate.confidenceScore,
+    evidence: candidate.evidence,
+    durationBucketsCovered: candidate.durationBucketsCovered,
+    distinctActivities: candidate.distinctActivities,
+    fitRmse: candidate.fitRmse,
+    explanation: `${candidate.explanation} The adopted boundary is held until the estimated change exceeds the material-change gate.`,
+  };
+}
+
+function adoptCanonicalCriticalPower(
+  previous: PhysiologyEstimate,
+  candidate: PhysiologyEstimate,
+  adoptedPlatform: LinearCapacityEstimate | undefined,
+  changes: string[],
+): PhysiologyEstimate['canonicalCriticalPower'] {
+  const next = candidate.canonicalCriticalPower;
+  const prior = previous.canonicalCriticalPower;
+  if (!next) return prior;
+  if (next.source !== 'platform_estimate') {
+    if (!prior || next.effectiveFrom !== prior.effectiveFrom || next.watts !== prior.watts || next.source !== prior.source) {
+      changes.push(`Critical Power ${prior ? 'updated' : 'established'} from dated ${next.source.replaceAll('_', ' ')} evidence at ${Math.round(next.watts)} W`);
+    }
+    return next;
+  }
+  if (!adoptedPlatform) return prior;
+  const platformValue = adoptedPlatform.estimate;
+  if (!prior) {
+    changes.push(`Critical Power established at ${Math.round(platformValue)} W`);
+  } else if (Math.round(platformValue) !== Math.round(prior.watts)) {
+    const delta = Math.abs(platformValue - prior.watts) / prior.watts;
+    changes.push(`Critical Power ${platformValue > prior.watts ? 'rose' : 'fell'} ${Math.round(delta * 1000) / 10}% to ${Math.round(platformValue)} W`);
+  }
+  return {
+    ...next,
+    watts: platformValue,
+    confidence: adoptedPlatform.confidence,
+    confidenceScore: adoptedPlatform.confidenceScore,
+    explanation: 'The platform work-duration estimate is canonical and changes only after the adaptive review gate is met.',
+  };
+}
+
+function adoptHeartRateBand(
+  previous: EstimateBand | undefined,
+  candidate: EstimateBand | undefined,
+  label: string,
+  changes: string[],
+): EstimateBand | undefined {
+  if (!candidate) return previous;
+  if (!previous) {
+    if (candidate.confidenceScore < 0.5) return undefined;
+    changes.push(`${label} established at ${Math.round((candidate.low + candidate.high) / 2)} bpm`);
+    return candidate;
+  }
+  const previousMidpoint = (previous.low + previous.high) / 2;
+  const candidateMidpoint = (candidate.low + candidate.high) / 2;
+  const delta = Math.abs(candidateMidpoint - previousMidpoint);
+  if (candidate.confidenceScore >= 0.5 && delta >= ADAPTIVE_ZONE_HR_CHANGE_BPM) {
+    changes.push(`${label} ${candidateMidpoint > previousMidpoint ? 'rose' : 'fell'} ${Math.round(delta)} bpm`);
+    return candidate;
+  }
+  return {
+    ...previous,
+    confidence: candidate.confidence,
+    confidenceScore: candidate.confidenceScore,
+    evidence: candidate.evidence,
+    explanation: `${candidate.explanation} The adopted boundary is held until the midpoint changes by at least ${ADAPTIVE_ZONE_HR_CHANGE_BPM} bpm.`,
+  };
+}
+
+function adoptMaxHeartRate(previous: number | undefined, candidate: number | undefined, changes: string[]): number | undefined {
+  if (candidate === undefined) return previous;
+  if (previous === undefined) return candidate;
+  if (Math.abs(candidate - previous) >= ADAPTIVE_ZONE_HR_CHANGE_BPM) {
+    changes.push(`Supported maximum heart rate ${candidate > previous ? 'rose' : 'fell'} to ${Math.round(candidate)} bpm`);
+    return candidate;
+  }
+  return previous;
+}
+
+function formatAdaptiveValue(label: string, value: number): string {
+  return label.includes('speed') ? `${round(value, 3)} m/s` : `${Math.round(value)} W`;
 }
 
 function extractEffortPoints(

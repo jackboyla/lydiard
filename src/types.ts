@@ -164,6 +164,22 @@ export interface ActivityDetail extends ActivitySummary {
   planDay?: TrainingPlanDay;
 }
 
+export interface ActivityWeather {
+  observedAt: string;
+  condition: string;
+  conditionCode: number;
+  temperatureC: number;
+  feelsLikeC: number;
+  relativeHumidityPct: number;
+  precipitationMm: number;
+  rainMm: number;
+  snowfallCm: number;
+  windSpeedKph: number;
+  windGustKph: number;
+  windDirectionDeg: number;
+  source: 'open-meteo';
+}
+
 export interface BestEffortEntry {
   rank: number;
   activityId: string;

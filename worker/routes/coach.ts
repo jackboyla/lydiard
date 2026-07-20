@@ -307,6 +307,14 @@ export function coachRoutes(): Hono<{ Bindings: Env }> {
       const minutes = integer(body.plannedDurationMin);
       if (minutes === undefined || minutes < 0 || minutes > 600) return c.json({ error: 'plannedDurationMin must be 0–600.' }, 400);
       patch.plannedDurationSec = minutes * 60;
+      const pctLow = existing.targetPowerLowPctCp;
+      const pctHigh = existing.targetPowerHighPctCp;
+      if (pctLow !== undefined || pctHigh !== undefined) {
+        const midpoint = ((pctLow ?? pctHigh as number) + (pctHigh ?? pctLow as number)) / 2;
+        patch.plannedPowerStress = round((minutes / 60) * midpoint ** 2 * 100, 1);
+      } else if (existing.plannedPowerStress !== undefined && existing.plannedDurationSec && existing.plannedDurationSec > 0) {
+        patch.plannedPowerStress = round(existing.plannedPowerStress * (minutes * 60 / existing.plannedDurationSec), 1);
+      }
     }
     if (body.purpose !== undefined) {
       if (typeof body.purpose !== 'string' || body.purpose.length > 2_000) return c.json({ error: 'purpose must be at most 2000 characters.' }, 400);
@@ -877,11 +885,15 @@ function evaluationFromDecision(decision: CoachDecision): PostRunEvaluation | nu
 
 function compactPhysiology(value: Awaited<ReturnType<typeof loadCoachRuntime>>['physiology']): Record<string, unknown> {
   return {
+    asOf: value.asOf,
     criticalSpeed: value.criticalSpeed,
+    platformCriticalPower: value.platformCriticalPower,
     canonicalCriticalPower: value.canonicalCriticalPower,
     lt1HeartRate: value.lt1HeartRate,
     lt2HeartRate: value.lt2HeartRate,
     raceEquivalents: value.raceEquivalents,
+    zones: value.zones,
+    calibration: value.calibration,
     limitations: value.limitations,
   };
 }

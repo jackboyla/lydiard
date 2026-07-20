@@ -488,6 +488,20 @@ export function buildOpenApiDocument(origin: string): unknown {
             lt1HeartRate: { type: 'object', properties: { low: num, high: num, confidence: str } },
             lt2HeartRate: { type: 'object', properties: { low: num, high: num, confidence: str } },
             zones: { type: 'array', items: { type: 'object', properties: { name: str, label: str, domain: str, control: str } } },
+            calibration: {
+              type: 'object',
+              properties: {
+                policyVersion: str,
+                status: str,
+                reviewedAt: str,
+                nextReviewAt: str,
+                trigger: str,
+                newActivityCount: int,
+                minimumActivitiesForScheduledReview: int,
+                changes: { type: 'array', items: str },
+                explanation: str,
+              },
+            },
             raceEquivalents: {
               type: 'array',
               items: { type: 'object', properties: { label: str, distanceM: num, predictedSec: num, paceSecPerKm: num, confidence: str, caveat: str } },

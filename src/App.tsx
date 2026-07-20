@@ -1,8 +1,25 @@
-import { lazy, Suspense, type ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  type ChangeEvent,
+  type CSSProperties,
+  type Dispatch,
+  type MutableRefObject,
+  type ReactNode,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Activity,
   ArrowDownToLine,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   Gauge,
   Link2,
@@ -81,14 +98,21 @@ type RangePreset = '4w' | '12w' | '6mo' | '1y' | 'all';
 type ViewMode = 'log' | 'progress' | 'plan';
 type LogMode = 'list' | 'map';
 type BestEffortScope = 'all' | 'season';
-type ProgressRange = '1m' | '3m' | '6m' | '12m' | 'all';
+type ProgressResolution = '1m' | '3m' | '6m' | '12m';
 
-const PROGRESS_RANGES: Array<{ key: ProgressRange; label: string; months?: number }> = [
-  { key: '1m', label: '1m', months: 1 },
-  { key: '3m', label: '3m', months: 3 },
-  { key: '6m', label: '6m', months: 6 },
-  { key: '12m', label: '12m', months: 12 },
-  { key: 'all', label: 'All' },
+interface ProgressViewState {
+  loadMetric: 'time' | 'distance';
+  activeWeekId: string | null;
+  armedWeekId: string | null;
+  resolution: ProgressResolution;
+  blockOffset: number;
+}
+
+const PROGRESS_RESOLUTIONS: Array<{ key: ProgressResolution; label: string; months: number; weeks: number }> = [
+  { key: '1m', label: '1m', months: 1, weeks: 4 },
+  { key: '3m', label: '3m', months: 3, weeks: 12 },
+  { key: '6m', label: '6m', months: 6, weeks: 26 },
+  { key: '12m', label: '12m', months: 12, weeks: 52 },
 ];
 
 const RANGE_DAYS: Record<RangePreset, number> = {
@@ -136,7 +160,12 @@ export default function App() {
     const id = new URLSearchParams(window.location.search).get('activity');
     return id ? { id, request: 1 } : null;
   });
+  const [weekFocus, setWeekFocus] = useState<{ weekId: string; request: number } | null>(() => {
+    const weekId = new URLSearchParams(window.location.search).get('week');
+    return weekId ? { weekId, request: 1 } : null;
+  });
   const activityFocusRequest = useRef(activityFocus ? 1 : 0);
+  const weekFocusRequest = useRef(weekFocus ? 1 : 0);
   const coreLoadRequest = useRef(0);
   const planLoadRequest = useRef(0);
   const coachLoadRequest = useRef(0);
@@ -155,6 +184,14 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [bestEffortScope, setBestEffortScope] = useState<BestEffortScope>('all');
   const [trainingJump, setTrainingJump] = useState<TrainingJumpApi | null>(null);
+  const [progressViewState, setProgressViewState] = useState<ProgressViewState>({
+    loadMetric: 'time',
+    activeWeekId: null,
+    armedWeekId: null,
+    resolution: '3m',
+    blockOffset: 0,
+  });
+  const progressScrollTop = useRef(0);
   const confirmPlanNavigation = useCallback(
     (next: ViewMode): boolean => {
       if (next === view || view !== 'plan' || !planHasUnsavedChanges) {
@@ -237,6 +274,7 @@ export default function App() {
         await loadAllActivities();
       }
       activityFocusRequest.current += 1;
+      setWeekFocus(null);
       setActivityFocus({ id: activityId, request: activityFocusRequest.current });
       setView('log');
       setLogMode('list');
@@ -244,6 +282,22 @@ export default function App() {
       window.history.pushState(null, '', appUrl('log', { activity: activityId }));
     })();
   }, [activities, confirmPlanNavigation, loadAllActivities]);
+
+  const openWeekInLog = useCallback((weekId: string) => {
+    if (!confirmPlanNavigation('log')) {
+      return;
+    }
+    void (async () => {
+      await loadAllActivities();
+      weekFocusRequest.current += 1;
+      setActivityFocus(null);
+      setWeekFocus({ weekId, request: weekFocusRequest.current });
+      setView('log');
+      setLogMode('list');
+      setMenuOpen(false);
+      window.history.pushState(null, '', appUrl('log', { week: weekId }));
+    })();
+  }, [confirmPlanNavigation, loadAllActivities]);
 
   const openRouteExplorer = useCallback(() => {
     if (!confirmPlanNavigation('log')) return;
@@ -519,11 +573,19 @@ export default function App() {
       setView(next);
       setLogMode(logModeFromLocation());
       const activityId = new URLSearchParams(window.location.search).get('activity');
+      const weekId = new URLSearchParams(window.location.search).get('week');
       if (activityId) {
         activityFocusRequest.current += 1;
         setActivityFocus({ id: activityId, request: activityFocusRequest.current });
+        setWeekFocus(null);
       } else {
         setActivityFocus(null);
+        if (weekId) {
+          weekFocusRequest.current += 1;
+          setWeekFocus({ weekId, request: weekFocusRequest.current });
+        } else if (next === 'log') {
+          setWeekFocus(null);
+        }
       }
     };
     window.addEventListener('popstate', onPopState);
@@ -682,7 +744,7 @@ export default function App() {
         </div>
 
         <div className="view-toggle product-view-toggle desktop-primary-nav" role="tablist" aria-label="Primary">
-          <button role="tab" aria-selected={view === 'log'} className={view === 'log' ? 'active' : ''} type="button" onClick={() => { setLogMode('list'); selectView('log'); }}><CalendarDays size={16} aria-hidden="true" /> Log</button>
+          <button role="tab" aria-selected={view === 'log'} className={view === 'log' ? 'active' : ''} type="button" onClick={() => { setActivityFocus(null); setLogMode('list'); selectView('log'); }}><CalendarDays size={16} aria-hidden="true" /> Log</button>
           <button role="tab" aria-selected={view === 'progress'} className={view === 'progress' ? 'active' : ''} type="button" onClick={() => selectView('progress')}><TrendingUp size={16} aria-hidden="true" /> Progress</button>
           <button role="tab" aria-selected={view === 'plan'} className={view === 'plan' ? 'active' : ''} type="button" onClick={() => selectView('plan')}><ClipboardList size={16} aria-hidden="true" /> Plan</button>
         </div>
@@ -806,7 +868,17 @@ export default function App() {
 
       {(banner || loadError) && (
         <div className={`app-banner ${loadError ? 'error' : ''}`} role="status">
-          {loadError || banner}
+          <span>{loadError || banner}</span>
+          <button
+            type="button"
+            aria-label="Dismiss message"
+            onClick={() => {
+              setBanner('');
+              setLoadError('');
+            }}
+          >
+            <X size={17} aria-hidden="true" />
+          </button>
         </div>
       )}
 
@@ -860,6 +932,10 @@ export default function App() {
           selectedIndex={safeSelectedIndex}
           onMetricChange={setMetric}
           onWeekSelect={setSelectedIndex}
+          onOpenWeek={openWeekInLog}
+          viewState={progressViewState}
+          onViewStateChange={setProgressViewState}
+          scrollTopRef={progressScrollTop}
           physiology={coachContext?.physiology}
           powerDuration={coachContext?.powerDuration}
           powerDurationLoading={coachLoading}
@@ -929,6 +1005,7 @@ export default function App() {
           usingSample={usingSample}
           onJumpApi={setTrainingJump}
           activityFocus={activityFocus}
+          weekFocus={weekFocus}
           onSaveActivityNote={handleSaveActivityNote}
           onSaveDayNote={handleSaveLogDayNote}
           onRequestFullHistory={loadAllActivities}
@@ -937,7 +1014,10 @@ export default function App() {
       )}
 
       <MobileBottomNav active={view} onSelect={(next) => {
-        if (next === 'log') setLogMode('list');
+        if (next === 'log') {
+          setActivityFocus(null);
+          setLogMode('list');
+        }
         selectView(next);
       }} />
     </div>
@@ -1005,6 +1085,10 @@ function ProgressView({
   selectedIndex,
   onMetricChange,
   onWeekSelect,
+  onOpenWeek,
+  viewState,
+  onViewStateChange,
+  scrollTopRef,
   physiology,
   powerDuration,
   powerDurationLoading,
@@ -1026,30 +1110,65 @@ function ProgressView({
   selectedIndex: number;
   onMetricChange: (metric: TrendMetricKey) => void;
   onWeekSelect: (index: number) => void;
+  onOpenWeek: (weekId: string) => void;
+  viewState: ProgressViewState;
+  onViewStateChange: Dispatch<SetStateAction<ProgressViewState>>;
+  scrollTopRef: MutableRefObject<number>;
   physiology?: PhysiologyEstimate;
   powerDuration: CoachContextData['powerDuration'] | undefined;
   powerDurationLoading: boolean;
   powerDurationError: string;
   onReloadPowerDuration: () => Promise<void>;
 }) {
-  const [loadMetric, setLoadMetric] = useState<'time' | 'distance'>('time');
-  const [activeWeekId, setActiveWeekId] = useState<string | null>(null);
-  const [progressRange, setProgressRange] = useState<ProgressRange>('3m');
+  const rootRef = useRef<HTMLElement | null>(null);
+  const {
+    loadMetric,
+    activeWeekId,
+    armedWeekId,
+    resolution: progressResolution,
+    blockOffset: progressBlockOffset,
+  } = viewState;
   const latestWeek = lastItem(loadModel.weeks);
-  const recentWeeks = loadModel.weeks.slice(-12);
-  const maxValue = Math.max(1, ...recentWeeks.map((week) => homeLoadMetricValue(week, loadMetric)));
-  const activeWeek = recentWeeks.find((week) => week.weekId === activeWeekId) ?? latestWeek;
+  const resolution = PROGRESS_RESOLUTIONS.find((option) => option.key === progressResolution) ?? PROGRESS_RESOLUTIONS[1];
+  const blockEnd = Math.max(0, loadModel.weeks.length - progressBlockOffset * resolution.weeks);
+  const blockStart = Math.max(0, blockEnd - resolution.weeks);
+  const blockWeeks = loadModel.weeks.slice(blockStart, blockEnd);
+  const canGoOlder = blockStart > 0;
+  const canGoNewer = progressBlockOffset > 0;
+  const maxValue = Math.max(1, ...blockWeeks.map((week) => homeLoadMetricValue(week, loadMetric)));
+  const activeWeek = blockWeeks.find((week) => week.weekId === activeWeekId) ?? lastItem(blockWeeks) ?? latestWeek;
   const scopedProgress = useMemo(
-    () => scopeProgressData(loadModel, analyses, progressRange),
-    [analyses, loadModel, progressRange],
+    () => scopeProgressData(loadModel, analyses, blockWeeks),
+    [analyses, blockWeeks, loadModel],
   );
   const scopedSelectedIndex = Math.max(0, Math.min(
     selectedIndex - scopedProgress.analysisOffset,
     scopedProgress.analyses.length - 1,
   ));
 
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root || scrollTopRef.current <= 0) return;
+    let frame = 0;
+    let cancelled = false;
+    const restore = () => {
+      if (cancelled) return;
+      root.scrollTop = scrollTopRef.current;
+      frame += 1;
+      if (frame < 18) requestAnimationFrame(restore);
+    };
+    restore();
+    return () => {
+      cancelled = true;
+    };
+  }, [scrollTopRef]);
+
   return (
-    <main className="product-page progress-view">
+    <main
+      ref={rootRef}
+      className="product-page progress-view"
+      onScroll={(event) => { scrollTopRef.current = event.currentTarget.scrollTop; }}
+    >
       <section className="product-page-head progress-page-head">
         <p className="eyebrow"><TrendingUp size={15} aria-hidden="true" /> Progress</p>
         <h2>How your training is moving</h2>
@@ -1083,17 +1202,77 @@ function ProgressView({
       />
 
       <section className="product-card load-preview-panel progress-load-panel">
-        <header>
-          <span>Last 12 weeks</span>
+        <header className="progress-block-header">
+          <div className="progress-block-title">
+            <span>{progressBlockOffset === 0 ? 'Latest' : 'Earlier'} {blockWeeks.length} weeks</span>
+            <small>{formatProgressBlockRange(blockWeeks)}</small>
+          </div>
           <div className="load-panel-controls">
             <strong>{activeWeek ? formatHomeLoadMetric(activeWeek, loadMetric) : '-'}</strong>
             <div className="mini-toggle" role="group" aria-label="Weekly progression metric">
-              <button type="button" className={loadMetric === 'time' ? 'active' : ''} onClick={() => setLoadMetric('time')}>Time</button>
-              <button type="button" className={loadMetric === 'distance' ? 'active' : ''} onClick={() => setLoadMetric('distance')}>km</button>
+              <button type="button" className={loadMetric === 'time' ? 'active' : ''} onClick={() => onViewStateChange((current) => ({ ...current, loadMetric: 'time' }))}>Time</button>
+              <button type="button" className={loadMetric === 'distance' ? 'active' : ''} onClick={() => onViewStateChange((current) => ({ ...current, loadMetric: 'distance' }))}>km</button>
             </div>
           </div>
         </header>
-        <div className="mini-load-chart" aria-label={`Last 12 weeks by ${loadMetric === 'time' ? 'training time' : 'distance'}`}>
+        <div className="progress-block-toolbar">
+          <div className="segmented progress-resolution-control" role="group" aria-label="Progress block size">
+            {PROGRESS_RESOLUTIONS.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                className={progressResolution === option.key ? 'active' : ''}
+                aria-pressed={progressResolution === option.key}
+                onClick={() => {
+                  onViewStateChange((current) => ({
+                    ...current,
+                    resolution: option.key,
+                    blockOffset: 0,
+                    activeWeekId: null,
+                    armedWeekId: null,
+                  }));
+                }}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <div className="progress-block-pager" role="group" aria-label="Progress block navigation">
+            <button
+              type="button"
+              aria-label={`View previous ${resolution.months}-month block`}
+              title="Older weeks"
+              disabled={!canGoOlder}
+              onClick={() => {
+                onViewStateChange((current) => ({
+                  ...current,
+                  blockOffset: current.blockOffset + 1,
+                  activeWeekId: null,
+                  armedWeekId: null,
+                }));
+              }}
+            >
+              <ChevronLeft size={18} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              aria-label={`View next ${resolution.months}-month block`}
+              title="Newer weeks"
+              disabled={!canGoNewer}
+              onClick={() => {
+                onViewStateChange((current) => ({
+                  ...current,
+                  blockOffset: Math.max(0, current.blockOffset - 1),
+                  activeWeekId: null,
+                  armedWeekId: null,
+                }));
+              }}
+            >
+              <ChevronRight size={18} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+        <div className="mini-load-chart" aria-label={`${blockWeeks.length} weeks by ${loadMetric === 'time' ? 'training time' : 'distance'}`}>
           <span className="mini-load-y-title">{loadMetric === 'time' ? 'Training time' : 'Distance (km)'}</span>
           <div className="mini-load-y-ticks" aria-hidden="true">
             <span>{formatLoadAxisValue(maxValue, loadMetric)}</span>
@@ -1102,29 +1281,63 @@ function ProgressView({
           </div>
           <div className="mini-load-plot">
             <div className="mini-load-grid" aria-hidden="true"><i /><i /><i /></div>
-            <div className="mini-load-bars" aria-label="Last 12 weeks of training">
-              {recentWeeks.map((week) => (
+            <div
+              className="mini-load-bars"
+              aria-label={`${blockWeeks.length} weeks of training`}
+              style={{ '--progress-week-count': blockWeeks.length } as CSSProperties}
+            >
+              {blockWeeks.map((week) => (
                 <button
                   key={week.weekId}
+                  data-progress-week={week.weekId}
+                  data-touch-armed={armedWeekId === week.weekId ? 'true' : undefined}
                   type="button"
                   className={activeWeek?.weekId === week.weekId ? 'active' : ''}
-                  onMouseEnter={() => setActiveWeekId(week.weekId)}
-                  onFocus={() => setActiveWeekId(week.weekId)}
-                  onClick={() => setActiveWeekId(week.weekId)}
+                  onMouseEnter={() => onViewStateChange((current) => ({ ...current, activeWeekId: week.weekId }))}
+                  onFocus={() => onViewStateChange((current) => ({ ...current, activeWeekId: week.weekId }))}
+                  onClick={(event) => {
+                    const touchConfirmation = event.detail > 0
+                      && navigator.maxTouchPoints > 0
+                      && window.matchMedia('(max-width: 760px)').matches;
+                    if (touchConfirmation && armedWeekId !== week.weekId) {
+                      onViewStateChange((current) => ({
+                        ...current,
+                        activeWeekId: week.weekId,
+                        armedWeekId: week.weekId,
+                      }));
+                      return;
+                    }
+                    onViewStateChange((current) => ({
+                      ...current,
+                      activeWeekId: week.weekId,
+                      armedWeekId: null,
+                    }));
+                    onOpenWeek(week.weekId);
+                  }}
                   title={`${week.label}: ${formatHomeLoadMetric(week, loadMetric)}`}
-                  aria-label={`${week.label}, ${formatHomeLoadMetric(week, loadMetric)}`}
+                  aria-label={`${week.label}, ${formatHomeLoadMetric(week, loadMetric)}${armedWeekId === week.weekId ? ', tap again to open in Log' : ''}`}
                 >
                   <span style={{ height: `${Math.max(8, (homeLoadMetricValue(week, loadMetric) / maxValue) * 100)}%` }} />
                 </button>
               ))}
             </div>
-            <div className="mini-load-x-ticks" aria-hidden="true">
-              {recentWeeks.map((week) => <span key={week.weekId}>{formatWeekAxisTick(week.weekId)}</span>)}
+            <div
+              className="mini-load-x-ticks"
+              aria-hidden="true"
+              style={{ '--progress-week-count': blockWeeks.length } as CSSProperties}
+            >
+              {blockWeeks.map((week, index) => (
+                <span key={week.weekId}>{showProgressTick(index, blockWeeks.length) ? formatWeekAxisTick(week.weekId) : ''}</span>
+              ))}
             </div>
             <span className="mini-load-x-title">Week starting</span>
           </div>
         </div>
-        {activeWeek && <p>{activeWeek.label} · {activeWeek.activityCount} runs · {activeWeek.distanceKm.toFixed(1)} km</p>}
+        {activeWeek && (
+          <p>
+            {activeWeek.label} · {activeWeek.activityCount} runs · {activeWeek.distanceKm.toFixed(1)} km · {armedWeekId === activeWeek.weekId ? 'tap again to open that week in Log' : 'select a bar to open that week in Log'}
+          </p>
+        )}
       </section>
 
       <section className="progress-zones-section" aria-labelledby="progress-zones-heading">
@@ -1140,19 +1353,6 @@ function ProgressView({
             <span>Trends</span>
             <h2 id="progress-analysis-heading">Your training over time</h2>
           </div>
-          <div className="segmented progress-range-control" role="group" aria-label="Progress chart range">
-            {PROGRESS_RANGES.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                className={progressRange === option.key ? 'active' : ''}
-                aria-pressed={progressRange === option.key}
-                onClick={() => setProgressRange(option.key)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
         </div>
         <ProgressZoneBreakdown loadModel={scopedProgress.loadModel} />
         <Suspense fallback={<div className="surface-loading">Loading charts…</div>}>
@@ -1162,7 +1362,12 @@ function ProgressView({
             metric={metric}
             selectedIndex={scopedSelectedIndex}
             onMetricChange={onMetricChange}
-            onWeekSelect={(index) => onWeekSelect(index + scopedProgress.analysisOffset)}
+            onWeekSelect={(index) => {
+              const absoluteIndex = index + scopedProgress.analysisOffset;
+              onWeekSelect(absoluteIndex);
+              const weekId = scopedProgress.analyses[index]?.week.weekStart;
+              if (weekId) onOpenWeek(weekId);
+            }}
           />
         </Suspense>
       </section>
@@ -1200,19 +1405,36 @@ function filterActivitiesByRange(activities: ActivitySummary[], range: RangePres
 function scopeProgressData(
   loadModel: TrainingLoadModel,
   analyses: WeeklyAnalysis[],
-  range: ProgressRange,
+  blockWeeks: WeekLoadSummary[],
 ): { loadModel: TrainingLoadModel; analyses: WeeklyAnalysis[]; analysisOffset: number } {
-  const option = PROGRESS_RANGES.find((item) => item.key === range);
-  if (!option?.months) return { loadModel, analyses, analysisOffset: 0 };
-  const anchor = loadModel.sessions[loadModel.sessions.length - 1]?.activity.startDate
-    ?? `${analyses[analyses.length - 1]?.week.weekStart ?? new Date().toISOString().slice(0, 10)}T00:00:00Z`;
-  const from = new Date(anchor);
-  from.setUTCMonth(from.getUTCMonth() - option.months);
-  const fromMs = from.getTime();
-  const sessions = loadModel.sessions.filter((session) => new Date(session.activity.startDate).getTime() >= fromMs);
-  const daily = loadModel.daily.filter((point) => new Date(`${point.day}T00:00:00Z`).getTime() >= fromMs);
-  const weeks = loadModel.weeks.filter((week) => new Date(`${week.weekId}T00:00:00Z`).getTime() >= fromMs);
-  const scopedAnalyses = analyses.filter((analysis) => new Date(`${analysis.week.weekStart}T00:00:00Z`).getTime() >= fromMs);
+  const firstWeek = blockWeeks[0];
+  const lastWeek = lastItem(blockWeeks);
+  if (!firstWeek || !lastWeek) {
+    return {
+      loadModel: {
+        ...loadModel,
+        sessions: [],
+        sessionsById: new Map(),
+        daily: [],
+        dailyByDay: new Map(),
+        weeks: [],
+        weeksById: new Map(),
+      },
+      analyses: [],
+      analysisOffset: 0,
+    };
+  }
+  const fromMs = new Date(`${firstWeek.weekId}T00:00:00Z`).getTime();
+  const untilMs = new Date(`${lastWeek.weekId}T00:00:00Z`).getTime() + 7 * 86_400_000;
+  const insideBlock = (iso: string) => {
+    const value = new Date(iso).getTime();
+    return value >= fromMs && value < untilMs;
+  };
+  const sessions = loadModel.sessions.filter((session) => insideBlock(session.activity.startDate));
+  const daily = loadModel.daily.filter((point) => insideBlock(`${point.day}T00:00:00Z`));
+  const weeks = loadModel.weeks.filter((week) => insideBlock(`${week.weekId}T00:00:00Z`));
+  const analysisOffset = analyses.findIndex((analysis) => insideBlock(`${analysis.week.weekStart}T00:00:00Z`));
+  const scopedAnalyses = analyses.filter((analysis) => insideBlock(`${analysis.week.weekStart}T00:00:00Z`));
   return {
     loadModel: {
       ...loadModel,
@@ -1224,8 +1446,26 @@ function scopeProgressData(
       weeksById: new Map(weeks.map((week) => [week.weekId, week])),
     },
     analyses: scopedAnalyses,
-    analysisOffset: analyses.length - scopedAnalyses.length,
+    analysisOffset: Math.max(0, analysisOffset),
   };
+}
+
+function formatProgressBlockRange(weeks: WeekLoadSummary[]): string {
+  const first = weeks[0];
+  const last = lastItem(weeks);
+  if (!first || !last) return 'No weeks available';
+  const format = (weekId: string) => new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${weekId}T00:00:00Z`));
+  return `${format(first.weekId)} – ${format(last.weekId)}`;
+}
+
+function showProgressTick(index: number, count: number): boolean {
+  const interval = count <= 12 ? 1 : count <= 26 ? 2 : 4;
+  return index === 0 || index === count - 1 || index % interval === 0;
 }
 
 function formatRelative(iso: string | null): string {

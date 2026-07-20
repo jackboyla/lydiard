@@ -1,4 +1,5 @@
 import {
+  calibrateAdaptivePhysiology,
   buildHrCostBaseline,
   buildLydiardBlock,
   buildLydiardWeek,
@@ -10,6 +11,8 @@ import {
   type CoachActivitySummary,
   type CriticalPowerHistoryRecord,
 } from '../src/analysis/coachEngine';
+import { buildLoadForecast, estimatePlannedStress } from '../src/analysis/loadForecast';
+import type { StoredPlannedSession } from '../src/data/coachTypes';
 
 const CP = 300;
 const CS = 4.5;
@@ -23,6 +26,37 @@ const cpHistory: CriticalPowerHistoryRecord[] = [{
   confidence: 0.9,
   device: 'Stryd',
 }];
+
+const forecastSessions = [
+  plannedFixture('forecast-a', '2026-07-12', 80),
+  plannedFixture('forecast-b', '2026-07-13', 120),
+];
+const concentratedForecast = buildLoadForecast({
+  asOf: '2026-07-11T00:00:00.000Z',
+  sevenDayStress: 50,
+  fortyTwoDayStress: 45,
+  sessions: forecastSessions,
+  horizonDays: 14,
+});
+const spreadForecast = buildLoadForecast({
+  asOf: '2026-07-11T00:00:00.000Z',
+  sevenDayStress: 50,
+  fortyTwoDayStress: 45,
+  sessions: [forecastSessions[0], { ...forecastSessions[1], plannedDate: '2026-07-16' }],
+  horizonDays: 14,
+});
+assert(concentratedForecast.sources['stored-power'] === 2, 'forecast should preserve stored planned power stress provenance');
+assert(concentratedForecast.peak.ratio > spreadForecast.peak.ratio, 'spreading planned stress should reduce the projected peak ratio');
+assert(concentratedForecast.points.every((point) => Number.isFinite(point.ratio)), 'forecast ratios must remain finite');
+const estimatedStress = estimatePlannedStress({
+  ...plannedFixture('forecast-target', '2026-07-14'),
+  plannedPowerStress: undefined,
+  plannedDurationSec: 3600,
+  targetPowerLowPctCp: 0.75,
+  targetPowerHighPctCp: 0.85,
+});
+assert(estimatedStress.source === 'target-power', 'forecast should identify target-power estimates');
+assert(Math.abs(estimatedStress.stress - 64) < 0.1, 'one hour at 80% CP should project 64 stress');
 
 const efforts = [300, 600, 900, 1800, 2400].map((duration, index) => {
   const speed = (CS * duration + D_PRIME) / duration;
@@ -46,6 +80,72 @@ assert(Math.abs(physiology.criticalSpeed.estimate - CS) < 0.2, `critical speed s
 assert(physiology.platformCriticalPower, 'platform CP should be estimated');
 assert(Math.abs(physiology.platformCriticalPower.estimate - CP) < 15, `platform CP should recover ${CP} W`);
 assert(physiology.zones.length === 5, 'five practical zones should be emitted');
+
+const initialCalibration = calibrateAdaptivePhysiology({
+  candidate: physiology,
+  asOf,
+  newActivityCount: history.length,
+  strongEvidence: false,
+  criticalPowerChanged: false,
+});
+assert(initialCalibration.calibration?.status === 'initialized', 'first adaptive review should establish a stable baseline');
+
+const collectingCalibration = calibrateAdaptivePhysiology({
+  candidate: physiology,
+  previous: initialCalibration,
+  asOf: '2026-07-17T00:00:00.000Z',
+  newActivityCount: 2,
+  strongEvidence: false,
+  criticalPowerChanged: false,
+});
+assert(collectingCalibration.calibration?.status === 'collecting', 'ordinary runs inside the review window should accumulate without changing zones');
+assert(collectingCalibration.criticalSpeed?.estimate === initialCalibration.criticalSpeed?.estimate, 'collecting evidence must keep the adopted critical speed');
+
+const awaitingCalibration = calibrateAdaptivePhysiology({
+  candidate: physiology,
+  previous: initialCalibration,
+  asOf: '2026-07-18T00:00:00.000Z',
+  newActivityCount: 2,
+  strongEvidence: false,
+  criticalPowerChanged: false,
+});
+assert(awaitingCalibration.calibration?.status === 'awaiting_evidence', 'a scheduled review should wait for three new runs');
+
+const modestCandidate = {
+  ...physiology,
+  criticalSpeed: physiology.criticalSpeed && {
+    ...physiology.criticalSpeed,
+    estimate: physiology.criticalSpeed.estimate * 1.02,
+  },
+};
+const heldCalibration = calibrateAdaptivePhysiology({
+  candidate: modestCandidate,
+  previous: initialCalibration,
+  asOf: '2026-07-18T00:00:00.000Z',
+  newActivityCount: 3,
+  strongEvidence: false,
+  criticalPowerChanged: false,
+});
+assert(heldCalibration.calibration?.status === 'held', 'a sub-noise critical-speed movement should be reviewed but held');
+assert(heldCalibration.criticalSpeed?.estimate === initialCalibration.criticalSpeed?.estimate, 'a two-percent critical-speed movement should not change zones');
+
+const materialCandidate = {
+  ...physiology,
+  criticalSpeed: physiology.criticalSpeed && {
+    ...physiology.criticalSpeed,
+    estimate: physiology.criticalSpeed.estimate * 1.04,
+  },
+};
+const strongEvidenceCalibration = calibrateAdaptivePhysiology({
+  candidate: materialCandidate,
+  previous: initialCalibration,
+  asOf: '2026-07-13T00:00:00.000Z',
+  newActivityCount: 1,
+  strongEvidence: true,
+  criticalPowerChanged: false,
+});
+assert(strongEvidenceCalibration.calibration?.status === 'updated', 'a strong race/test signal should permit an early material update');
+assert((strongEvidenceCalibration.criticalSpeed?.estimate ?? 0) > (initialCalibration.criticalSpeed?.estimate ?? 0), 'material supported improvement should raise adopted critical speed');
 
 const baseline = buildHrCostBaseline({ activities: aerobic, criticalPowerHistory: cpHistory, asOf });
 assert(baseline.bins.length > 0, 'HR-cost baseline should have a personal %CP bin');
@@ -218,6 +318,12 @@ console.log(JSON.stringify({
     minutes: week.totalRunningMinutes,
     contingent: week.contingent,
   })),
+  loadForecast: {
+    currentRatio: concentratedForecast.currentRatio,
+    peakRatio: concentratedForecast.peak.ratio,
+    spreadPeakRatio: spreadForecast.peak.ratio,
+    peakZone: concentratedForecast.peak.zone,
+  },
   postRun: {
     verdict: evaluation.verdict,
     proposedPatches: evaluation.proposedPatches.length,
@@ -261,6 +367,33 @@ function constantRun(
       heartRateBpm: timeSec.map(() => heartRate),
       altitudeM: timeSec.map(() => 20),
     },
+  };
+}
+
+function plannedFixture(
+  id: string,
+  plannedDate: string,
+  plannedPowerStress?: number,
+): StoredPlannedSession {
+  return {
+    id,
+    plannedDate,
+    sequence: 1,
+    title: 'Forecast run',
+    sessionType: 'aerobic',
+    trainingPhase: 'aerobic_conditioning',
+    priority: 'supporting',
+    plannedDurationSec: 3600,
+    plannedPowerStress,
+    workoutStructure: {},
+    purpose: 'Forecast fixture',
+    fallbackPlan: '',
+    coachReasoning: '',
+    status: 'planned',
+    source: 'smoke',
+    revision: 1,
+    createdAt: asOf,
+    updatedAt: asOf,
   };
 }
 

@@ -296,6 +296,48 @@
   }
 }
 
+/* Persistent notices and touch-confirmed Progress navigation. */
+.app-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-banner > span {
+  min-width: 0;
+}
+
+.app-banner > button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 34px;
+  min-height: 34px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid currentColor;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.app-banner > button:hover {
+  color: #fffdf6;
+  background: var(--accent);
+}
+
+.progress-load-panel .mini-load-bars button[data-touch-armed='true'] span {
+  outline: 3px solid var(--warning);
+  outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+  .app-banner > button {
+    width: 44px;
+    min-height: 44px;
+  }
+}
+
 :root {
   color-scheme: dark;
   font-family: "Manrope Variable", Manrope, ui-sans-serif, system-ui, sans-serif;
@@ -2400,6 +2442,49 @@ dd {
   font-size: 0.74rem;
   font-weight: 740;
   text-transform: uppercase;
+}
+
+.zone-calibration-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--surface-control) 72%, transparent);
+}
+
+.zone-calibration-status > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.zone-calibration-status strong {
+  color: var(--text-strong);
+  font-size: 0.82rem;
+}
+
+.zone-calibration-status span,
+.zone-calibration-status small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.zone-calibration-status small {
+  flex: 0 0 auto;
+  max-width: 31rem;
+  text-align: right;
+}
+
+.zone-calibration-status.status-updated,
+.zone-calibration-status.status-initialized {
+  box-shadow: inset 3px 0 0 var(--green);
+}
+
+.zone-calibration-status.status-awaiting_evidence {
+  box-shadow: inset 3px 0 0 var(--warning);
 }
 
 .zone-card-grid {
@@ -4612,6 +4697,17 @@ dd {
     justify-content: flex-start;
   }
 
+  .zone-calibration-status {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .zone-calibration-status small {
+    max-width: none;
+    text-align: left;
+  }
+
   .zone-card-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4754,8 +4850,8 @@ dd {
     flex-basis: 100%;
   }
 
-  .menu-jump {
-    display: none;
+  .topbar-controls.open .menu-jump {
+    display: flex;
     flex-direction: column;
     gap: 6px;
     flex-basis: 100%;
@@ -9534,6 +9630,8 @@ select {
   }
 
   .week-calendar-grid {
+    display: flex;
+    flex-direction: column-reverse;
     grid-template-columns: 1fr;
   }
 
@@ -9546,8 +9644,12 @@ select {
     border-bottom: 1px solid var(--border);
   }
 
-  .week-day-cell:last-child {
+  .week-day-cell:first-child {
     border-bottom: 0;
+  }
+
+  .week-day-cell:last-child {
+    border-bottom: 1px solid var(--border);
   }
 
   .week-day-cell:not(.has-run):not(.has-gym):not(.has-note) {
@@ -11007,6 +11109,168 @@ select {
   color: #f0cf98;
   background: rgba(8, 31, 23, 0.5);
 }
+
+/* ---------- Historical run weather ---------- */
+
+.activity-weather-panel {
+  display: grid;
+  gap: 13px;
+  padding: 16px;
+  overflow: hidden;
+  border: 1px solid #3b6d5a;
+  border-radius: 13px;
+  background:
+    radial-gradient(circle at 100% 0, rgba(92, 176, 197, 0.12), transparent 18rem),
+    var(--surface-raised);
+}
+
+.activity-weather-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.activity-weather-panel > header > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 9px;
+  min-width: 0;
+}
+
+.activity-weather-panel > header svg {
+  grid-row: 1 / 3;
+  align-self: center;
+  color: #f0cf98;
+}
+
+.activity-weather-panel > header span,
+.activity-weather-metrics dt {
+  color: var(--subtle);
+  font-size: 0.62rem;
+  font-weight: 790;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.activity-weather-panel h3 {
+  margin: 2px 0 0;
+  color: var(--text-strong);
+  font-size: 0.96rem;
+  font-weight: 670;
+}
+
+.activity-weather-panel > header small {
+  max-width: 220px;
+  color: var(--subtle);
+  font-size: 0.65rem;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.activity-weather-panel > header a {
+  color: #8bc8b1;
+  text-underline-offset: 2px;
+}
+
+.activity-weather-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 13px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: rgba(8, 31, 23, 0.34);
+}
+
+.activity-weather-summary strong {
+  color: var(--text-strong);
+  font-size: 1.05rem;
+  font-weight: 640;
+}
+
+.activity-weather-summary span {
+  color: #d9e7df;
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-align: right;
+}
+
+.activity-weather-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.activity-weather-metrics > div {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  min-height: 66px;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+
+.activity-weather-metrics dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-strong);
+  font-size: 0.86rem;
+  font-weight: 690;
+  line-height: 1.25;
+}
+
+.activity-weather-metrics small {
+  color: var(--subtle);
+  font-size: 0.62rem;
+}
+
+.activity-weather-status {
+  min-height: 64px;
+  margin: 0;
+  padding: 20px 13px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 760px) {
+  .activity-weather-panel {
+    padding: 14px;
+  }
+
+  .activity-weather-panel > header {
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .activity-weather-panel > header small {
+    max-width: none;
+    padding-left: 28px;
+    text-align: left;
+  }
+
+  .activity-weather-summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .activity-weather-summary span {
+    text-align: left;
+  }
+
+  .activity-weather-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 /* ---------- Progress power-duration curve ---------- */
 
 .power-duration-card {
@@ -11311,5 +11575,461 @@ select {
 
   .power-duration-detail button {
     align-self: flex-start;
+  }
+}
+
+/* Paged weekly Progress timeline. */
+.progress-block-title {
+  display: grid;
+  gap: 5px;
+}
+
+.progress-block-title small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 680;
+}
+
+.progress-block-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.progress-resolution-control {
+  flex: 0 0 auto;
+}
+
+.progress-block-pager {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.progress-block-pager button {
+  display: inline-grid;
+  width: 38px;
+  min-height: 38px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--text-strong);
+  border-radius: 0;
+  color: var(--text-strong);
+  background: var(--surface);
+  box-shadow: 3px 3px 0 var(--text-strong);
+  cursor: pointer;
+}
+
+.progress-block-pager button:hover:not(:disabled) {
+  color: #fffdf6;
+  background: var(--accent);
+}
+
+.progress-block-pager button:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--text-strong);
+}
+
+.progress-block-pager button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.progress-load-panel .mini-load-bars,
+.progress-load-panel .mini-load-x-ticks {
+  grid-template-columns: repeat(var(--progress-week-count, 12), minmax(2px, 1fr));
+  gap: min(8px, 0.55vw);
+}
+
+@media (max-width: 760px) {
+  .progress-block-header,
+  .progress-block-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .progress-block-toolbar {
+    margin-top: 14px;
+  }
+
+  .progress-resolution-control {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .progress-resolution-control button {
+    min-width: 0;
+    padding-inline: 4px;
+  }
+
+  .progress-block-pager {
+    align-self: flex-end;
+  }
+
+  .progress-load-panel .mini-load-bars,
+  .progress-load-panel .mini-load-x-ticks {
+    gap: 3px;
+  }
+}
+
+/* Planned-load forecast: future sessions advance the existing power-first load state. */
+.coach-load-forecast {
+  display: grid;
+  gap: 18px;
+  overflow: hidden;
+  padding: 24px;
+  border: 1px solid var(--border-soft);
+  border-top: 4px solid var(--green);
+  border-radius: 22px;
+  color: var(--text);
+  background: rgba(255, 253, 246, 0.97);
+  box-shadow: var(--shadow-md);
+}
+
+.coach-load-forecast.zone-building {
+  border-top-color: var(--warning);
+}
+
+.coach-load-forecast.zone-spike {
+  border-top-color: var(--danger);
+}
+
+.coach-load-forecast.zone-recovery {
+  border-top-color: #557da9;
+}
+
+.coach-load-forecast > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.coach-load-forecast > header span,
+.coach-forecast-summary span,
+.coach-forecast-weeks > article > span {
+  color: var(--subtle);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.coach-load-forecast > header h3 {
+  margin: 3px 0 0;
+  color: var(--text-strong);
+  font-size: clamp(1.4rem, 2.3vw, 2rem);
+  letter-spacing: -0.035em;
+}
+
+.coach-load-forecast > header small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 720;
+}
+
+.coach-forecast-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--border-soft);
+  background: var(--surface);
+}
+
+.coach-forecast-summary article {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 15px 17px;
+  border-left: 1px solid var(--border-soft);
+}
+
+.coach-forecast-summary article:first-child {
+  border-left: 0;
+}
+
+.coach-forecast-summary strong {
+  color: var(--text-strong);
+  font-size: clamp(1.35rem, 2.3vw, 1.9rem);
+  line-height: 1;
+}
+
+.coach-forecast-summary small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coach-forecast-summary .zone-recovery strong,
+.coach-forecast-weeks .zone-recovery > strong {
+  color: #426b98;
+}
+
+.coach-forecast-summary .zone-balanced strong,
+.coach-forecast-weeks .zone-balanced > strong {
+  color: #246b4e;
+}
+
+.coach-forecast-summary .zone-building strong,
+.coach-forecast-weeks .zone-building > strong {
+  color: #a75d21;
+}
+
+.coach-forecast-summary .zone-spike strong,
+.coach-forecast-weeks .zone-spike > strong {
+  color: #b43e47;
+}
+
+.coach-forecast-chart {
+  min-width: 0;
+}
+
+.coach-forecast-chart svg {
+  display: block;
+  width: 100%;
+  height: 220px;
+  overflow: visible;
+  border: 1px solid var(--border-soft);
+  background: var(--surface);
+}
+
+.coach-forecast-chart svg rect {
+  opacity: 0.14;
+}
+
+.coach-forecast-chart .forecast-zone-spike {
+  fill: var(--danger);
+}
+
+.coach-forecast-chart .forecast-zone-building {
+  fill: var(--warning);
+}
+
+.coach-forecast-chart .forecast-zone-balanced {
+  fill: var(--green);
+}
+
+.coach-forecast-chart .forecast-zone-recovery {
+  fill: #7296be;
+}
+
+.coach-forecast-chart svg line {
+  stroke: rgba(30, 47, 38, 0.23);
+  stroke-width: 1;
+  stroke-dasharray: 4 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.coach-forecast-chart svg polyline {
+  fill: none;
+  stroke: var(--text-strong);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.coach-forecast-chart svg circle {
+  fill: #fffdf6;
+  stroke: var(--text-strong);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.coach-forecast-chart svg .forecast-peak.zone-recovery {
+  fill: #557da9;
+}
+
+.coach-forecast-chart svg .forecast-peak.zone-balanced {
+  fill: var(--green);
+}
+
+.coach-forecast-chart svg .forecast-peak.zone-building {
+  fill: var(--warning);
+}
+
+.coach-forecast-chart svg .forecast-peak.zone-spike {
+  fill: var(--danger);
+}
+
+.coach-forecast-axis,
+.coach-forecast-legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.coach-forecast-axis {
+  margin-top: 6px;
+  color: var(--subtle);
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.coach-forecast-legend {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 11px;
+}
+
+.coach-forecast-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 700;
+}
+
+.coach-forecast-legend span::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.coach-forecast-legend .zone-recovery::before { background: #557da9; }
+.coach-forecast-legend .zone-building::before { background: var(--warning); }
+.coach-forecast-legend .zone-spike::before { background: var(--danger); }
+
+.coach-forecast-weeks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.coach-forecast-weeks article {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-left: 4px solid var(--green);
+  background: var(--surface);
+}
+
+.coach-forecast-weeks article.zone-recovery { border-left-color: #557da9; }
+.coach-forecast-weeks article.zone-building { border-left-color: var(--warning); }
+.coach-forecast-weeks article.zone-spike { border-left-color: var(--danger); }
+
+.coach-forecast-weeks strong {
+  color: var(--text-strong);
+  font-size: 1.25rem;
+}
+
+.coach-forecast-weeks strong small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.coach-forecast-weeks p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.coach-forecast-callout {
+  margin: 0;
+  padding: 12px 14px;
+  border-left: 4px solid var(--green);
+  color: var(--text);
+  background: rgba(72, 142, 105, 0.1);
+  font-size: 0.78rem;
+  font-weight: 680;
+  line-height: 1.55;
+}
+
+.coach-forecast-callout.zone-recovery {
+  border-left-color: #557da9;
+  background: rgba(85, 125, 169, 0.1);
+}
+
+.coach-forecast-callout.zone-building {
+  border-left-color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.coach-forecast-callout.zone-spike {
+  border-left-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.coach-forecast-method {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 13px;
+}
+
+.coach-forecast-method summary {
+  color: var(--text-strong);
+  font-size: 0.75rem;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.coach-forecast-method p {
+  max-width: 94ch;
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+@media (max-width: 900px) {
+  .coach-forecast-weeks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .coach-load-forecast {
+    gap: 15px;
+    padding: 17px 13px;
+    border-radius: 14px;
+  }
+
+  .coach-load-forecast > header {
+    display: grid;
+    align-items: start;
+    gap: 4px;
+  }
+
+  .coach-forecast-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .coach-forecast-summary article {
+    padding: 13px 11px;
+  }
+
+  .coach-forecast-summary article:nth-child(3) {
+    border-left: 0;
+  }
+
+  .coach-forecast-summary article:nth-child(n + 3) {
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .coach-forecast-summary small {
+    white-space: normal;
+  }
+
+  .coach-forecast-chart svg {
+    height: 190px;
+  }
+
+  .coach-forecast-legend {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .coach-forecast-weeks {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

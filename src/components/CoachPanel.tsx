@@ -21,6 +21,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { PracticalZone } from '../analysis/coachEngine';
+import { buildLoadForecast, type ForecastLoadZone } from '../analysis/loadForecast';
 import { buildScullionPlanRead, scullionGoalFromProfile, type ScullionGoal, type ScullionPlanRead } from '../analysis/scullionPlan';
 import type {
   CoachContextData,
@@ -214,6 +215,8 @@ export function CoachPanel(props: CoachPanelProps) {
         </div>
         <p className="coach-block-rule">Later weeks stay provisional. A post-run change only adjusts the future sessions it affects.</p>
       </section>
+
+      <LoadForecast context={context} />
 
       <UpcomingPlan sessions={context.upcomingPlan.sessions} context={context} onUpdateSession={props.onUpdateSession} />
 
@@ -448,6 +451,117 @@ function UpcomingPlan({
       })}
     </section>
   );
+}
+
+function LoadForecast({ context }: { context: CoachContextData }) {
+  const forecast = useMemo(() => buildLoadForecast({
+    asOf: context.asOf,
+    sevenDayStress: context.backgroundLoad.sevenDayStress,
+    fortyTwoDayStress: context.backgroundLoad.fortyTwoDayStress,
+    sessions: context.upcomingPlan.sessions,
+    horizonDays: 21,
+  }), [context.asOf, context.backgroundLoad.fortyTwoDayStress, context.backgroundLoad.sevenDayStress, context.upcomingPlan.sessions]);
+  const activeSessionCount = Object.values(forecast.sources).reduce((total, count) => total + count, 0);
+  const estimatedCount = forecast.sources['target-power'] + forecast.sources['session-estimate'];
+  const line = forecast.points.map((point, index) => `${forecastX(index, forecast.points.length)},${forecastY(point.ratio)}`).join(' ');
+  const peakX = forecastX(forecast.points.indexOf(forecast.peak), forecast.points.length);
+  const peakY = forecastY(forecast.peak.ratio);
+  const finalPoint = forecast.points[forecast.points.length - 1];
+
+  return (
+    <section className={`product-card coach-load-forecast zone-${forecast.peak.zone}`} aria-labelledby="load-forecast-title">
+      <header>
+        <div><span>Plan impact</span><h3 id="load-forecast-title">Load forecast</h3></div>
+        <small>Power-first 7-day / 42-day balance</small>
+      </header>
+      <div className="coach-forecast-summary">
+        <ForecastStat label="Current" value={ratioLabel(forecast.currentRatio)} detail={zoneLabel(loadForecastZoneForDisplay(forecast.currentRatio))} />
+        <ForecastStat label="Projected peak" value={ratioLabel(forecast.peak.ratio)} detail={`${formatShortDate(forecast.peak.day)} · ${zoneLabel(forecast.peak.zone)}`} tone={forecast.peak.zone} />
+        <ForecastStat label="Planned dose" value={`${forecast.weeks.reduce((total, week) => total + week.plannedStress, 0).toFixed(0)}`} detail={`${activeSessionCount} run${activeSessionCount === 1 ? '' : 's'} · stress`} />
+        <ForecastStat label="End of view" value={ratioLabel(finalPoint.ratio)} detail={`${formatShortDate(finalPoint.day)} · ${zoneLabel(finalPoint.zone)}`} tone={finalPoint.zone} />
+      </div>
+      <div className="coach-forecast-chart" role="img" aria-label={`Planned load ratio from ${forecast.currentRatio.toFixed(2)} now to ${finalPoint.ratio.toFixed(2)} on ${formatDate(finalPoint.day)}, peaking at ${forecast.peak.ratio.toFixed(2)} on ${formatDate(forecast.peak.day)}.`}>
+        <svg viewBox="0 0 840 190" preserveAspectRatio="none" aria-hidden="true">
+          <rect className="forecast-zone-spike" x="0" y="10" width="840" height={forecastY(1.5) - 10} />
+          <rect className="forecast-zone-building" x="0" y={forecastY(1.5)} width="840" height={forecastY(1.3) - forecastY(1.5)} />
+          <rect className="forecast-zone-balanced" x="0" y={forecastY(1.3)} width="840" height={forecastY(0.8) - forecastY(1.3)} />
+          <rect className="forecast-zone-recovery" x="0" y={forecastY(0.8)} width="840" height={170 - forecastY(0.8)} />
+          {[0.8, 1, 1.3, 1.5].map((ratio) => <line key={ratio} x1="0" x2="840" y1={forecastY(ratio)} y2={forecastY(ratio)} />)}
+          <polyline points={line} />
+          {forecast.points.map((point, index) => point.sessionIds.length > 0 && (
+            <circle key={point.day} cx={forecastX(index, forecast.points.length)} cy={forecastY(point.ratio)} r="4">
+              <title>{formatDate(point.day)}: {point.plannedStress.toFixed(1)} planned stress, {point.ratio.toFixed(2)} ratio</title>
+            </circle>
+          ))}
+          <circle className={`forecast-peak zone-${forecast.peak.zone}`} cx={peakX} cy={peakY} r="6" />
+        </svg>
+        <div className="coach-forecast-axis" aria-hidden="true">
+          <span>{formatShortDate(forecast.points[0].day)}</span>
+          <span>{formatShortDate(forecast.points[Math.floor((forecast.points.length - 1) / 2)].day)}</span>
+          <span>{formatShortDate(finalPoint.day)}</span>
+        </div>
+        <div className="coach-forecast-legend" aria-hidden="true">
+          <span className="zone-recovery">Recovery &lt;0.80</span>
+          <span className="zone-balanced">Balanced 0.80–1.30</span>
+          <span className="zone-building">High build 1.30–1.50</span>
+          <span className="zone-spike">Spike &gt;1.50</span>
+        </div>
+      </div>
+      <div className="coach-forecast-weeks" aria-label="Weekly load forecast">
+        {forecast.weeks.slice(0, 4).map((week) => (
+          <article key={week.weekStart} className={`zone-${week.zone}`}>
+            <span>{formatDateRange(week.weekStart, week.weekEnd)}</span>
+            <strong>{week.plannedStress.toFixed(0)} <small>stress</small></strong>
+            <p>{week.sessionCount} planned run{week.sessionCount === 1 ? '' : 's'} · peak {week.peakRatio.toFixed(2)} · {zoneLabel(week.zone)}</p>
+          </article>
+        ))}
+      </div>
+      <p className={`coach-forecast-callout zone-${forecast.peak.zone}`}>
+        {forecastMessage(forecast.peak.zone, activeSessionCount)}
+      </p>
+      <details className="coach-forecast-method">
+        <summary>How this forecast is calculated</summary>
+        <p>Each planned run advances the same exponentially weighted 7-day and 42-day power-first stress states used by Lydiard's current load read. {forecast.sources['stored-power']} session{forecast.sources['stored-power'] === 1 ? '' : 's'} use stored power stress; {estimatedCount} use a target-power or session-type estimate. Edit a session's day or duration and this projection is recalculated.</p>
+        <p>The zones flag changes relative to your own recent training. They are planning guardrails, not an injury probability or medical diagnosis; pain, gait changes, recovery, surfaces, strength, and individual history still matter.</p>
+      </details>
+    </section>
+  );
+}
+
+function ForecastStat({ label, value, detail, tone }: { label: string; value: string; detail: string; tone?: ForecastLoadZone }) {
+  return <article className={tone ? `zone-${tone}` : ''}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>;
+}
+
+function forecastX(index: number, count: number): number {
+  return count <= 1 ? 0 : (index / (count - 1)) * 840;
+}
+
+function forecastY(ratio: number): number {
+  const clamped = Math.min(1.8, Math.max(0.4, ratio));
+  return 170 - ((clamped - 0.4) / 1.4) * 160;
+}
+
+function ratioLabel(ratio: number): string {
+  return ratio > 0 ? ratio.toFixed(2) : '—';
+}
+
+function loadForecastZoneForDisplay(ratio: number): ForecastLoadZone {
+  if (ratio > 1.5) return 'spike';
+  if (ratio > 1.3) return 'building';
+  if (ratio < 0.8) return 'recovery';
+  return 'balanced';
+}
+
+function zoneLabel(zone: ForecastLoadZone): string {
+  return ({ recovery: 'Recovery dip', balanced: 'Balanced', building: 'High build', spike: 'Sharp spike' })[zone];
+}
+
+function forecastMessage(zone: ForecastLoadZone, sessionCount: number): string {
+  if (sessionCount === 0) return 'No future running stress is scheduled. This line assumes rest until a structured block is added.';
+  if (zone === 'spike') return 'This plan creates a sharp short-term load spike. Reschedule or shorten a session, then check the forecast again before accepting the block.';
+  if (zone === 'building') return 'This plan enters a high-build range. Keep it deliberate, protect recovery, and use post-run response before adding more.';
+  if (zone === 'recovery') return 'This plan stays well below recent background load. That may suit recovery or tapering; a prolonged dip will reduce load tolerance.';
+  return 'The planned block remains broadly matched to your recent training background. Keep using symptoms and post-run response alongside the load signal.';
 }
 
 function SessionCard({

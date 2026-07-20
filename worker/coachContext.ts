@@ -1,5 +1,8 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import {
+  ADAPTIVE_ZONE_MIN_NEW_ACTIVITIES,
+  ADAPTIVE_ZONE_REVIEW_DAYS,
+  calibrateAdaptivePhysiology,
   buildHrCostBaseline,
   buildPowerDurationCurve,
   estimatePhysiology,
@@ -16,6 +19,7 @@ import {
   type SessionStressAssessment,
 } from '../src/analysis/coachEngine';
 import {
+  getAdaptiveZoneEstimateAsOf,
   getActivityFeedbackBatch,
   getCoachDecisions,
   getCoachProfile,
@@ -23,16 +27,19 @@ import {
   getDailyCheckins,
   getPlannedActivityLinks,
   getPlannedSessions,
+  upsertPhysiologyEstimate,
   type ActivityFeedback,
   type CoachDecision,
   type CoachProfile,
   type DailyCheckin,
   type PlannedActivityLink,
   type PlannedSession,
+  type PhysiologyEstimate as StoredPhysiologyEstimate,
 } from './db';
 
 const DAY_MS = 86_400_000;
 const DEFAULT_LOOKBACK_DAYS = 365;
+const ADAPTIVE_ZONE_MODEL_VERSION = 'coach-engine-v1';
 
 interface CoachActivityRow {
   id: string;
@@ -165,13 +172,14 @@ export async function loadCoachRuntime(
   const horizonWeeks = clamp(Math.floor(opts.horizonWeeks ?? 4), 1, 12);
   const planningHorizonEnd = addDays(weekStart, horizonWeeks * 7 - 1);
 
-  const [profile, cpRows, activities, plannedSessions, checkins, decisions] = await Promise.all([
+  const [profile, cpRows, activities, plannedSessions, checkins, decisions, storedAdaptiveZones] = await Promise.all([
     getCoachProfile(db),
     getCriticalPowerHistory(db, { to: asOf }),
     getCoachActivitiesWithStreams(db, from, asOf),
     getPlannedSessions(db, { from: weekStart, to: planningHorizonEnd }),
     getDailyCheckins(db, { from: from.slice(0, 10), to: asOf.slice(0, 10) }),
     getCoachDecisions(db, { to: asOf, limit: 30 }),
+    getAdaptiveZoneEstimateAsOf(db, asOf),
   ]);
   if (!profile) {
     throw new Error('Coach profile is unavailable. Apply the stateful-coach migration first.');
@@ -192,7 +200,42 @@ export async function loadCoachRuntime(
     supportingActivityIds: record.supportingActivityIds,
     device: record.device,
   }));
-  const physiology = estimatePhysiology({ activities, criticalPowerHistory, asOf, lookbackDays });
+  const previousPhysiology = storedAdaptivePhysiology(storedAdaptiveZones);
+  const previousReviewAt = previousPhysiology?.calibration?.reviewedAt ?? previousPhysiology?.asOf;
+  const newActivities = previousReviewAt
+    ? activities.filter((activity) => Date.parse(activity.startDate) > Date.parse(previousReviewAt))
+    : activities;
+  const strongEvidence = newActivities.some((activity) =>
+    (activity.effortKind === 'race' || activity.effortKind === 'time_trial')
+    && (activity.evidenceQuality ?? 0) >= 0.85,
+  );
+  const criticalPowerChanged = previousReviewAt
+    ? criticalPowerHistory.some((record) => Date.parse(record.effectiveFrom) > Date.parse(previousReviewAt))
+    : false;
+  const scheduledReviewReady = previousReviewAt
+    ? (Date.parse(asOf) - Date.parse(previousReviewAt)) / DAY_MS >= ADAPTIVE_ZONE_REVIEW_DAYS
+      && newActivities.length >= ADAPTIVE_ZONE_MIN_NEW_ACTIVITIES
+    : true;
+  // Fitting CS/CP/LT boundaries is the expensive part of context generation.
+  // Between eligible reviews the adopted snapshot is authoritative, so do not
+  // repeatedly refit the same evidence on ordinary page loads.
+  const physiologyCandidate = !previousPhysiology || strongEvidence || criticalPowerChanged || scheduledReviewReady
+    ? estimatePhysiology({ activities, criticalPowerHistory, asOf, lookbackDays })
+    : previousPhysiology;
+  const physiology = calibrateAdaptivePhysiology({
+    candidate: physiologyCandidate,
+    previous: previousPhysiology,
+    asOf,
+    newActivityCount: newActivities.length,
+    strongEvidence,
+    criticalPowerChanged,
+  });
+  const reviewedNow = physiology.calibration
+    && physiology.calibration.reviewedAt !== previousReviewAt
+    && ['initialized', 'updated', 'held'].includes(physiology.calibration.status);
+  if (reviewedNow && shouldPersistAdaptiveReview(opts.asOf, asOf)) {
+    await persistAdaptiveZoneReview(db, physiology);
+  }
   const heartRateCostBaseline = buildHrCostBaseline({
     activities,
     criticalPowerHistory,
@@ -613,6 +656,54 @@ function inferEvidence(name: string, sportType: string): { kind: CoachActivitySu
   if (/time trial|\btt\b|test/.test(text)) return { kind: 'time_trial', quality: 0.9 };
   if (/interval|threshold|tempo|repetition|vo2|track|session/.test(text)) return { kind: 'workout', quality: 0.72 };
   return { kind: 'training', quality: 0.45 };
+}
+
+function storedAdaptivePhysiology(record: StoredPhysiologyEstimate | null): EnginePhysiologyEstimate | undefined {
+  const physiology = record?.confidenceDetail.physiology;
+  if (!physiology || typeof physiology !== 'object' || Array.isArray(physiology)) return undefined;
+  const value = physiology as Partial<EnginePhysiologyEstimate>;
+  if (typeof value.asOf !== 'string' || !Array.isArray(value.zones) || !Array.isArray(value.raceEquivalents) || !Array.isArray(value.limitations)) {
+    return undefined;
+  }
+  return value as EnginePhysiologyEstimate;
+}
+
+async function persistAdaptiveZoneReview(db: D1Database, physiology: EnginePhysiologyEstimate): Promise<void> {
+  const calibration = physiology.calibration;
+  if (!calibration) return;
+  const evidenceActivityIds = [...new Set([
+    ...(physiology.criticalSpeed?.evidence ?? []),
+    ...(physiology.platformCriticalPower?.evidence ?? []),
+    ...(physiology.lt1HeartRate?.evidence ?? []),
+    ...(physiology.lt2HeartRate?.evidence ?? []),
+  ].map((item) => item.activityId))];
+  await upsertPhysiologyEstimate(db, {
+    id: `adaptive-zone-${calibration.reviewedAt.slice(0, 10)}`,
+    effectiveFrom: calibration.reviewedAt,
+    criticalSpeedMps: physiology.criticalSpeed?.estimate,
+    criticalSpeedLowMps: physiology.criticalSpeed?.low,
+    criticalSpeedHighMps: physiology.criticalSpeed?.high,
+    dPrimeM: physiology.criticalSpeed?.finiteCapacity,
+    lt1HrLow: physiology.lt1HeartRate?.low,
+    lt1HrHigh: physiology.lt1HeartRate?.high,
+    lt2HrLow: physiology.lt2HeartRate?.low,
+    lt2HrHigh: physiology.lt2HeartRate?.high,
+    confidence: Math.max(
+      physiology.criticalSpeed?.confidenceScore ?? 0,
+      physiology.canonicalCriticalPower?.confidenceScore ?? 0,
+      physiology.lt1HeartRate?.confidenceScore ?? 0,
+      physiology.lt2HeartRate?.confidenceScore ?? 0,
+    ),
+    confidenceDetail: { physiology },
+    evidence: { calibration, activityIds: evidenceActivityIds },
+    source: 'adaptive_zone_review',
+    modelVersion: ADAPTIVE_ZONE_MODEL_VERSION,
+  });
+}
+
+function shouldPersistAdaptiveReview(requestedAsOf: string | undefined, normalizedAsOf: string): boolean {
+  if (!requestedAsOf) return true;
+  return Math.abs(Date.now() - Date.parse(normalizedAsOf)) <= 36 * 60 * 60 * 1000;
 }
 
 function parseNumberArray(value: string | null): number[] | undefined {

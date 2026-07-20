@@ -908,6 +908,21 @@ export async function getPhysiologyEstimateAsOf(
   return row ? rowToPhysiologyEstimate(row) : null;
 }
 
+export async function getAdaptiveZoneEstimateAsOf(
+  db: D1Database,
+  asOf: string,
+): Promise<PhysiologyEstimate | null> {
+  const row = await db
+    .prepare(
+      `SELECT * FROM physiology_estimates
+       WHERE effective_from <= ?1 AND source = 'adaptive_zone_review'
+       ORDER BY effective_from DESC, created_at DESC LIMIT 1`,
+    )
+    .bind(asOf)
+    .first<PhysiologyEstimateRow>();
+  return row ? rowToPhysiologyEstimate(row) : null;
+}
+
 export async function upsertPhysiologyEstimate(
   db: D1Database,
   estimate: PhysiologyEstimateInput,

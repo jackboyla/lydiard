@@ -28,6 +28,11 @@ import {
   GarminDispatchConfigurationError,
   GarminDispatchUpstreamError,
 } from '../garminDispatch';
+import {
+  ActivityLocationUnavailableError,
+  getHistoricalWeather,
+  HistoricalWeatherUnavailableError,
+} from '../weather';
 
 export async function loadAnalyses(env: Env): Promise<WeeklyAnalysis[]> {
   // Always analyze the full history so personal baselines are correct.
@@ -145,6 +150,26 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
       planDay: planDay ?? undefined,
     };
     return c.json(detail);
+  });
+
+  app.get('/activities/:id/weather', async (c) => {
+    const activity = await getActivity(c.env.lydiard, c.req.param('id'));
+    if (!activity) {
+      return c.json({ error: 'Activity not found' }, 404);
+    }
+    try {
+      const weather = await getHistoricalWeather(activity);
+      c.header('Cache-Control', 'private, max-age=604800');
+      return c.json(weather);
+    } catch (error) {
+      if (error instanceof ActivityLocationUnavailableError) {
+        return c.json({ error: error.message }, 422);
+      }
+      if (error instanceof HistoricalWeatherUnavailableError) {
+        return c.json({ error: error.message }, 502);
+      }
+      throw error;
+    }
   });
 
   app.patch('/activities/:id/note', async (c) => {

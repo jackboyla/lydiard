@@ -38,6 +38,10 @@ run in **both** the Worker and the browser.
   while a connected GPT can discuss and publish an agreed, deeply specified 1–12 week plan grounded
   in current performance plus the Scullion/Magness wisdom files. Both use the same editable Plan
   surface. Legacy RUNMASTER rows remain collapsed provenance rather than a competing plan.
+- **Plan-impact forecast:** proposed and accepted running sessions project the same power-first
+  exponentially weighted 7-day/42-day stress balance used by the coach across the next 21 days.
+  Current, peak, end, daily-zone, and weekly-dose reads update after date/duration edits, with
+  explicit stress provenance and no claim that a load ratio is an injury probability.
 - **Route explorer:** the all-routes MapLibre view remains available under settings as a secondary
   tool, with fatigue / pace / recency coloring and range controls.
 - **Cloud sync:** an hourly GitHub Action runs `garmin-health-data`, verifies the SQLite DB,
