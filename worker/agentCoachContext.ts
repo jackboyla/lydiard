@@ -23,6 +23,18 @@ export function compactAgentCoachContext(context: CoachContextBundle) {
     },
     backgroundLoad: context.backgroundLoad,
     observedState: context.observedState,
+    recovery: {
+      summary: context.recovery.summary,
+      recent: context.recovery.recent.map((day) => ({
+        day: day.day,
+        state: day.state,
+        confidence: day.confidence,
+        illnessPattern: day.illnessPattern,
+        readinessCrossCheck: day.readinessCrossCheck,
+        deviations: day.deviations,
+        reasons: day.reasons,
+      })),
+    },
     currentWeek: {
       weekStart: context.currentWeek.weekStart,
       weekEnd: context.currentWeek.weekEnd,

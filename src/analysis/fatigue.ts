@@ -234,7 +234,7 @@ function severityFromScore(score: number): Severity {
   return 'steady';
 }
 
-function median(values: number[]): number {
+export function median(values: number[]): number {
   if (values.length === 0) {
     return 0;
   }
@@ -249,7 +249,7 @@ function median(values: number[]): number {
   return sorted[midpoint];
 }
 
-function robustSpread(values: number[], baseline: number): number {
+export function robustSpread(values: number[], baseline: number): number {
   if (values.length < 2) {
     return Math.max(Math.abs(baseline) * 0.02, 1);
   }

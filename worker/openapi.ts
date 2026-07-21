@@ -179,6 +179,114 @@ export function buildOpenApiDocument(origin: string): unknown {
         indicators: { type: 'array', items: ref('Indicator') },
       },
     },
+    RecoveryObservation: {
+      type: 'object',
+      description: 'Raw nightly recovery observation as ingested (metrics vary by device).',
+      properties: {
+        day: str,
+        source: str,
+        sleepStart: str,
+        sleepEnd: str,
+        sleepDurationMin: num,
+        timeInBedMin: num,
+        sleepEfficiency: num,
+        deepSleepMin: num,
+        remSleepMin: num,
+        lightSleepMin: num,
+        awakeMin: num,
+        sleepScore: num,
+        hrvRmssdMs: num,
+        restingHrBpm: num,
+        respiratoryRate: num,
+        skinTempDeltaC: num,
+        spo2Avg: num,
+        spo2Low: num,
+        overnightStress: num,
+        readinessScore: num,
+        hrvStatus: str,
+      },
+    },
+    RecoveryDaily: {
+      type: 'object',
+      description: 'One night: raw observation plus state derived against the runner\'s own rolling baseline.',
+      properties: {
+        day: str,
+        state: {
+          type: 'string',
+          enum: ['recovered', 'normal', 'slightly_suppressed', 'suppressed', 'high_stress'],
+          description: 'Actionable latent recovery state (single bad nights held back; persistence escalates).',
+        },
+        acuteState: { type: 'string', description: 'Same-night severity before multi-day smoothing.' },
+        confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+        abnormalSignalCount: int,
+        strongSignalCount: int,
+        illnessPattern: bool,
+        suppressedStreak: int,
+        readinessCrossCheck: { type: 'string', enum: ['agree', 'disagree', 'unknown'] },
+        baselines: {
+          type: 'object',
+          properties: {
+            hrvMs: num,
+            restingHrBpm: num,
+            skinTempDeltaC: num,
+            respiratoryRate: num,
+            sleepDurationMin: num,
+            nights: int,
+          },
+        },
+        deviations: {
+          type: 'object',
+          properties: {
+            hrvVsBaselinePct: num,
+            rhrVsBaselineBpm: num,
+            skinTempZscore: num,
+            respRateZscore: num,
+            sleepDebt7dMin: num,
+          },
+        },
+        signals: {
+          type: 'object',
+          description: 'Per-signal status: normal | mild | strong | unknown.',
+          properties: { hrv: str, restingHr: str, skinTemp: str, respiration: str, spo2: str, sleep: str },
+        },
+        reasons: { type: 'array', items: str },
+        interpretation: str,
+        observation: ref('RecoveryObservation'),
+      },
+    },
+    DailyRecoveryContext: {
+      type: 'object',
+      description: 'Objective overnight-recovery layer, personal-baseline normalized.',
+      properties: {
+        generatedAt: str,
+        asOf: str,
+        range: { type: 'object', properties: { from: str, to: str, days: int } },
+        summary: {
+          type: 'object',
+          description: 'As-of latest-in-window recovery state for planning.',
+          properties: {
+            asOf: str,
+            state: {
+              type: 'string',
+              enum: ['recovered', 'normal', 'slightly_suppressed', 'suppressed', 'high_stress'],
+            },
+            confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+            suppressedStreak: int,
+            systemicIllnessSignal: bool,
+            readinessCrossCheck: { type: 'string', enum: ['agree', 'disagree', 'unknown'] },
+            reasons: { type: 'array', items: str },
+            interpretation: str,
+            trend: {
+              type: 'array',
+              description: 'Latest-first {day, state} for a compact recent trend.',
+              items: { type: 'object', properties: { day: str, state: str } },
+            },
+          },
+        },
+        records: { type: 'array', items: ref('RecoveryDaily') },
+        instructions: str,
+      },
+    },
     Activity: {
       type: 'object',
       properties: activityProperties,
@@ -515,7 +623,53 @@ export function buildOpenApiDocument(origin: string): unknown {
         },
         observedState: {
           type: 'object',
-          properties: { state: str, reasons: { type: 'array', items: str }, maxRecentPain: num, alteredGait: bool },
+          properties: {
+            state: str,
+            reasons: { type: 'array', items: str },
+            maxRecentPain: num,
+            alteredGait: bool,
+            recoveryState: str,
+            recoverySuppressedDays: int,
+            systemicIllnessSignal: bool,
+          },
+        },
+        recovery: {
+          type: 'object',
+          description: 'Objective overnight-recovery layer, personal-baseline normalized. Distinguishes local musculoskeletal load from systemic fatigue / illness.',
+          properties: {
+            summary: {
+              type: 'object',
+              properties: {
+                asOf: str,
+                state: str,
+                confidence: str,
+                suppressedStreak: int,
+                systemicIllnessSignal: bool,
+                readinessCrossCheck: str,
+                interpretation: str,
+                reasons: { type: 'array', items: str },
+                trend: { type: 'array', items: { type: 'object', properties: { day: str, state: str } } },
+              },
+            },
+            recent: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  day: str,
+                  state: str,
+                  confidence: str,
+                  illnessPattern: bool,
+                  readinessCrossCheck: str,
+                  deviations: {
+                    type: 'object',
+                    properties: { hrvVsBaselinePct: num, rhrVsBaselineBpm: num, skinTempZscore: num, respRateZscore: num, sleepDebt7dMin: num },
+                  },
+                  reasons: { type: 'array', items: str },
+                },
+              },
+            },
+          },
         },
         currentWeek: {
           type: 'object',
@@ -695,6 +849,22 @@ export function buildOpenApiDocument(origin: string): unknown {
             '400': jsonResponse('Invalid plan', 'ErrorResponse'),
             '409': jsonResponse('Profile or plan conflict; refresh context and revise', 'ErrorResponse'),
           },
+        },
+      },
+      '/api/agent/daily-recovery': {
+        get: {
+          operationId: 'getDailyRecovery',
+          summary: 'Objective overnight-recovery layer (HRV/RHR/sleep/temp/respiration/SpO₂)',
+          description:
+            'Personal-baseline-normalized overnight recovery for planning. `summary.state` is the actionable latent ' +
+            'recovery state — a single off-baseline night stays "slightly_suppressed"; multi-day agreement or a systemic ' +
+            'illness pattern escalates it. Complements plan-context/coach-context with the recovery + illness layer; ' +
+            'readiness is a cross-check only. Baselines always use full history; from/to only scope the returned rows.',
+          parameters: [
+            dateParam('from', 'Start of the returned window (inclusive).'),
+            dateParam('to', 'End of the window and the as-of date for `summary` (inclusive).'),
+          ],
+          responses: { '200': jsonResponse('Daily recovery context', 'DailyRecoveryContext') },
         },
       },
       '/api/agent/risk': {

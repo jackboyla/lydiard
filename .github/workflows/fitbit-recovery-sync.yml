@@ -1,0 +1,54 @@
+name: Fitbit recovery sync
+run-name: Fitbit recovery sync · ${{ inputs.source || github.event_name }}
+
+# Pulls Fitbit sleep/recovery from the Google Health API and posts it to the
+# platform's /api/ingest/daily-recovery endpoint (source: fitbit). The feeder
+# re-imports a trailing ~35-day window on every run and upserts by day, so
+# skin-temperature backfills automatically once Fitbit establishes its ~30-night
+# baseline (until then it is stored empty and simply turns on later).
+#
+# Required GitHub secrets:
+#   GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET, GOOGLE_HEALTH_REFRESH_TOKEN
+#   LYDIARD_INGEST_KEY   (shared with the Garmin sync; matches Worker INGEST_API_KEY)
+# Optional repo variable:
+#   LYDIARD_BASE_URL     (defaults to the production Worker origin)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Trigger source shown in the Actions run list
+        required: false
+        default: manual
+  schedule:
+    # Twice daily. Fitbit finalizes overnight sleep/HRV a few hours after wake,
+    # so a morning and evening pull keeps the latest night current.
+    - cron: "37 8 * * *"
+    - cron: "37 20 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fitbit-recovery-sync-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Import Fitbit recovery into Lydiard
+        run: npm run fitbit:import
+        env:
+          GOOGLE_HEALTH_CLIENT_ID: ${{ secrets.GOOGLE_HEALTH_CLIENT_ID }}
+          GOOGLE_HEALTH_CLIENT_SECRET: ${{ secrets.GOOGLE_HEALTH_CLIENT_SECRET }}
+          GOOGLE_HEALTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_HEALTH_REFRESH_TOKEN }}
+          LYDIARD_INGEST_KEY: ${{ secrets.LYDIARD_INGEST_KEY }}
+          LYDIARD_BASE_URL: ${{ vars.LYDIARD_BASE_URL || 'https://lydiard.lydiard.workers.dev' }}

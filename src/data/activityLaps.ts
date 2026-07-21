@@ -1,4 +1,4 @@
-import type { ActivityDetail, ActivityLap } from '../types';
+import type { ActivityDetail, ActivityLap, LapProfilePoint } from '../types';
 
 export type ActivityLapZoneKey = 'recovery' | 'easy' | 'steady' | 'threshold' | 'high-intensity' | 'strides';
 
@@ -41,6 +41,37 @@ export function buildActivityLaps(detail: ActivityDetail, thresholdPaceSecPerKm:
     .filter((lap): lap is ActivityLapView => Boolean(lap));
   if (recorded?.length) return recorded;
   return buildDerivedKilometreLaps(detail, thresholdPaceSecPerKm);
+}
+
+/**
+ * Rehydrate the compact lap profile carried by the activities feed
+ * (LapProfilePoint[]) into the same ActivityLapView shape the full charts use,
+ * so the calendar mini-profile classifies zones identically to the detail view.
+ * Only pace/distance survive the compaction, so HR/power/elevation are absent.
+ */
+export function buildLapProfileFromCompact(
+  points: LapProfilePoint[],
+  thresholdPaceSecPerKm: number,
+  activityAveragePaceSecPerKm?: number,
+): ActivityLapView[] {
+  return points.map((point, index) => {
+    const distanceM = point.distanceKm * 1000;
+    return {
+      index: index + 1,
+      label: String(index + 1),
+      source: 'recorded' as const,
+      distanceKm: point.distanceKm,
+      durationSec: point.paceSecPerKm * point.distanceKm,
+      paceSecPerKm: point.paceSecPerKm,
+      zone: classifyActivityLapZone(
+        distanceM,
+        point.paceSecPerKm,
+        thresholdPaceSecPerKm,
+        'recorded',
+        activityAveragePaceSecPerKm,
+      ),
+    };
+  });
 }
 
 export function classifyActivityLapZone(

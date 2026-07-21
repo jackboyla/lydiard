@@ -3044,6 +3044,23 @@ dd {
   transform: scale(0.985);
 }
 
+/* Compact recorded lap-profile strip inside a calendar run card. Bars reuse the
+   .lap-profile-bar.zone-* palette; the SVG stretches to the card width
+   (preserveAspectRatio="none") while its height stays fixed. */
+.calendar-lap-profile {
+  display: block;
+  width: 100%;
+  margin-top: 1px;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.calendar-lap-profile svg {
+  display: block;
+  width: 100%;
+  height: 30px;
+}
+
 .calendar-run-card.tone-easy {
   border-left: 3px solid rgba(34, 185, 130, 0.72);
 }
@@ -6110,6 +6127,39 @@ dd {
 .coach-state-pill.green { color: #75dfb7; border-color: #28634f; background: var(--green-soft); }
 .coach-state-pill.amber { color: var(--warning); border-color: var(--warning-border); background: var(--warning-soft); }
 .coach-state-pill.red { color: #ff9ba3; border-color: var(--danger-border); background: var(--danger-soft); }
+
+/* Overnight recovery card (Fitbit via Google Health) */
+.recovery-card { display: flex; flex-direction: column; gap: 12px; border-left: 3px solid var(--muted); }
+.recovery-card.recovery-state-good { border-left-color: var(--green); }
+.recovery-card.recovery-state-watch { border-left-color: var(--warning); }
+.recovery-card.recovery-state-bad { border-left-color: var(--danger); }
+.recovery-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.recovery-eyebrow { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.recovery-head small { color: var(--muted); font-size: 0.75rem; text-transform: capitalize; }
+.recovery-state-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.recovery-streak { font-size: 0.75rem; color: var(--warning); }
+.recovery-readiness { font-size: 0.75rem; color: var(--muted); }
+.recovery-readiness.flag { color: var(--warning); font-weight: 600; }
+.recovery-illness { margin: 0; font-size: 0.85rem; color: var(--danger); font-weight: 600; }
+.recovery-interpretation { margin: 0; font-size: 0.9rem; line-height: 1.45; }
+.recovery-metrics { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.recovery-metric { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; background: rgba(127, 127, 127, 0.06); border: 1px solid rgba(127, 127, 127, 0.14); }
+.recovery-metric-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
+.recovery-metric-value { font-size: 1.05rem; font-weight: 700; }
+.recovery-metric-delta { font-size: 0.75rem; font-style: normal; color: var(--muted); }
+.recovery-metric.tone-good .recovery-metric-delta { color: var(--green); }
+.recovery-metric.tone-watch .recovery-metric-delta { color: var(--warning); }
+.recovery-metric.tone-bad .recovery-metric-delta { color: var(--danger); }
+.recovery-metric.tone-watch { border-color: var(--warning-border); }
+.recovery-metric.tone-bad { border-color: var(--danger-border); }
+.recovery-trend { display: flex; gap: 4px; align-items: center; }
+.recovery-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.recovery-dot-good { background: var(--green); }
+.recovery-dot-watch { background: var(--warning); }
+.recovery-dot-bad { background: var(--danger); }
+.recovery-reasons { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
+.recovery-reasons li { font-size: 0.8rem; color: var(--muted); }
+.recovery-empty-note { margin: 0; font-size: 0.85rem; color: var(--muted); line-height: 1.45; }
 
 .coach-roadmap {
   display: grid;

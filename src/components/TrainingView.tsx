@@ -26,11 +26,12 @@ import {
 } from '../analysis/loadModel';
 import type { PhysiologyEstimate, PracticalZone } from '../analysis/coachEngine';
 import { getActivity, getActivityWeather } from '../data/api';
-import { buildActivityLaps, buildDerivedKilometreLaps, type ActivityLapView } from '../data/activityLaps';
+import { buildActivityLaps, buildDerivedKilometreLaps, buildLapProfileFromCompact, type ActivityLapView } from '../data/activityLaps';
 import { localWeekId, millisecondsUntilNextLocalWeek } from '../data/calendar';
 import { activityPaceSecPerKm, toWeekIdUtc } from '../data/mapRoutes';
 import type { ActivityDetail, ActivitySummary, ActivityWeather, GymSession, TrainingPlanDay, WeeklyAnalysis } from '../types';
 import { MetricInfo, MetricsGuide, type MetricKey } from './MetricInfo';
+import { MiniLapProfile } from './MiniLapProfile';
 
 const LazyActivityRouteMap = lazy(() => import('./ActivityRouteMap'));
 const LazyActivityRunCharts = lazy(() => import('./ActivityRunCharts').then((module) => ({ default: module.ActivityRunCharts })));
@@ -658,6 +659,7 @@ export function TrainingView({
                       gym={entry.gym}
                       analysis={analysisByWeek.get(entry.weekId)}
                       planByDate={planByDate}
+                      thresholdPaceSecPerKm={loadModel.thresholds.thresholdPaceSecPerKm}
                       previewId={previewId}
                       onPreview={openPreview}
                       onPrefetch={prefetchDetail}
@@ -698,6 +700,7 @@ function WeekBlock({
   gym,
   analysis,
   planByDate,
+  thresholdPaceSecPerKm,
   previewId,
   onPreview,
   onPrefetch,
@@ -708,6 +711,7 @@ function WeekBlock({
   gym: GymSession[];
   analysis?: WeeklyAnalysis;
   planByDate: Map<string, TrainingPlanDay>;
+  thresholdPaceSecPerKm: number;
   previewId: string | null;
   onPreview: (id: string) => void;
   onPrefetch: (id: string) => void;
@@ -734,6 +738,7 @@ function WeekBlock({
       </header>
       <WeekCalendar
         days={days}
+        thresholdPaceSecPerKm={thresholdPaceSecPerKm}
         previewId={previewId}
         onPreview={onPreview}
         onPrefetch={onPrefetch}
@@ -906,6 +911,7 @@ function NoRunWeekBlock({
 
 function WeekCalendar({
   days,
+  thresholdPaceSecPerKm,
   previewId,
   onPreview,
   onPrefetch,
@@ -913,6 +919,7 @@ function WeekCalendar({
   ariaLabel,
 }: {
   days: CalendarDay[];
+  thresholdPaceSecPerKm?: number;
   previewId?: string | null;
   onPreview?: (id: string) => void;
   onPrefetch?: (id: string) => void;
@@ -925,6 +932,7 @@ function WeekCalendar({
         <CalendarDayColumn
           key={day.dayId}
           day={day}
+          thresholdPaceSecPerKm={thresholdPaceSecPerKm}
           previewId={previewId ?? null}
           onPreview={onPreview}
           onPrefetch={onPrefetch}
@@ -937,12 +945,14 @@ function WeekCalendar({
 
 function CalendarDayColumn({
   day,
+  thresholdPaceSecPerKm,
   previewId,
   onPreview,
   onPrefetch,
   onSaveDayNote,
 }: {
   day: CalendarDay;
+  thresholdPaceSecPerKm?: number;
   previewId: string | null;
   onPreview?: (id: string) => void;
   onPrefetch?: (id: string) => void;
@@ -980,6 +990,7 @@ function CalendarDayColumn({
           <CalendarRunCard
             key={session.activity.id}
             session={session}
+            thresholdPaceSecPerKm={thresholdPaceSecPerKm}
             active={previewId === session.activity.id}
             onPreview={onPreview}
             onPrefetch={onPrefetch}
@@ -997,11 +1008,13 @@ function CalendarDayColumn({
 
 function CalendarRunCard({
   session,
+  thresholdPaceSecPerKm,
   active,
   onPreview,
   onPrefetch,
 }: {
   session: SessionLoad;
+  thresholdPaceSecPerKm?: number;
   active: boolean;
   onPreview?: (id: string) => void;
   onPrefetch?: (id: string) => void;
@@ -1010,6 +1023,12 @@ function CalendarRunCard({
   const effortTone = toneForEffort(session.externalIntensityFactor);
   const runKind = classifyRun(session);
   const openPreview = () => onPreview?.(activity.id);
+  const lapProfileViews = useMemo(() => {
+    if (!thresholdPaceSecPerKm || thresholdPaceSecPerKm <= 0) return [];
+    const profile = activity.lapProfile;
+    if (!profile || profile.length < 2) return [];
+    return buildLapProfileFromCompact(profile, thresholdPaceSecPerKm, activityPaceSecPerKm(activity));
+  }, [activity, thresholdPaceSecPerKm]);
   return (
     <button
       type="button"
@@ -1031,6 +1050,7 @@ function CalendarRunCard({
       <span className={`calendar-run-reason tone-${runKind.tone}`} title={runKind.reasons.join(' ')}>
         {calendarRunSummary(runKind.key)}
       </span>
+      {lapProfileViews.length >= 2 && <MiniLapProfile laps={lapProfileViews} />}
       {activity.activityNote && (
         <span className="calendar-run-note">
           <MessageSquareText size={12} aria-hidden="true" />

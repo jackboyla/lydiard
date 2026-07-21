@@ -4,6 +4,8 @@ import type {
   ActivityStreams,
   ActivitySummary,
   GymSession,
+  LapProfilePoint,
+  RecoveryObservation,
   TrainingPlanDay,
   WeeklyRunBlock,
 } from '../src/types';
@@ -236,6 +238,7 @@ interface ActivityRow {
   has_streams: number;
   decoupling_pct: number | null;
   activity_note?: string | null;
+  laps_json?: string | null;
 }
 
 function rowToActivity(row: ActivityRow): StoredActivity {
@@ -266,6 +269,37 @@ function rowToActivity(row: ActivityRow): StoredActivity {
   };
 }
 
+/** Cap the per-activity profile so a stray lap-heavy file can't bloat the feed. */
+const MAX_LAP_PROFILE_LAPS = 60;
+
+/**
+ * Distil stored recorded laps (activity_streams.laps JSON) into the tiny
+ * pace/distance array the calendar mini lap-profile needs. Pace is derived the
+ * same way as recordedLapView on the client (speed first, duration/distance
+ * fallback) and validated to 60–1800 s/km. Returns undefined for runs with
+ * fewer than two usable laps — a single whole-run lap conveys no structure.
+ */
+export function compactLapProfile(lapsJson: string | null | undefined): LapProfilePoint[] | undefined {
+  const laps = parseJson<ActivityLap[]>(lapsJson ?? null);
+  if (!Array.isArray(laps) || laps.length < 2) return undefined;
+  const points: LapProfilePoint[] = [];
+  for (const lap of laps) {
+    const distanceM = typeof lap?.distanceM === 'number' && lap.distanceM > 0 ? lap.distanceM : undefined;
+    const durationSec = typeof lap?.durationSec === 'number' && lap.durationSec > 0 ? lap.durationSec : undefined;
+    if (!distanceM || !durationSec) continue;
+    const speedPace = typeof lap.averageSpeedMps === 'number' && lap.averageSpeedMps > 0
+      ? 1000 / lap.averageSpeedMps
+      : undefined;
+    const paceSecPerKm = speedPace && speedPace >= 60 && speedPace <= 1800
+      ? speedPace
+      : durationSec / (distanceM / 1000);
+    if (!Number.isFinite(paceSecPerKm) || paceSecPerKm < 60 || paceSecPerKm > 1800) continue;
+    points.push({ paceSecPerKm: Math.round(paceSecPerKm), distanceKm: Math.round(distanceM) / 1000 });
+    if (points.length >= MAX_LAP_PROFILE_LAPS) break;
+  }
+  return points.length >= 2 ? points : undefined;
+}
+
 export async function getActivities(
   db: D1Database,
   opts: { from?: string; to?: string } = {},
@@ -283,15 +317,19 @@ export async function getActivities(
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const result = await db
     .prepare(
-      `SELECT a.*, NULLIF(f.note, '') AS activity_note
+      `SELECT a.*, NULLIF(f.note, '') AS activity_note, s.laps AS laps_json
        FROM activities a
        LEFT JOIN activity_feedback f ON f.activity_id = a.id
+       LEFT JOIN activity_streams s ON s.activity_id = a.id
        ${where}
        ORDER BY a.start_date ASC`,
     )
     .bind(...binds)
     .all<ActivityRow>();
-  return (result.results ?? []).map(rowToActivity);
+  return (result.results ?? []).map((row) => ({
+    ...rowToActivity(row),
+    lapProfile: compactLapProfile(row.laps_json),
+  }));
 }
 
 export async function getActivity(db: D1Database, id: string): Promise<StoredActivity | null> {
@@ -1560,6 +1598,182 @@ export async function upsertDailyCheckin(db: D1Database, checkin: DailyCheckinIn
 
 export async function deleteDailyCheckin(db: D1Database, day: string): Promise<void> {
   await db.prepare('DELETE FROM daily_checkins WHERE day=?1').bind(day).run();
+}
+
+// --- Daily overnight-recovery observations ---------------------------------
+// Raw nightly signals, one row per local day, source-tagged so Fitbit (Google
+// Health) and other feeders can coexist. Baselines and the latent recovery
+// state are derived at read time (src/analysis/recovery.ts), never stored here.
+
+export interface DailyRecovery extends RecoveryObservation {
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type DailyRecoveryInput = RecoveryObservation;
+
+interface DailyRecoveryRow {
+  day: string;
+  source: string;
+  sleep_start: string | null;
+  sleep_end: string | null;
+  sleep_duration_min: number | null;
+  time_in_bed_min: number | null;
+  sleep_efficiency: number | null;
+  deep_sleep_min: number | null;
+  rem_sleep_min: number | null;
+  light_sleep_min: number | null;
+  awake_min: number | null;
+  sleep_score: number | null;
+  hrv_rmssd_ms: number | null;
+  resting_hr_bpm: number | null;
+  respiratory_rate: number | null;
+  skin_temp_delta_c: number | null;
+  spo2_avg: number | null;
+  spo2_low: number | null;
+  overnight_stress: number | null;
+  readiness_score: number | null;
+  hrv_status: string | null;
+  raw_json: string;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+function parseRecoveryRaw(text: string): Record<string, unknown> | undefined {
+  if (!text || text === '{}') return undefined;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length > 0) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Ignore malformed raw payloads — the typed columns remain authoritative.
+  }
+  return undefined;
+}
+
+function rowToDailyRecovery(row: DailyRecoveryRow): DailyRecovery {
+  return {
+    day: row.day,
+    source: row.source,
+    sleepStart: row.sleep_start ?? undefined,
+    sleepEnd: row.sleep_end ?? undefined,
+    sleepDurationMin: row.sleep_duration_min ?? undefined,
+    timeInBedMin: row.time_in_bed_min ?? undefined,
+    sleepEfficiency: row.sleep_efficiency ?? undefined,
+    deepSleepMin: row.deep_sleep_min ?? undefined,
+    remSleepMin: row.rem_sleep_min ?? undefined,
+    lightSleepMin: row.light_sleep_min ?? undefined,
+    awakeMin: row.awake_min ?? undefined,
+    sleepScore: row.sleep_score ?? undefined,
+    hrvRmssdMs: row.hrv_rmssd_ms ?? undefined,
+    restingHrBpm: row.resting_hr_bpm ?? undefined,
+    respiratoryRate: row.respiratory_rate ?? undefined,
+    skinTempDeltaC: row.skin_temp_delta_c ?? undefined,
+    spo2Avg: row.spo2_avg ?? undefined,
+    spo2Low: row.spo2_low ?? undefined,
+    overnightStress: row.overnight_stress ?? undefined,
+    readinessScore: row.readiness_score ?? undefined,
+    hrvStatus: row.hrv_status ?? undefined,
+    raw: parseRecoveryRaw(row.raw_json),
+    version: row.version,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getDailyRecovery(db: D1Database, day: string): Promise<DailyRecovery | null> {
+  const row = await db.prepare('SELECT * FROM daily_recovery WHERE day=?1').bind(day).first<DailyRecoveryRow>();
+  return row ? rowToDailyRecovery(row) : null;
+}
+
+export async function getDailyRecoveries(
+  db: D1Database,
+  opts: { from?: string; to?: string } = {},
+): Promise<DailyRecovery[]> {
+  const clauses: string[] = [];
+  const binds: string[] = [];
+  if (opts.from) {
+    binds.push(opts.from);
+    clauses.push(`day >= ?${binds.length}`);
+  }
+  if (opts.to) {
+    binds.push(opts.to);
+    clauses.push(`day <= ?${binds.length}`);
+  }
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const result = await db
+    .prepare(`SELECT * FROM daily_recovery ${where} ORDER BY day ASC`)
+    .bind(...binds)
+    .all<DailyRecoveryRow>();
+  return (result.results ?? []).map(rowToDailyRecovery);
+}
+
+export async function upsertDailyRecovery(db: D1Database, recovery: DailyRecoveryInput): Promise<DailyRecovery> {
+  const now = new Date().toISOString();
+  const rawJson = recovery.raw && Object.keys(recovery.raw).length > 0 ? JSON.stringify(recovery.raw) : '{}';
+  await db
+    .prepare(
+      `INSERT INTO daily_recovery (
+         day, source, sleep_start, sleep_end, sleep_duration_min, time_in_bed_min, sleep_efficiency,
+         deep_sleep_min, rem_sleep_min, light_sleep_min, awake_min, sleep_score,
+         hrv_rmssd_ms, resting_hr_bpm, respiratory_rate, skin_temp_delta_c, spo2_avg, spo2_low,
+         overnight_stress, readiness_score, hrv_status, raw_json,
+         version, created_at, updated_at
+       ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,1,?23,?23)
+       ON CONFLICT(day) DO UPDATE SET
+         source=excluded.source, sleep_start=excluded.sleep_start, sleep_end=excluded.sleep_end,
+         sleep_duration_min=excluded.sleep_duration_min, time_in_bed_min=excluded.time_in_bed_min,
+         sleep_efficiency=excluded.sleep_efficiency, deep_sleep_min=excluded.deep_sleep_min,
+         rem_sleep_min=excluded.rem_sleep_min, light_sleep_min=excluded.light_sleep_min,
+         awake_min=excluded.awake_min, sleep_score=excluded.sleep_score,
+         hrv_rmssd_ms=excluded.hrv_rmssd_ms, resting_hr_bpm=excluded.resting_hr_bpm,
+         respiratory_rate=excluded.respiratory_rate, skin_temp_delta_c=excluded.skin_temp_delta_c,
+         spo2_avg=excluded.spo2_avg, spo2_low=excluded.spo2_low, overnight_stress=excluded.overnight_stress,
+         readiness_score=excluded.readiness_score, hrv_status=excluded.hrv_status, raw_json=excluded.raw_json,
+         version=daily_recovery.version+1, updated_at=excluded.updated_at`,
+    )
+    .bind(
+      recovery.day,
+      recovery.source || 'fitbit',
+      recovery.sleepStart ?? null,
+      recovery.sleepEnd ?? null,
+      recovery.sleepDurationMin ?? null,
+      recovery.timeInBedMin ?? null,
+      recovery.sleepEfficiency ?? null,
+      recovery.deepSleepMin ?? null,
+      recovery.remSleepMin ?? null,
+      recovery.lightSleepMin ?? null,
+      recovery.awakeMin ?? null,
+      recovery.sleepScore ?? null,
+      recovery.hrvRmssdMs ?? null,
+      recovery.restingHrBpm ?? null,
+      recovery.respiratoryRate ?? null,
+      recovery.skinTempDeltaC ?? null,
+      recovery.spo2Avg ?? null,
+      recovery.spo2Low ?? null,
+      recovery.overnightStress ?? null,
+      recovery.readinessScore ?? null,
+      recovery.hrvStatus ?? null,
+      rawJson,
+      now,
+    )
+    .run();
+  const saved = await getDailyRecovery(db, recovery.day);
+  if (!saved) {
+    throw new Error(`Daily recovery ${recovery.day} was not saved.`);
+  }
+  return saved;
+}
+
+export async function deleteDailyRecovery(db: D1Database, day: string): Promise<void> {
+  await db.prepare('DELETE FROM daily_recovery WHERE day=?1').bind(day).run();
+}
+
+export async function replaceDailyRecovery(db: D1Database): Promise<void> {
+  await db.prepare('DELETE FROM daily_recovery').run();
 }
 
 export type SessionFeel = 'easier' | 'as_expected' | 'harder';

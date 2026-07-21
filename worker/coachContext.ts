@@ -25,6 +25,7 @@ import {
   getCoachProfile,
   getCriticalPowerHistory,
   getDailyCheckins,
+  getDailyRecoveries,
   getPlannedActivityLinks,
   getPlannedSessions,
   upsertPhysiologyEstimate,
@@ -36,6 +37,7 @@ import {
   type PlannedSession,
   type PhysiologyEstimate as StoredPhysiologyEstimate,
 } from './db';
+import { analyzeRecovery, summarizeRecovery, type RecoveryDaily, type RecoverySummary } from '../src/analysis/recovery';
 
 const DAY_MS = 86_400_000;
 const DEFAULT_LOOKBACK_DAYS = 365;
@@ -82,6 +84,12 @@ export interface CoachObservedState {
   maxRecentPain: number;
   alteredGait: boolean;
   illnessSuspected: boolean;
+  /** Objective overnight-recovery state (null when no recovery data). */
+  recoveryState: RecoverySummary['state'];
+  /** Consecutive nights at suppressed+ overnight recovery. */
+  recoverySuppressedDays: number;
+  /** Objective illness pattern (skin-temp + respiration + autonomic), distinct from subjective illnessSuspected. */
+  systemicIllnessSignal: boolean;
 }
 
 export interface CoachContextBundle {
@@ -133,6 +141,7 @@ export interface CoachContextBundle {
   powerDuration: PowerDurationPoint[];
   recentFeedback: ActivityFeedback[];
   recentCheckins: DailyCheckin[];
+  recovery: { summary: RecoverySummary; recent: RecoveryDaily[] };
   recentDecisions: CoachDecision[];
   limitations: string[];
 }
@@ -172,12 +181,13 @@ export async function loadCoachRuntime(
   const horizonWeeks = clamp(Math.floor(opts.horizonWeeks ?? 4), 1, 12);
   const planningHorizonEnd = addDays(weekStart, horizonWeeks * 7 - 1);
 
-  const [profile, cpRows, activities, plannedSessions, checkins, decisions, storedAdaptiveZones] = await Promise.all([
+  const [profile, cpRows, activities, plannedSessions, checkins, recoveries, decisions, storedAdaptiveZones] = await Promise.all([
     getCoachProfile(db),
     getCriticalPowerHistory(db, { to: asOf }),
     getCoachActivitiesWithStreams(db, from, asOf),
     getPlannedSessions(db, { from: weekStart, to: planningHorizonEnd }),
     getDailyCheckins(db, { from: from.slice(0, 10), to: asOf.slice(0, 10) }),
+    getDailyRecoveries(db, { from: from.slice(0, 10), to: asOf.slice(0, 10) }),
     getCoachDecisions(db, { to: asOf, limit: 30 }),
     getAdaptiveZoneEstimateAsOf(db, asOf),
   ]);
@@ -254,7 +264,9 @@ export async function loadCoachRuntime(
   ];
   const recentWeeks = buildRecentWeeks(activities, sessionAssessments, feedbackByActivity, asOf);
   const backgroundLoad = buildBackgroundLoad(sessionAssessments, asOf, lookbackDays);
-  const observedState = buildObservedState(sessionAssessments, feedback, checkins, asOf);
+  const recoveryDaily = analyzeRecovery(recoveries);
+  const recoverySummary = summarizeRecovery(recoveryDaily);
+  const observedState = buildObservedState(sessionAssessments, feedback, checkins, recoverySummary, asOf);
   const engineProfile = profileToEngine(profile, activities, recentWeeks, checkins);
   const planningInput: PlanningStateInput = {
     weekStart,
@@ -344,6 +356,7 @@ export async function loadCoachRuntime(
       powerDuration: buildPowerDurationCurve(sessionAssessments, asOf),
       recentFeedback,
       recentCheckins: checkins.slice(-42),
+      recovery: { summary: recoverySummary, recent: recoveryDaily.slice(-14) },
       recentDecisions: decisions,
       limitations: [...new Set(limitations)],
     },
@@ -574,6 +587,7 @@ function buildObservedState(
   assessments: SessionStressAssessment[],
   feedback: ActivityFeedback[],
   checkins: DailyCheckin[],
+  recovery: RecoverySummary,
   asOf: string,
 ): CoachObservedState {
   const cutoff = Date.parse(asOf) - 10 * DAY_MS;
@@ -601,18 +615,55 @@ function buildObservedState(
   );
   const alteredGait = recentFeedback.some((item) => item.alteredGait) || recentCheckins.some((item) => item.painAlteredGait);
   const illnessSuspected = recentCheckins.some((item) => item.illnessSuspected);
+
+  // Objective overnight recovery. Low-confidence (sparse) data must not move the
+  // light. The multi-day guard already lives in the recovery analysis — a single
+  // off-baseline night never reaches 'suppressed' — so escalating on
+  // 'suppressed'/'high_stress' here is inherently multi-day. Pairing this with
+  // maxPain lets the coach separate LOCAL musculoskeletal load (pain high,
+  // recovery normal) from SYSTEMIC fatigue (recovery suppressed) or ILLNESS.
+  const recoveryActionable = recovery.confidence !== null && recovery.confidence !== 'low' && recovery.state !== null;
+  const recoveryRed =
+    recoveryActionable &&
+    (recovery.systemicIllnessSignal ||
+      recovery.state === 'high_stress' ||
+      (recovery.state === 'suppressed' && recovery.suppressedStreak >= 3));
+  const recoveryAmber = recoveryActionable && recovery.state === 'suppressed';
+
   const reasons: string[] = [];
   if (alteredGait) reasons.push('pain altered gait');
   if (maxPain >= 5) reasons.push(`pain reached ${maxPain}/10`);
   if (illnessSuspected) reasons.push('illness is suspected');
+  if (recoveryActionable && recovery.systemicIllnessSignal) {
+    reasons.push('overnight signals show a systemic illness pattern (skin temp + respiration + autonomic)');
+  }
+  if (recoveryActionable && (recovery.state === 'suppressed' || recovery.state === 'high_stress')) {
+    reasons.push(
+      `overnight recovery ${recovery.state.replace('_', ' ')} for ${Math.max(1, recovery.suppressedStreak)} night(s)`,
+    );
+  }
   if (elevated >= 2) reasons.push(`${elevated} recent runs had elevated HR cost for power`);
   if (deteriorating >= 2) reasons.push(`${deteriorating} recent runs showed late deterioration`);
-  const state = alteredGait || maxPain >= 5 || illnessSuspected
-    ? 'red'
-    : maxPain >= 3 || elevated >= 2 || deteriorating >= 2
-      ? 'amber'
-      : 'green';
-  return { state, reasons, elevatedHeartRateCostRuns: elevated, deterioratingRuns: deteriorating, maxRecentPain: maxPain, alteredGait, illnessSuspected };
+
+  const state =
+    alteredGait || maxPain >= 5 || illnessSuspected || recoveryRed
+      ? 'red'
+      : maxPain >= 3 || elevated >= 2 || deteriorating >= 2 || recoveryAmber
+        ? 'amber'
+        : 'green';
+
+  return {
+    state,
+    reasons,
+    elevatedHeartRateCostRuns: elevated,
+    deterioratingRuns: deteriorating,
+    maxRecentPain: maxPain,
+    alteredGait,
+    illnessSuspected,
+    recoveryState: recovery.state,
+    recoverySuppressedDays: recovery.suppressedStreak,
+    systemicIllnessSignal: recovery.systemicIllnessSignal,
+  };
 }
 
 function feedbackToEngine(feedback: ActivityFeedback, activity?: CoachActivitySummary): AthleteFeedback {

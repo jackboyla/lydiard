@@ -72,6 +72,67 @@ export interface WeeklyAnalysis {
 }
 
 /**
+ * Latent overnight-recovery state, ordered from most to least recovered. Derived
+ * from agreement across autonomic (HRV/RHR), sleep, and illness signals against
+ * the runner's own rolling baseline — never from a single population threshold.
+ */
+export type RecoveryState =
+  | 'recovered'
+  | 'normal'
+  | 'slightly_suppressed'
+  | 'suppressed'
+  | 'high_stress';
+
+/**
+ * One night's RAW recovery observation, one row per local calendar day. Shaped
+ * around Garmin's `sleep` table (a superset that also fits Fitbit Air / Google
+ * Health). Every metric is optional because feeds vary by device. Personal
+ * baselines, deviations, and the latent RecoveryState are derived at read time
+ * (src/analysis/recovery.ts), not stored. `readiness` is kept only as a
+ * cross-check and is deliberately never fed back into the derived state.
+ */
+export interface RecoveryObservation {
+  day: string; // YYYY-MM-DD, runner-local calendar date
+  source: string; // 'garmin' | 'fitbit' | 'google_health' | ...
+  // Sleep
+  sleepStart?: string;
+  sleepEnd?: string;
+  sleepDurationMin?: number;
+  timeInBedMin?: number;
+  sleepEfficiency?: number; // 0–100
+  deepSleepMin?: number;
+  remSleepMin?: number;
+  lightSleepMin?: number;
+  awakeMin?: number;
+  sleepScore?: number; // 0–100
+  // Autonomic
+  hrvRmssdMs?: number; // nightly RMSSD (Garmin avg_overnight_hrv)
+  restingHrBpm?: number;
+  // Illness / systemic-stress flags
+  respiratoryRate?: number; // breaths/min
+  skinTempDeltaC?: number; // deviation from personal baseline (may be negative)
+  spo2Avg?: number; // 0–100
+  spo2Low?: number; // 0–100
+  overnightStress?: number; // 0–100 (Garmin avg_sleep_stress)
+  // Cross-check only
+  readinessScore?: number; // 0–100 (Garmin training_readiness / Fitbit readiness)
+  hrvStatus?: string; // device classification, e.g. Garmin 'BALANCED'
+  // Source-specific extras preserved verbatim
+  raw?: Record<string, unknown>;
+}
+
+/**
+ * One recorded lap distilled to just what the calendar mini lap-profile needs:
+ * pace and distance. Kept tiny so the /api/activities feed can carry it for
+ * every run without dragging down the full stream payload. Zones are derived
+ * client-side from the runner's threshold pace (see buildLapProfileFromCompact).
+ */
+export interface LapProfilePoint {
+  paceSecPerKm: number;
+  distanceKm: number;
+}
+
+/**
  * Per-activity record served by the API and drawn on the map. This is the
  * durable, queryable shape stored in D1 (one row per synced activity).
  */
@@ -99,6 +160,7 @@ export interface ActivitySummary {
   hasStreams: boolean;
   decouplingPct?: number; // true stream-derived HR-pace decoupling
   activityNote?: string; // runner-authored note attached to this activity
+  lapProfile?: LapProfilePoint[]; // compact recorded-lap pace/distance for the calendar mini-profile
 }
 
 /**

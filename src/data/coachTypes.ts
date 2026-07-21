@@ -7,6 +7,7 @@ import type {
   RecentTrainingWeek,
   SessionStressAssessment,
 } from '../analysis/coachEngine';
+import type { RecoveryDaily, RecoverySummary } from '../analysis/recovery';
 
 export type CoachPhase =
   | 'aerobic_conditioning'
@@ -156,7 +157,13 @@ export interface CoachContextData {
     maxRecentPain: number;
     alteredGait: boolean;
     illnessSuspected: boolean;
+    recoveryState: RecoverySummary['state'];
+    recoverySuppressedDays: number;
+    systemicIllnessSignal: boolean;
   };
+  // Objective overnight recovery (Fitbit via Google Health). Optional so the UI
+  // tolerates a coach payload from a Worker deployed before this shipped.
+  recovery?: { summary: RecoverySummary; recent: RecoveryDaily[] };
   currentWeek: {
     weekStart: string;
     weekEnd: string;

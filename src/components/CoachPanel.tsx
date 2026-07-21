@@ -33,6 +33,7 @@ import type {
   StoredPlannedSession,
 } from '../data/coachTypes';
 import type { GymSession } from '../types';
+import { RecoveryCard } from './RecoveryCard';
 
 export interface CoachPanelProps {
   context: CoachContextData | null;
@@ -185,6 +186,8 @@ export function CoachPanel(props: CoachPanelProps) {
           <SystemBuckets read={scullion} />
         </div>
       </section>
+
+      <RecoveryCard recovery={context.recovery} />
 
       {(props.error || actionError) && <p className="coach-action-error" role="alert">{actionError || props.error}</p>}
 

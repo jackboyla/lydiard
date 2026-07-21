@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { ActivityLap, ActivityStreams, ActivitySummary, GymSession } from '../../src/types';
+import type { ActivityLap, ActivityStreams, ActivitySummary, GymSession, RecoveryObservation } from '../../src/types';
 import type { Env } from '../env';
 import {
   getActivitiesByLocalDateRange,
@@ -10,7 +10,9 @@ import {
   saveStreams,
   updateSyncState,
   replaceGymSessions,
+  replaceDailyRecovery,
   saveActivityLaps,
+  upsertDailyRecovery,
   upsertGymSessions,
   type TrainingPlanImportInput,
 } from '../db';
@@ -34,6 +36,12 @@ interface GymIngestPayload {
   source?: string;
   replace?: boolean;
   sessions?: GymSession[];
+}
+
+interface RecoveryIngestPayload {
+  source?: string;
+  replace?: boolean;
+  records?: RecoveryObservation[];
 }
 
 interface LapIngestPayload {
@@ -206,6 +214,58 @@ export function ingestRoutes(): Hono<{ Bindings: Env }> {
     });
   });
 
+  // Objective overnight-recovery observations live in their own day-keyed table
+  // and never touch the run load model. Source-agnostic so Fitbit (Google Health)
+  // and other feeders can post here with a `source` tag.
+  app.post('/daily-recovery', async (c) => {
+    let payload: RecoveryIngestPayload;
+    try {
+      payload = (await c.req.json()) as RecoveryIngestPayload;
+    } catch {
+      return c.json({ error: 'Request body must be JSON.' }, 400);
+    }
+
+    const records = payload.records ?? [];
+    if (records.length === 0) {
+      return c.json({ error: 'No recovery records provided.' }, 400);
+    }
+    if (records.length > 400) {
+      return c.json({ error: 'A recovery import is limited to 400 records.' }, 400);
+    }
+
+    const defaultSource =
+      typeof payload.source === 'string' && payload.source.trim() ? payload.source.trim() : 'fitbit';
+    const clean: RecoveryObservation[] = [];
+    const seen = new Set<string>();
+    for (const record of records) {
+      const error = validateRecoveryRecord(record, defaultSource);
+      if (error) {
+        return c.json({ error }, 400);
+      }
+      const day = record.day.trim();
+      if (seen.has(day)) {
+        return c.json({ error: `Duplicate recovery day: ${day}.` }, 400);
+      }
+      seen.add(day);
+      clean.push(normalizeRecoveryRecord(record, defaultSource));
+    }
+
+    if (payload.replace) {
+      await replaceDailyRecovery(c.env.lydiard);
+    }
+    for (const record of clean) {
+      await upsertDailyRecovery(c.env.lydiard, record);
+    }
+
+    return c.json({
+      ok: true,
+      source: defaultSource,
+      replace: Boolean(payload.replace),
+      upserted: clean.length,
+      finishedAt: new Date().toISOString(),
+    });
+  });
+
   app.post('/plan', async (c) => {
     let payload: PlanIngestPayload;
     try {
@@ -368,6 +428,81 @@ function validateGymSession(session: GymSession | undefined): string | null {
     return `Gym session ${session.id} has an invalid durationSec.`;
   }
   return null;
+}
+
+// Ranges mirror the daily_recovery CHECK constraints so a bad value returns a
+// clean 400 instead of surfacing as a 500 from a rejected SQLite write.
+const RECOVERY_NUMERIC_FIELDS: Array<{ key: keyof RecoveryObservation; min: number; max: number; minExclusive?: boolean }> = [
+  { key: 'sleepDurationMin', min: 0, max: 1440 },
+  { key: 'timeInBedMin', min: 0, max: 1440 },
+  { key: 'sleepEfficiency', min: 0, max: 100 },
+  { key: 'deepSleepMin', min: 0, max: 1440 },
+  { key: 'remSleepMin', min: 0, max: 1440 },
+  { key: 'lightSleepMin', min: 0, max: 1440 },
+  { key: 'awakeMin', min: 0, max: 1440 },
+  { key: 'sleepScore', min: 0, max: 100 },
+  { key: 'hrvRmssdMs', min: 0, max: 1000, minExclusive: true },
+  { key: 'restingHrBpm', min: 0, max: 250, minExclusive: true },
+  { key: 'respiratoryRate', min: 0, max: 60, minExclusive: true },
+  { key: 'skinTempDeltaC', min: -10, max: 10 },
+  { key: 'spo2Avg', min: 0, max: 100 },
+  { key: 'spo2Low', min: 0, max: 100 },
+  { key: 'overnightStress', min: 0, max: 100 },
+  { key: 'readinessScore', min: 0, max: 100 },
+];
+
+function validateRecoveryRecord(record: unknown, defaultSource: string): string | null {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
+    return 'Each recovery record must be an object.';
+  }
+  const raw = record as Record<string, unknown>;
+  if (typeof raw.day !== 'string' || !validPlanDate(raw.day.trim())) {
+    return 'Each recovery record needs a valid day (YYYY-MM-DD).';
+  }
+  const source = raw.source ?? defaultSource;
+  if (typeof source !== 'string' || source.trim() === '' || source.length > 50) {
+    return `Recovery record ${raw.day} has an invalid source.`;
+  }
+  for (const field of RECOVERY_NUMERIC_FIELDS) {
+    const value = raw[field.key];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return `Recovery record ${raw.day} field ${field.key} must be a number.`;
+    }
+    const okMin = field.minExclusive ? value > field.min : value >= field.min;
+    if (!okMin || value > field.max) {
+      return `Recovery record ${raw.day} field ${field.key} is out of range.`;
+    }
+  }
+  for (const field of ['sleepStart', 'sleepEnd', 'hrvStatus'] as const) {
+    if (raw[field] !== undefined && raw[field] !== null && typeof raw[field] !== 'string') {
+      return `Recovery record ${raw.day} field ${field} must be a string.`;
+    }
+  }
+  if (raw.raw !== undefined && raw.raw !== null && (typeof raw.raw !== 'object' || Array.isArray(raw.raw))) {
+    return `Recovery record ${raw.day} field raw must be an object.`;
+  }
+  return null;
+}
+
+function normalizeRecoveryRecord(record: RecoveryObservation, defaultSource: string): RecoveryObservation {
+  const clean: RecoveryObservation = {
+    day: record.day.trim(),
+    source: (record.source ?? defaultSource).trim() || defaultSource,
+  };
+  for (const field of RECOVERY_NUMERIC_FIELDS) {
+    const value = record[field.key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      (clean as unknown as Record<string, unknown>)[field.key] = value;
+    }
+  }
+  if (typeof record.sleepStart === 'string') clean.sleepStart = record.sleepStart;
+  if (typeof record.sleepEnd === 'string') clean.sleepEnd = record.sleepEnd;
+  if (typeof record.hrvStatus === 'string') clean.hrvStatus = record.hrvStatus;
+  if (record.raw && typeof record.raw === 'object' && !Array.isArray(record.raw)) {
+    clean.raw = record.raw;
+  }
+  return clean;
 }
 
 function validateSummary(summary: ActivitySummary | undefined): string | null {

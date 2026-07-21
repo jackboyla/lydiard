@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../env';
-import { getActivities, getActivity, getActivityLaps, getAthlete, getPlannedSessions, getWeeklyFeatures } from '../db';
+import { getActivities, getActivity, getActivityLaps, getAthlete, getDailyRecoveries, getPlannedSessions, getWeeklyFeatures } from '../db';
 import { normalizeFrom, normalizeTo } from '../http';
 import { buildPlanContext } from '../planContext';
 import { runSync } from '../sync';
@@ -9,11 +9,19 @@ import { buildCoachContext } from '../coachContext';
 import { AgentPlanConflictError, AgentPlanInputError, parseAgentPlanSubmission, publishAgentPlan } from '../agentPlan';
 import { EXPERT_WISDOM_SOURCES, getExpertWisdom } from '../expertWisdom';
 import { compactAgentCoachContext } from '../agentCoachContext';
+import { analyzeRecovery, summarizeRecovery } from '../../src/analysis/recovery';
 
 function athleteName(firstname: string | null | undefined, lastname: string | null | undefined): string | null {
   const name = [firstname, lastname].filter(Boolean).join(' ').trim();
   return name || null;
 }
+
+const RECOVERY_INSTRUCTIONS =
+  "Overnight recovery normalized to THIS runner's own 28-night rolling baseline (median + MAD), not population norms. " +
+  '`summary.state` is the actionable latent recovery state; a single off-baseline night is deliberately held at ' +
+  '"slightly_suppressed" — only multi-day agreement or a systemic illness pattern (skin-temp + respiration + autonomic) ' +
+  'escalates it to suppressed/high_stress. Use this as the recovery + illness layer alongside training load and ' +
+  'performance response; treat readiness (readinessCrossCheck) as a cross-check only, never as an independent input.';
 
 export function agentRoutes(): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>();
@@ -77,6 +85,25 @@ export function agentRoutes(): Hono<{ Bindings: Env }> {
       ? [...analyses].reverse().find((analysis) => analysis.week.weekStart <= asOf) ?? analyses[analyses.length - 1]
       : analyses[analyses.length - 1];
     return c.json(selected);
+  });
+
+  app.get('/daily-recovery', async (c) => {
+    const from = normalizeFrom(c.req.query('from'));
+    const to = normalizeTo(c.req.query('to'));
+    // Analyze the full history so personal baselines are correct, then scope the
+    // returned rows (mirrors loadAnalyses for the weekly risk endpoint).
+    const analyzed = analyzeRecovery(await getDailyRecoveries(c.env.lydiard));
+    const summary = summarizeRecovery(to ? analyzed.filter((day) => day.day <= to) : analyzed);
+    const inRange = analyzed.filter((day) => (!from || day.day >= from) && (!to || day.day <= to));
+    const scoped = from || to ? inRange : analyzed.slice(-35);
+    return c.json({
+      generatedAt: new Date().toISOString(),
+      asOf: summary.asOf,
+      range: { from: from ?? null, to: to ?? null, days: scoped.length },
+      summary,
+      records: scoped,
+      instructions: RECOVERY_INSTRUCTIONS,
+    });
   });
 
   app.get('/plan-context', async (c) => {
