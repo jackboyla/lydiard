@@ -815,7 +815,7 @@ function ZoneSummary({ model }: { model: TrainingZoneModel }) {
             <span>{calibration.changes.length > 0 ? calibration.changes.join(' · ') : calibration.explanation}</span>
           </div>
           <small>
-            Reviewed {formatEvidenceDate(calibration.reviewedAt)} · {calibration.newActivityCount}/{calibration.minimumActivitiesForScheduledReview} new runs · next routine review {formatEvidenceDate(calibration.nextReviewAt)}
+            Reviewed {formatEvidenceDate(calibration.reviewedAt)} · {calibration.newActivityCount}/{calibration.minimumActivitiesForScheduledReview} new runs · {zoneCalibrationSchedule(calibration)}
           </small>
         </div>
       )}
@@ -1815,6 +1815,16 @@ function zoneCalibrationTitle(status: NonNullable<PhysiologyEstimate['calibratio
   if (status === 'held') return 'Zones reviewed and held';
   if (status === 'awaiting_evidence') return 'Waiting for enough evidence';
   return 'Learning from your training';
+}
+
+function zoneCalibrationSchedule(calibration: NonNullable<PhysiologyEstimate['calibration']>): string {
+  if (calibration.status === 'awaiting_evidence') {
+    return `review due ${formatEvidenceDate(calibration.nextReviewAt)}; waiting for ${calibration.minimumActivitiesForScheduledReview} new runs`;
+  }
+  if (calibration.status === 'collecting') {
+    return `eligible from ${formatEvidenceDate(calibration.nextReviewAt)} once ${calibration.minimumActivitiesForScheduledReview} new runs arrive`;
+  }
+  return `next routine review ${formatEvidenceDate(calibration.nextReviewAt)}`;
 }
 
 function physiologyTrainingZone(zone: PracticalZone, index: number): TrainingZone {

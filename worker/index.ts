@@ -2,14 +2,13 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { ExecutionContext, ScheduledController } from '@cloudflare/workers-types';
 import type { Env } from './env';
-import { updateSyncState } from './db';
-import { runSync } from './sync';
 import { buildOpenApiDocument } from './openapi';
 import { publicRoutes } from './routes/public';
 import { agentRoutes } from './routes/agent';
 import { authRoutes } from './routes/auth';
 import { ingestRoutes } from './routes/ingest';
 import { coachRoutes } from './routes/coach';
+import { refreshAdaptiveZones } from './maintenance';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -38,18 +37,9 @@ app.onError((error, c) => {
 export default {
   fetch: app.fetch,
 
-  // Cloud cron — keeps the store fresh with no local machine.
+  // Cloud cron is the backstop for date-based work. Garmin activity sync runs
+  // in GitHub Actions and also asks for this refresh after each final batch.
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(
-      runSync(env, env.lydiard).catch(async (error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        // Strava is legacy; Garmin data is synced via GitHub Actions. Don't record
-        // the "Strava is not connected" noise as a sync error the UI would surface.
-        if (/strava is not connected/i.test(message)) {
-          return;
-        }
-        await updateSyncState(env.lydiard, { last_error: message });
-      }),
-    );
+    ctx.waitUntil(refreshAdaptiveZones(env.lydiard));
   },
 };

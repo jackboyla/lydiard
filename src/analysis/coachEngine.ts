@@ -183,6 +183,16 @@ export const ADAPTIVE_ZONE_MIN_NEW_ACTIVITIES = 3;
 const ADAPTIVE_ZONE_MATERIAL_CHANGE = 0.03;
 const ADAPTIVE_ZONE_HR_CHANGE_BPM = 3;
 
+/** Match the date shown to the athlete: a 23 July review becomes eligible at
+ * the start of 23 July UTC, not at the hidden time-of-day of the prior write. */
+export function adaptiveZoneReviewDateReached(previousReview: string, asOf: string): boolean {
+  const previousDay = Date.parse(`${previousReview.slice(0, 10)}T00:00:00.000Z`);
+  const asOfDay = Date.parse(`${asOf.slice(0, 10)}T00:00:00.000Z`);
+  return Number.isFinite(previousDay)
+    && Number.isFinite(asOfDay)
+    && (asOfDay - previousDay) / DAY_MS >= ADAPTIVE_ZONE_REVIEW_DAYS;
+}
+
 export interface HrCostBin {
   lowPctCp: number;
   highPctCp: number;
@@ -640,8 +650,7 @@ export function calibrateAdaptivePhysiology(input: AdaptivePhysiologyInput): Phy
   }
 
   const previousReview = previous.calibration?.reviewedAt ?? previous.asOf;
-  const elapsedDays = Math.max(0, (asOfMs - Date.parse(previousReview)) / DAY_MS);
-  const scheduled = elapsedDays >= ADAPTIVE_ZONE_REVIEW_DAYS;
+  const scheduled = adaptiveZoneReviewDateReached(previousReview, input.asOf);
   const trigger: AdaptiveZoneReviewTrigger = input.criticalPowerChanged
     ? 'critical_power'
     : input.strongEvidence
@@ -651,6 +660,17 @@ export function calibrateAdaptivePhysiology(input: AdaptivePhysiologyInput): Phy
         : 'none';
 
   if (trigger === 'none') {
+    const lastStatus = previous.calibration?.status;
+    if (input.newActivityCount === 0 && lastStatus && ['initialized', 'updated', 'held'].includes(lastStatus)) {
+      return withCalibration(previous, {
+        status: lastStatus,
+        reviewedAt: previousReview,
+        trigger: previous.calibration?.trigger ?? trigger,
+        newActivityCount: 0,
+        changes: previous.calibration?.changes ?? [],
+        explanation: previous.calibration?.explanation ?? 'The latest adopted zone review remains current.',
+      });
+    }
     return withCalibration(previous, {
       status: 'collecting',
       reviewedAt: previousReview,

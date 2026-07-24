@@ -19,6 +19,7 @@ import {
 import { matchPlanActualDurations } from '../../src/data/planMatching';
 import { computeDecoupling } from '../streams';
 import { recomputeWeeklyFeatures } from '../sync';
+import { refreshAdaptiveZones } from '../maintenance';
 
 interface IngestActivity {
   summary: ActivitySummary;
@@ -142,6 +143,11 @@ export function ingestRoutes(): Hono<{ Bindings: Env }> {
         last_result: JSON.stringify(result),
         last_error: null,
       });
+
+      // The last batch in each Garmin import is the earliest useful point to
+      // review new evidence. Keep this off the response path; the daily Worker
+      // cron remains the backstop when no import runs on the review date.
+      c.executionCtx.waitUntil(refreshAdaptiveZones(c.env.lydiard));
     }
 
     return c.json({ ok: true, ...result });

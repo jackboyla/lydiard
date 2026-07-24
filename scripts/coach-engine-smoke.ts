@@ -111,6 +111,23 @@ const awaitingCalibration = calibrateAdaptivePhysiology({
 });
 assert(awaitingCalibration.calibration?.status === 'awaiting_evidence', 'a scheduled review should wait for three new runs');
 
+const calendarDateCalibration = calibrateAdaptivePhysiology({
+  candidate: physiology,
+  previous: {
+    ...initialCalibration,
+    calibration: initialCalibration.calibration && {
+      ...initialCalibration.calibration,
+      reviewedAt: '2026-07-11T13:48:12.975Z',
+      nextReviewAt: '2026-07-18T13:48:12.975Z',
+    },
+  },
+  asOf: '2026-07-18T00:23:00.000Z',
+  newActivityCount: 3,
+  strongEvidence: false,
+  criticalPowerChanged: false,
+});
+assert(calendarDateCalibration.calibration?.status === 'held', 'the displayed review date should be eligible from the start of that UTC day');
+
 const modestCandidate = {
   ...physiology,
   criticalSpeed: physiology.criticalSpeed && {
@@ -128,6 +145,16 @@ const heldCalibration = calibrateAdaptivePhysiology({
 });
 assert(heldCalibration.calibration?.status === 'held', 'a sub-noise critical-speed movement should be reviewed but held');
 assert(heldCalibration.criticalSpeed?.estimate === initialCalibration.criticalSpeed?.estimate, 'a two-percent critical-speed movement should not change zones');
+const heldReadback = calibrateAdaptivePhysiology({
+  candidate: heldCalibration,
+  previous: heldCalibration,
+  asOf: '2026-07-18T01:00:00.000Z',
+  newActivityCount: 0,
+  strongEvidence: false,
+  criticalPowerChanged: false,
+});
+assert(heldReadback.calibration?.status === 'held', 'the latest held result should remain visible until new evidence starts accumulating');
+assert(heldReadback.calibration?.newActivityCount === 0, 'the readback should reset the post-review new-run count');
 
 const materialCandidate = {
   ...physiology,

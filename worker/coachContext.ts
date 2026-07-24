@@ -1,7 +1,7 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import {
   ADAPTIVE_ZONE_MIN_NEW_ACTIVITIES,
-  ADAPTIVE_ZONE_REVIEW_DAYS,
+  adaptiveZoneReviewDateReached,
   calibrateAdaptivePhysiology,
   buildHrCostBaseline,
   buildPowerDurationCurve,
@@ -223,7 +223,7 @@ export async function loadCoachRuntime(
     ? criticalPowerHistory.some((record) => Date.parse(record.effectiveFrom) > Date.parse(previousReviewAt))
     : false;
   const scheduledReviewReady = previousReviewAt
-    ? (Date.parse(asOf) - Date.parse(previousReviewAt)) / DAY_MS >= ADAPTIVE_ZONE_REVIEW_DAYS
+    ? adaptiveZoneReviewDateReached(previousReviewAt, asOf)
       && newActivities.length >= ADAPTIVE_ZONE_MIN_NEW_ACTIVITIES
     : true;
   // Fitting CS/CP/LT boundaries is the expensive part of context generation.

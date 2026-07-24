@@ -1137,6 +1137,7 @@ function ProgressView({
   const canGoNewer = progressBlockOffset > 0;
   const maxValue = Math.max(1, ...blockWeeks.map((week) => homeLoadMetricValue(week, loadMetric)));
   const activeWeek = blockWeeks.find((week) => week.weekId === activeWeekId) ?? lastItem(blockWeeks) ?? latestWeek;
+  const lastSevenDays = summarizeRollingSessions(loadModel.sessions, 7);
   const scopedProgress = useMemo(
     () => scopeProgressData(loadModel, analyses, blockWeeks),
     [analyses, blockWeeks, loadModel],
@@ -1188,6 +1189,15 @@ function ProgressView({
             <Stat label="Runs" value={latestWeek ? String(latestWeek.activityCount) : '-'} />
             <Stat label="Time" value={latestWeek ? formatHours(latestWeek.durationHours) : '-'} />
             <Stat label="Load" value={latestWeek ? latestWeek.load.toFixed(1) : '-'} />
+          </div>
+        </article>
+        <article className="product-card progress-week-card">
+          <span>Last 7 days</span>
+          <h3>{lastSevenDays.activityCount > 0 ? `${lastSevenDays.distanceKm.toFixed(1)} km` : 'No runs yet'}</h3>
+          <div>
+            <Stat label="Runs" value={String(lastSevenDays.activityCount)} />
+            <Stat label="Time" value={formatHours(lastSevenDays.durationHours)} />
+            <Stat label="Load" value={lastSevenDays.load.toFixed(1)} />
           </div>
         </article>
       </section>
@@ -1314,8 +1324,8 @@ function ProgressView({
                     }));
                     onOpenWeek(week.weekId);
                   }}
-                  title={`${week.label}: ${formatHomeLoadMetric(week, loadMetric)}`}
-                  aria-label={`${week.label}, ${formatHomeLoadMetric(week, loadMetric)}${armedWeekId === week.weekId ? ', tap again to open in Log' : ''}`}
+                  title={`${week.label}: ${formatWeekTotals(week)}`}
+                  aria-label={`${week.label}, ${formatWeekTotals(week)}${armedWeekId === week.weekId ? ', tap again to open in Log' : ''}`}
                 >
                   <span style={{ height: `${Math.max(8, (homeLoadMetricValue(week, loadMetric) / maxValue) * 100)}%` }} />
                 </button>
@@ -1335,7 +1345,7 @@ function ProgressView({
         </div>
         {activeWeek && (
           <p>
-            {activeWeek.label} · {activeWeek.activityCount} runs · {activeWeek.distanceKm.toFixed(1)} km · {armedWeekId === activeWeek.weekId ? 'tap again to open that week in Log' : 'select a bar to open that week in Log'}
+            {activeWeek.label} · {formatWeekTotals(activeWeek)} · {armedWeekId === activeWeek.weekId ? 'tap again to open that week in Log' : 'select a bar to open that week in Log'}
           </p>
         )}
       </section>
@@ -2012,6 +2022,34 @@ function homeLoadMetricValue(week: WeekLoadSummary, metric: 'time' | 'distance')
 
 function formatHomeLoadMetric(week: WeekLoadSummary, metric: 'time' | 'distance'): string {
   return metric === 'time' ? formatHours(week.durationHours) : `${week.distanceKm.toFixed(1)} km`;
+}
+
+function formatWeekTotals(week: WeekLoadSummary): string {
+  return `${week.distanceKm.toFixed(1)} km · ${formatHours(week.durationHours)} · ${week.activityCount} ${week.activityCount === 1 ? 'run' : 'runs'}`;
+}
+
+function summarizeRollingSessions(sessions: SessionLoad[], days: number, now = new Date()): {
+  activityCount: number;
+  distanceKm: number;
+  durationHours: number;
+  load: number;
+} {
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - Math.max(0, days - 1));
+  const startId = localDateId(start);
+  const endId = localDateId(end);
+  return sessions.reduce((total, session) => {
+    if (session.day < startId || session.day > endId) return total;
+    total.activityCount += 1;
+    total.distanceKm += session.activity.distanceKm;
+    total.durationHours += session.activity.movingTimeSec / 3600;
+    total.load += session.load;
+    return total;
+  }, { activityCount: 0, distanceKm: 0, durationHours: 0, load: 0 });
+}
+
+function localDateId(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function formatLoadAxisValue(value: number, metric: 'time' | 'distance'): string {

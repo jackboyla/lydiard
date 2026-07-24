@@ -3,6 +3,11 @@ main = "worker/index.ts"
 compatibility_date = "2026-06-30"
 workers_dev = true
 
+[triggers]
+# Run date-based coach maintenance every day. Activity ingest also starts the
+# same task after its final batch, so reviews do not wait for this backstop.
+crons = ["23 0 * * *"]
+
 [assets]
 directory = "./dist"
 binding = "ASSETS"

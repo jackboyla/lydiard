@@ -31,7 +31,8 @@ run in **both** the Worker and the browser.
 - **Training log with notes:** the default page is a week-grouped run log. Open any run to add an
   activity-specific note, see its ordinary facts and route, then expand splits, zones, and load
   diagnostics only when useful.
-- **Progress and personal bests:** one 12-week time/distance view, one consistent current-load read,
+- **Progress and personal bests:** paged weekly time/distance views with both values in each week's
+  readout, separate calendar-week and rolling seven-day totals, one consistent current-load read,
   explicit All time / Season best-effort scopes for 200m through marathon, and fastest measured
   distance segments on each individual run.
 - **One visible future plan:** the deterministic coach proposes an approval-gated 1–3 week block,
@@ -53,6 +54,10 @@ run in **both** the Worker and the browser.
 - **Stateful Lydiard coach:** date-effective Stryd Critical Power, evidence-backed CS/CP and LT1/LT2
   bands, power-first load with separate HR cost, coherent future blocks, post-run feedback, and an
   audit trail live behind the simple recommendation and plan workflow.
+- **Automatic zone reviews:** each final Garmin import checks whether new evidence can support a
+  review. A daily Cloudflare job at 00:23 UTC runs the same check as a backstop. A review can hold
+  the current zones when fewer than three new runs exist or the measured change stays below the
+  noise guard.
 
 ## Run locally
 
@@ -88,6 +93,9 @@ npx wrangler d1 execute lydiard --local --command "DELETE FROM activity_streams;
 Full steps in [docs/agent-api.md](docs/agent-api.md): `wrangler d1 create lydiard`, set secrets +
 `[vars]`, `npm run d1:migrate`, `npm run worker:deploy`, then configure the Garmin GitHub Actions
 secrets and visit the `workers.dev` URL on desktop or phone.
+
+`npm run worker:deploy` also installs the daily `23 0 * * *` UTC maintenance trigger declared in
+`wrangler.toml`. Cloudflare runs it without a browser session or local machine.
 
 ## Verify
 
