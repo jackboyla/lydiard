@@ -20,6 +20,7 @@ import {
 } from '../src/analysis/coachEngine';
 import {
   getAdaptiveZoneEstimateAsOf,
+  getPhysiologyEstimates,
   getActivityFeedbackBatch,
   getCoachDecisions,
   getCoachProfile,
@@ -103,6 +104,7 @@ export interface CoachContextBundle {
   };
   profile: CoachProfile;
   physiology: EnginePhysiologyEstimate;
+  zoneReviewHistory: AdaptiveZoneReviewHistoryEntry[];
   heartRateCostBaseline: HrCostBaseline;
   backgroundLoad: CoachBackgroundLoad;
   observedState: CoachObservedState;
@@ -146,6 +148,23 @@ export interface CoachContextBundle {
   limitations: string[];
 }
 
+export interface AdaptiveZoneReviewHistoryEntry {
+  reviewedAt: string;
+  status: 'initialized' | 'updated' | 'held';
+  trigger: 'initial' | 'scheduled' | 'race_or_time_trial' | 'critical_power';
+  changed: boolean;
+  changes: string[];
+  explanation: string;
+  zones: EnginePhysiologyEstimate['zones'];
+  supportingRuns: Array<{
+    id: string;
+    name: string;
+    date: string;
+    kind?: string;
+    note?: string;
+  }>;
+}
+
 export interface CoachRuntime {
   context: CoachContextBundle;
   activities: CoachActivitySummary[];
@@ -181,7 +200,7 @@ export async function loadCoachRuntime(
   const horizonWeeks = clamp(Math.floor(opts.horizonWeeks ?? 4), 1, 12);
   const planningHorizonEnd = addDays(weekStart, horizonWeeks * 7 - 1);
 
-  const [profile, cpRows, activities, plannedSessions, checkins, recoveries, decisions, storedAdaptiveZones] = await Promise.all([
+  const [profile, cpRows, activities, plannedSessions, checkins, recoveries, decisions, storedAdaptiveZones, physiologyRecords] = await Promise.all([
     getCoachProfile(db),
     getCriticalPowerHistory(db, { to: asOf }),
     getCoachActivitiesWithStreams(db, from, asOf),
@@ -190,6 +209,7 @@ export async function loadCoachRuntime(
     getDailyRecoveries(db, { from: from.slice(0, 10), to: asOf.slice(0, 10) }),
     getCoachDecisions(db, { to: asOf, limit: 30 }),
     getAdaptiveZoneEstimateAsOf(db, asOf),
+    getPhysiologyEstimates(db, { to: asOf }),
   ]);
   if (!profile) {
     throw new Error('Coach profile is unavailable. Apply the stateful-coach migration first.');
@@ -243,9 +263,17 @@ export async function loadCoachRuntime(
   const reviewedNow = physiology.calibration
     && physiology.calibration.reviewedAt !== previousReviewAt
     && ['initialized', 'updated', 'held'].includes(physiology.calibration.status);
-  if (reviewedNow && shouldPersistAdaptiveReview(opts.asOf, asOf)) {
+  const persistedReviewNow = Boolean(reviewedNow && shouldPersistAdaptiveReview(opts.asOf, asOf));
+  if (persistedReviewNow) {
     await persistAdaptiveZoneReview(db, physiology);
   }
+  const zoneReviewRecords = persistedReviewNow
+    ? await getPhysiologyEstimates(db, { to: asOf })
+    : physiologyRecords;
+  const zoneReviewHistory = buildAdaptiveZoneReviewHistory(
+    zoneReviewRecords.filter((record) => record.source === 'adaptive_zone_review'),
+    activities,
+  );
   const heartRateCostBaseline = buildHrCostBaseline({
     activities,
     criticalPowerHistory,
@@ -323,6 +351,7 @@ export async function loadCoachRuntime(
       },
       profile,
       physiology,
+      zoneReviewHistory,
       heartRateCostBaseline,
       backgroundLoad,
       observedState,
@@ -371,6 +400,54 @@ export async function loadCoachRuntime(
     assessmentsByActivityId,
     planningInput,
   };
+}
+
+function buildAdaptiveZoneReviewHistory(
+  records: StoredPhysiologyEstimate[],
+  activities: CoachActivitySummary[],
+): AdaptiveZoneReviewHistoryEntry[] {
+  const activitiesById = new Map(activities.map((activity) => [activity.id, activity]));
+  return records
+    .map((record): AdaptiveZoneReviewHistoryEntry | undefined => {
+      const stored = storedAdaptivePhysiology(record);
+      const calibration = stored?.calibration;
+      if (!stored || !calibration || !['initialized', 'updated', 'held'].includes(calibration.status)) return undefined;
+
+      const evidence = [
+        ...(stored.criticalSpeed?.evidence ?? []),
+        ...(stored.platformCriticalPower?.evidence ?? []),
+        ...(stored.lt1HeartRate?.evidence ?? []),
+        ...(stored.lt2HeartRate?.evidence ?? []),
+      ];
+      const evidenceById = new Map(evidence.map((item) => [item.activityId, item]));
+      const storedIds = Array.isArray(record.evidence.activityIds)
+        ? record.evidence.activityIds.filter((value): value is string => typeof value === 'string')
+        : [];
+      const ids = [...new Set([...storedIds, ...evidence.map((item) => item.activityId)])];
+      const supportingRuns = ids.map((id) => {
+        const item = evidenceById.get(id);
+        const activity = activitiesById.get(id);
+        return {
+          id,
+          name: item?.activityName ?? activity?.name ?? 'Supporting run',
+          date: item?.date ?? activity?.startDateLocal ?? activity?.startDate ?? '',
+          kind: item?.kind,
+          note: item?.note,
+        };
+      });
+      return {
+        reviewedAt: calibration.reviewedAt,
+        status: calibration.status as AdaptiveZoneReviewHistoryEntry['status'],
+        trigger: calibration.trigger as AdaptiveZoneReviewHistoryEntry['trigger'],
+        changed: calibration.status === 'initialized' || calibration.status === 'updated',
+        changes: calibration.changes,
+        explanation: calibration.explanation,
+        zones: stored.zones,
+        supportingRuns,
+      };
+    })
+    .filter((entry): entry is AdaptiveZoneReviewHistoryEntry => entry !== undefined)
+    .sort((a, b) => b.reviewedAt.localeCompare(a.reviewedAt));
 }
 
 async function getCoachActivitiesWithStreams(

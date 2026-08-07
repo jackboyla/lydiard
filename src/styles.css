@@ -1078,7 +1078,22 @@ dd {
 }
 
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
+}
+
+.brand-copy {
+  min-width: 0;
+}
+
+.brand-logo {
+  display: block;
+  flex: 0 0 auto;
+  width: 66px;
+  height: 66px;
+  object-fit: contain;
 }
 
 .topbar-menu-toggle {
@@ -2487,6 +2502,235 @@ dd {
   box-shadow: inset 3px 0 0 var(--warning);
 }
 
+.zone-review-history {
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--surface-muted) 78%, transparent);
+}
+
+.zone-review-history > summary,
+.zone-review-entry > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.zone-review-history > summary::-webkit-details-marker,
+.zone-review-entry > summary::-webkit-details-marker {
+  display: none;
+}
+
+.zone-review-history > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 42px;
+  padding: 8px 14px;
+}
+
+.zone-review-history > summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-strong);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.zone-review-history > summary > small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-align: right;
+}
+
+.zone-review-history[open] > summary {
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.zone-review-history-body {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+
+.zone-review-latest {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--green);
+  border-radius: 7px;
+  background: var(--surface-raised);
+}
+
+.zone-review-latest.held {
+  border-left-color: var(--muted);
+}
+
+.zone-review-latest span,
+.zone-review-latest small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.zone-review-latest strong {
+  color: var(--text-strong);
+  font-size: 0.84rem;
+}
+
+.zone-review-entry {
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: var(--surface-raised);
+}
+
+.zone-review-entry > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 11px;
+}
+
+.zone-review-entry > summary > span {
+  display: grid;
+  gap: 2px;
+}
+
+.zone-review-entry > summary strong {
+  color: var(--text-strong);
+  font-size: 0.8rem;
+}
+
+.zone-review-entry > summary small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.zone-review-entry > summary b {
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: var(--subtle);
+  background: var(--surface-control);
+  font-size: 0.69rem;
+  white-space: nowrap;
+}
+
+.zone-review-entry > summary b.changed {
+  color: var(--green);
+}
+
+.zone-review-entry-body {
+  display: grid;
+  gap: 14px;
+  padding: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.zone-review-entry-body section {
+  display: grid;
+  gap: 7px;
+}
+
+.zone-review-entry-body h4,
+.zone-review-entry-body p,
+.zone-review-entry-body ul {
+  margin: 0;
+}
+
+.zone-review-entry-body h4 {
+  color: var(--subtle);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.zone-review-entry-body p,
+.zone-review-entry-body li {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.zone-review-entry-body ul {
+  padding-left: 18px;
+}
+
+.zone-review-zone-table {
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+}
+
+.zone-review-zone-table > div {
+  display: grid;
+  grid-template-columns: minmax(8.5rem, 1.25fr) repeat(3, minmax(7rem, 1fr));
+}
+
+.zone-review-zone-table > div > * {
+  min-width: 0;
+  padding: 7px 8px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--muted);
+  font-size: 0.7rem;
+  overflow-wrap: anywhere;
+}
+
+.zone-review-zone-table > div > strong {
+  color: var(--text-strong);
+}
+
+.zone-review-zone-table > .zone-review-zone-head > * {
+  border-top: 0;
+  color: var(--subtle);
+  background: var(--surface-control);
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.zone-review-runs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 6px;
+}
+
+.zone-review-runs button {
+  display: grid;
+  gap: 2px;
+  padding: 8px 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface-control);
+  text-align: left;
+}
+
+.zone-review-runs button:not(:disabled) {
+  cursor: pointer;
+}
+
+.zone-review-runs button:not(:disabled):hover {
+  border-color: var(--accent);
+}
+
+.zone-review-runs button span {
+  font-size: 0.76rem;
+  font-weight: 760;
+}
+
+.zone-review-runs button small,
+.zone-review-empty {
+  color: var(--muted);
+  font-size: 0.69rem;
+}
+
 .zone-card-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -3091,7 +3335,6 @@ dd {
 .calendar-run-card:focus-visible,
 .calendar-run-card.active {
   border-color: rgba(91, 124, 250, 0.78);
-  background: rgba(91, 124, 250, 0.14);
   outline: none;
 }
 
@@ -3797,50 +4040,69 @@ dd {
   font-size: 0.76rem;
 }
 
-.activity-effort-bar {
-  display: flex;
-  height: 13px;
+.activity-effort-chart {
+  display: grid;
+  gap: 8px;
+}
+
+.activity-effort-row {
+  display: grid;
+  grid-template-columns: minmax(86px, 0.7fr) minmax(120px, 2fr) minmax(86px, auto);
+  align-items: center;
+  gap: 10px;
+}
+
+.activity-effort-row > span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 730;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-effort-track {
+  height: 12px;
   overflow: hidden;
   border-radius: 999px;
   background: var(--surface-control);
 }
 
-.activity-effort-bar i { display: block; min-width: 2px; }
-.activity-effort-bar .tone-easy { background: var(--green); }
-.activity-effort-bar .tone-moderate { background: var(--accent-strong); }
-.activity-effort-bar .tone-hard { background: var(--warning); }
-.activity-effort-bar .tone-danger { background: var(--danger); }
-.activity-effort-bar .tone-muted { background: var(--subtle); }
-
-.activity-effort-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px 14px;
-}
-
-.activity-effort-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--muted);
-  font-size: 0.68rem;
-}
-
-.activity-effort-legend span > i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+.activity-effort-track i {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
   background: var(--subtle);
 }
 
-.activity-effort-legend .tone-easy > i { background: var(--green); }
-.activity-effort-legend .tone-moderate > i { background: var(--accent-strong); }
-.activity-effort-legend .tone-hard > i { background: var(--warning); }
-.activity-effort-legend .tone-danger > i { background: var(--danger); }
+.activity-effort-row.tone-easy .activity-effort-track i { background: var(--green); }
+.activity-effort-row.tone-moderate .activity-effort-track i { background: var(--accent-strong); }
+.activity-effort-row.tone-hard .activity-effort-track i { background: var(--warning); }
+.activity-effort-row.tone-danger .activity-effort-track i { background: var(--danger); }
 
-.activity-effort-legend strong {
+.activity-effort-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.activity-effort-value strong {
+  min-width: 3ch;
   color: var(--text);
-  font-weight: 760;
+  font-size: 0.74rem;
+  font-weight: 780;
+  text-align: right;
+}
+
+.activity-effort-value small {
+  min-width: 4.5ch;
+  color: var(--subtle);
+  font-size: 0.68rem;
+  font-weight: 680;
+  text-align: right;
 }
 
 .activity-best-efforts {
@@ -4504,6 +4766,14 @@ dd {
   font-weight: 700;
 }
 
+.lap-split-table tbody tr:nth-child(odd) td {
+  background: var(--surface-raised);
+}
+
+.lap-split-table tbody tr:nth-child(even) td {
+  background: var(--surface-muted);
+}
+
 .lap-split-table tbody tr:last-child td {
   border-bottom: 0;
 }
@@ -4590,6 +4860,17 @@ dd {
   border-radius: 12px;
   background: var(--surface-raised);
   box-shadow: 0 22px 48px var(--shadow);
+}
+
+.password-brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.password-brand .brand-logo {
+  width: 92px;
+  height: 92px;
 }
 
 .password-card h1 {
@@ -4723,6 +5004,43 @@ dd {
   .zone-calibration-status small {
     max-width: none;
     text-align: left;
+  }
+
+  .zone-review-history > summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .zone-review-history > summary > small {
+    text-align: left;
+  }
+
+  .zone-review-latest {
+    grid-template-columns: 1fr auto;
+  }
+
+  .zone-review-latest span {
+    grid-column: 1 / -1;
+  }
+
+  .zone-review-zone-table > div {
+    grid-template-columns: 1fr;
+    padding: 7px 8px;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .zone-review-zone-table > div:first-child {
+    border-top: 0;
+  }
+
+  .zone-review-zone-table > div > * {
+    padding: 2px 0;
+    border-top: 0;
+  }
+
+  .zone-review-zone-table > .zone-review-zone-head {
+    display: none;
   }
 
   .zone-card-grid {
@@ -7376,8 +7694,88 @@ dd {
     padding: 13px;
   }
 
-  .activity-effort-legend {
-    gap: 7px 11px;
+  .activity-effort-row {
+    grid-template-columns: minmax(74px, 0.7fr) minmax(78px, 1.5fr) auto;
+    gap: 8px;
+  }
+
+  .lap-split-table-wrap {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .lap-split-table {
+    display: block;
+    min-width: 0;
+  }
+
+  .lap-split-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .lap-split-table tbody {
+    display: grid;
+    gap: 9px;
+  }
+
+  .lap-split-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid var(--border-soft);
+    border-radius: 9px;
+  }
+
+  .lap-split-table th,
+  .lap-split-table td {
+    display: grid;
+    align-content: start;
+    gap: 4px;
+    min-width: 0;
+    min-height: 54px;
+    padding: 9px 8px;
+    border-right: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 0.75rem;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .lap-split-table td::before {
+    content: attr(data-label);
+    color: var(--subtle);
+    font-size: 0.56rem;
+    font-weight: 780;
+    letter-spacing: 0.07em;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  .lap-split-table tbody tr:nth-child(odd) td {
+    background: var(--surface-raised);
+  }
+
+  .lap-split-table tbody tr:nth-child(even) td {
+    background: var(--surface-muted);
+  }
+
+  .lap-split-table td:nth-child(3n) {
+    border-right: 0;
+  }
+
+  .lap-split-table td:nth-last-child(-n + 3) {
+    border-bottom: 0;
+  }
+
+  .lap-zone {
+    width: fit-content;
   }
 
   .activity-best-efforts > header {
@@ -7919,7 +8317,6 @@ body {
 .calendar-run-card:focus-visible,
 .calendar-run-card.active {
   border-color: #7ea690;
-  background: #eef5f1;
   box-shadow: 0 5px 14px rgba(40, 92, 69, 0.11);
 }
 
@@ -8540,8 +8937,6 @@ body,
 .calendar-run-card:focus-visible,
 .calendar-run-card.active {
   border-color: #79aa94;
-  color: #ffffff;
-  background: #245843;
   box-shadow: 0 6px 18px rgba(0, 12, 8, 0.25);
 }
 
@@ -8728,6 +9123,12 @@ select {
 }
 
 @media (max-width: 760px) {
+  /* iOS Safari zooms focused form fields whose rendered text is below 16px. */
+  .calendar-day-note-editor textarea,
+  .activity-note-editor textarea {
+    font-size: 16px;
+  }
+
   .mobile-bottom-nav {
     border-color: rgba(75, 113, 96, 0.95);
     background: rgba(13, 48, 38, 0.96);
@@ -8855,7 +9256,7 @@ body {
 .topbar {
   position: relative;
   min-height: 92px;
-  padding: 14px 0 13px;
+  padding: 14px 16px 13px;
   border-bottom: 1px solid var(--text-strong);
 }
 
@@ -8884,6 +9285,13 @@ body {
   font-weight: 800;
   letter-spacing: -0.07em;
   text-transform: uppercase;
+}
+
+/* The mark is a solid ink tile, so it carries the same hard offset as the boxes. */
+.brand-logo {
+  width: 58px;
+  height: 58px;
+  box-shadow: 4px 4px 0 var(--accent);
 }
 
 .view-toggle,
@@ -9017,8 +9425,11 @@ body {
   scrollbar-color: var(--border) transparent;
 }
 
+/* Sticky children are pinned to the content box, so the log's own top padding is
+   published as a variable the month header can cancel out. */
 .training-view {
-  padding-top: clamp(22px, 4vh, 44px);
+  --log-scroll-pad: clamp(22px, 4vh, 44px);
+  padding-top: var(--log-scroll-pad);
 }
 
 .product-hero,
@@ -9243,13 +9654,16 @@ body {
   box-shadow: 3px 3px 0 var(--text-strong);
 }
 
+/* The spacing above a month header lives in its padding, not a margin: a sticky
+   box keeps its margins, so a margin-top would leave a see-through band between
+   the top bar and the stuck header while the log scrolls behind it. */
 .training-month-divider {
   position: sticky;
-  top: 0;
+  top: calc(-1px - var(--log-scroll-pad, 0px));
   z-index: 12;
   gap: 14px;
-  margin: 18px 0 0;
-  padding: 13px 4px 10px;
+  margin: 0;
+  padding: 30px 4px 10px;
   border-bottom: 2px solid var(--text-strong);
   background: var(--app-bg);
 }
@@ -9469,20 +9883,36 @@ body {
 .calendar-run-card.run-session { background: linear-gradient(180deg, var(--danger-soft), var(--surface) 48%); }
 .calendar-run-card.run-long { background: linear-gradient(180deg, var(--warning-soft), var(--surface) 48%); }
 
-.calendar-run-card:hover,
+/* Hover is a mouse-only signal. Phones fire it on the touch that starts a scroll,
+   so a card under the thumb would otherwise stay in its emphasized state. */
+@media (hover: hover) and (pointer: fine) {
+  .calendar-run-card:hover {
+    border-top-color: var(--accent);
+    border-right-color: var(--accent);
+    border-bottom-color: var(--accent);
+    box-shadow: 4px 4px 0 var(--accent);
+    transform: translate(-1px, -1px);
+  }
+}
+
+/* The left edge keeps its effort color; the other three mark the selection. */
 .calendar-run-card:focus-visible,
 .calendar-run-card.active {
-  border-color: var(--text-strong);
-  color: #fffdf6;
-  background: var(--text-strong);
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  border-bottom-color: var(--accent);
   box-shadow: 4px 4px 0 var(--accent);
   transform: translate(-1px, -1px);
 }
 
-.calendar-run-card:hover :is(strong, small, span),
-.calendar-run-card:focus-visible :is(strong, small, span),
-.calendar-run-card.active :is(strong, small, span) {
-  color: inherit;
+/* The open run keeps the paper background so its colored metrics stay legible. */
+.calendar-run-card.active {
+  background: var(--danger-soft);
+}
+
+.calendar-run-card:active {
+  box-shadow: 1px 1px 0 var(--accent);
+  transform: translate(1px, 1px);
 }
 
 .calendar-run-type {
@@ -9740,11 +10170,21 @@ select {
 
   .topbar {
     min-height: 72px;
-    padding: 10px 0;
+    padding: 10px 12px;
   }
 
   .app-shell.map-first .topbar h1 {
     font-size: 1.82rem;
+  }
+
+  .brand {
+    gap: 8px;
+  }
+
+  .brand-logo {
+    width: 46px;
+    height: 46px;
+    box-shadow: 3px 3px 0 var(--accent);
   }
 
   .topbar-menu-toggle {
@@ -9757,7 +10197,8 @@ select {
   }
 
   .training-view {
-    padding-top: 24px;
+    --log-scroll-pad: 24px;
+    padding-top: var(--log-scroll-pad);
   }
 
   .training-inline-jump,
@@ -9824,8 +10265,7 @@ select {
   }
 
   .training-month-divider {
-    top: -1px;
-    padding-top: 12px;
+    padding-top: 22px;
   }
 
   .training-month-divider span {
@@ -12086,4 +12526,199 @@ select {
   .coach-forecast-weeks {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Progress → weekly totals. A headline readout for the selected week over a
+   filled trend line, so the shape of the block reads before any single number.
+   --------------------------------------------------------------------------- */
+
+.weekly-totals-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Metric and pager share the first row; the range chips take the full width
+   below it on phones and slot in beside them once there is room. */
+.weekly-totals-panel .progress-block-toolbar {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+
+.weekly-totals-metric {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+}
+
+.weekly-totals-metric button {
+  min-width: 58px;
+}
+
+.weekly-totals-panel .progress-block-pager {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  margin: 0;
+}
+
+.weekly-totals-panel .progress-resolution-control {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+@media (min-width: 761px) {
+  .weekly-totals-panel .progress-block-toolbar {
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .weekly-totals-panel .progress-resolution-control {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: start;
+  }
+
+  .weekly-totals-panel .progress-block-pager {
+    grid-column: 3;
+  }
+}
+
+.weekly-totals-summary h3 {
+  margin: 0 0 12px;
+  color: var(--text-strong);
+  font-size: clamp(1.1rem, 2.4vw, 1.45rem);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+}
+
+.weekly-totals-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 560px;
+}
+
+.weekly-totals-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.weekly-totals-stats span {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.weekly-totals-stats strong {
+  color: var(--text-strong);
+  font-size: clamp(1.25rem, 4.2vw, 1.8rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.045em;
+}
+
+.weekly-totals-chart-shell {
+  width: 100%;
+}
+
+.weekly-totals-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: pan-y;
+}
+
+.weekly-totals-grid line {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.weekly-totals-grid text {
+  fill: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.weekly-totals-fill-top {
+  stop-color: var(--accent);
+  stop-opacity: 0.3;
+}
+
+.weekly-totals-fill-bottom {
+  stop-color: var(--accent);
+  stop-opacity: 0.05;
+}
+
+.weekly-totals-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.weekly-totals-rule {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.weekly-totals-dot {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.weekly-totals-dot.selected {
+  fill: var(--accent);
+}
+
+.weekly-totals-halo {
+  fill: var(--accent);
+  fill-opacity: 0.22;
+}
+
+.weekly-totals-month {
+  fill: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-anchor: middle;
+}
+
+/* Keyboard-only targets: a tap must never leave a focus box on the chart. */
+.weekly-totals-hit {
+  fill: transparent;
+  pointer-events: none;
+  outline: none;
+}
+
+.weekly-totals-hit:focus-visible {
+  fill: var(--accent);
+  fill-opacity: 0.1;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.weekly-totals-surface {
+  fill: transparent;
+  cursor: pointer;
+  outline: none;
+  /* Vertical swipes still scroll the page; sideways drags scrub the weeks. */
+  touch-action: pan-y;
+}
+
+.weekly-totals-caption,
+.weekly-totals-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
 }

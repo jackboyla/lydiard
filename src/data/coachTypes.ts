@@ -1,7 +1,10 @@
 import type {
+  AdaptiveZoneCalibrationStatus,
+  AdaptiveZoneReviewTrigger,
   HrCostBaseline,
   LydiardBlockPlan,
   PhysiologyEstimate,
+  PracticalZone,
   PostRunEvaluation,
   PowerDurationPoint,
   RecentTrainingWeek,
@@ -140,6 +143,7 @@ export interface CoachContextData {
   };
   profile: CoachProfileRecord;
   physiology: PhysiologyEstimate;
+  zoneReviewHistory: AdaptiveZoneReviewHistoryEntry[];
   heartRateCostBaseline: HrCostBaseline;
   backgroundLoad: {
     sevenDayStress: number;
@@ -188,6 +192,23 @@ export interface CoachContextData {
   recentCheckins: Array<Record<string, unknown>>;
   recentDecisions: CoachDecisionRecord[];
   limitations: string[];
+}
+
+export interface AdaptiveZoneReviewHistoryEntry {
+  reviewedAt: string;
+  status: Extract<AdaptiveZoneCalibrationStatus, 'initialized' | 'updated' | 'held'>;
+  trigger: Exclude<AdaptiveZoneReviewTrigger, 'none'>;
+  changed: boolean;
+  changes: string[];
+  explanation: string;
+  zones: PracticalZone[];
+  supportingRuns: Array<{
+    id: string;
+    name: string;
+    date: string;
+    kind?: string;
+    note?: string;
+  }>;
 }
 
 export interface CriticalPowerDraft {

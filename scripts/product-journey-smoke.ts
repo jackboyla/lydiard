@@ -129,9 +129,12 @@ try {
   const dayNoteTrigger = restDay.locator('.calendar-day-note-trigger');
   assert(await dayNoteTrigger.isVisible(), 'A rest day does not expose its day-note editor.');
   await dayNoteTrigger.click();
-  const originalDayNote = await restDay.locator('.calendar-day-note-editor textarea').inputValue();
+  const dayNoteEditor = restDay.locator('.calendar-day-note-editor textarea');
+  const dayNoteFontSize = await dayNoteEditor.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
+  assert(dayNoteFontSize >= 16, `Mobile day-note text is ${dayNoteFontSize}px; Safari may zoom the field.`);
+  const originalDayNote = await dayNoteEditor.inputValue();
   const dayNoteMarker = `Rest-day smoke ${new Date().toISOString()}`;
-  await restDay.locator('.calendar-day-note-editor textarea').fill(dayNoteMarker);
+  await dayNoteEditor.fill(dayNoteMarker);
   await restDay.locator('.calendar-day-note-editor').getByRole('button', { name: 'Save' }).click();
   await page.waitForFunction((value) => document.querySelector('.week-day-cell:not(.has-run) .calendar-day-note-trigger')?.textContent?.includes(value), dayNoteMarker);
   await restDay.locator('.calendar-day-note-trigger').click();
@@ -207,6 +210,11 @@ try {
   assert(activityParam, 'Opening a run did not create an activity deep link.');
   editedActivityId = activityParam;
   const noteEditor = page.locator('.activity-note-editor textarea');
+  const activityNoteFontSize = await noteEditor.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
+  assert(activityNoteFontSize >= 16, `Mobile activity-note text is ${activityNoteFontSize}px; Safari may zoom the field.`);
+  await noteEditor.scrollIntoViewIfNeeded();
+  await noteEditor.focus();
+  await page.screenshot({ path: 'progress/screenshots/mobile-log-note-editing.png', fullPage: false });
   originalNote = await noteEditor.inputValue();
   const marker = `Product journey smoke ${new Date().toISOString()}`;
   await noteEditor.fill(marker);

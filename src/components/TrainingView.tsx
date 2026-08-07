@@ -7,6 +7,7 @@ import {
   CloudSun,
   Dumbbell,
   Gauge,
+  Info,
   MessageSquareText,
   Mountain,
   Save,
@@ -26,6 +27,7 @@ import {
 } from '../analysis/loadModel';
 import type { PhysiologyEstimate, PracticalZone } from '../analysis/coachEngine';
 import { getActivity, getActivityWeather } from '../data/api';
+import type { AdaptiveZoneReviewHistoryEntry } from '../data/coachTypes';
 import { buildActivityLaps, buildDerivedKilometreLaps, buildLapProfileFromCompact, type ActivityLapView } from '../data/activityLaps';
 import { localWeekId, millisecondsUntilNextLocalWeek } from '../data/calendar';
 import { activityPaceSecPerKm, toWeekIdUtc } from '../data/mapRoutes';
@@ -771,18 +773,30 @@ function WeekBlock({
 export function TrainingZoneSummary({
   loadModel,
   physiology,
+  reviewHistory = [],
+  onOpenActivity,
 }: {
   loadModel: TrainingLoadModel;
   physiology?: PhysiologyEstimate;
+  reviewHistory?: AdaptiveZoneReviewHistoryEntry[];
+  onOpenActivity?: (activityId: string) => void;
 }) {
   const model = useMemo(
     () => buildTrainingZoneModel(physiology, loadModel.thresholds),
     [loadModel.thresholds, physiology],
   );
-  return <ZoneSummary model={model} />;
+  return <ZoneSummary model={model} reviewHistory={reviewHistory} onOpenActivity={onOpenActivity} />;
 }
 
-function ZoneSummary({ model }: { model: TrainingZoneModel }) {
+function ZoneSummary({
+  model,
+  reviewHistory,
+  onOpenActivity,
+}: {
+  model: TrainingZoneModel;
+  reviewHistory: AdaptiveZoneReviewHistoryEntry[];
+  onOpenActivity?: (activityId: string) => void;
+}) {
   const calibration = model.calibration;
   return (
     <section
@@ -819,6 +833,9 @@ function ZoneSummary({ model }: { model: TrainingZoneModel }) {
           </small>
         </div>
       )}
+      {model.physiologyBacked && (
+        <ZoneReviewHistory history={reviewHistory} onOpenActivity={onOpenActivity} />
+      )}
       <div className="zone-card-grid">
         {model.zones.map((zone) => (
           <article key={zone.key} className={`zone-card tone-${zone.tone}`}>
@@ -846,6 +863,106 @@ function ZoneSummary({ model }: { model: TrainingZoneModel }) {
       </div>
     </section>
   );
+}
+
+function ZoneReviewHistory({
+  history,
+  onOpenActivity,
+}: {
+  history: AdaptiveZoneReviewHistoryEntry[];
+  onOpenActivity?: (activityId: string) => void;
+}) {
+  const latest = history[0];
+  return (
+    <details className="zone-review-history">
+      <summary>
+        <span><Info size={15} aria-hidden="true" /> Info</span>
+        <small>{latest ? zoneReviewResult(latest, true) : 'How and when these zones change'}</small>
+      </summary>
+      <div className="zone-review-history-body">
+        {latest ? (
+          <div className={`zone-review-latest ${latest.changed ? 'changed' : 'held'}`}>
+            <span>Last review</span>
+            <strong>{zoneReviewResult(latest, false)}</strong>
+            <small>{formatEvidenceDate(latest.reviewedAt)}</small>
+          </div>
+        ) : (
+          <p className="zone-review-empty">No saved zone reviews are available yet. The current set will appear here after its first review.</p>
+        )}
+        {history.map((review, index) => (
+          <details className="zone-review-entry" key={`${review.reviewedAt}-${review.status}`} open={index === 0}>
+            <summary>
+              <span>
+                <strong>{formatEvidenceDate(review.reviewedAt)}</strong>
+                <small>{zoneReviewTriggerLabel(review.trigger)}</small>
+              </span>
+              <b className={review.changed ? 'changed' : 'held'}>{zoneReviewResult(review, false)}</b>
+            </summary>
+            <div className="zone-review-entry-body">
+              <section>
+                <h4>Why</h4>
+                <p>{review.explanation}</p>
+                {review.changes.length > 0 && (
+                  <ul>{review.changes.map((change) => <li key={change}>{change}</li>)}</ul>
+                )}
+              </section>
+              <section>
+                <h4>Zone set from this review</h4>
+                <div className="zone-review-zone-table" role="table" aria-label={`Zones reviewed ${formatEvidenceDate(review.reviewedAt)}`}>
+                  <div className="zone-review-zone-head" role="row">
+                    <span role="columnheader">Zone</span><span role="columnheader">Pace</span><span role="columnheader">HR</span><span role="columnheader">Power</span>
+                  </div>
+                  {review.zones.map((zone, zoneIndex) => {
+                    const display = physiologyTrainingZone(zone, zoneIndex);
+                    return (
+                      <div role="row" key={zone.name}>
+                        <strong role="cell">{display.label} · {display.name}</strong>
+                        <span role="cell">{display.paceRange}</span>
+                        <span role="cell">{display.hrRange}</span>
+                        <span role="cell">{display.powerRange}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+              <section>
+                <h4>Supporting runs</h4>
+                {review.supportingRuns.length > 0 ? (
+                  <div className="zone-review-runs">
+                    {review.supportingRuns.map((run) => (
+                      <button
+                        key={run.id}
+                        type="button"
+                        onClick={() => onOpenActivity?.(run.id)}
+                        disabled={!onOpenActivity}
+                        title={run.note}
+                      >
+                        <span>{run.name}</span>
+                        <small>{formatEvidenceDate(run.date)}{run.kind ? ` · ${run.kind.replaceAll('_', ' ')}` : ''}</small>
+                      </button>
+                    ))}
+                  </div>
+                ) : <p>No run was stored as direct support for this review.</p>}
+              </section>
+            </div>
+          </details>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function zoneReviewResult(review: AdaptiveZoneReviewHistoryEntry, compact: boolean): string {
+  if (review.status === 'initialized') return compact ? 'First zone set established' : 'First zones established';
+  if (review.changed) return compact ? 'Last review changed the zones' : 'Zones changed';
+  return compact ? 'Last review kept the same zones' : 'No zone changes';
+}
+
+function zoneReviewTriggerLabel(trigger: AdaptiveZoneReviewHistoryEntry['trigger']): string {
+  if (trigger === 'race_or_time_trial') return 'Race or time trial evidence';
+  if (trigger === 'critical_power') return 'Critical Power change';
+  if (trigger === 'initial') return 'First review';
+  return 'Routine review';
 }
 
 function WeekTotalReadout({
@@ -1238,6 +1355,7 @@ function ActivityDetailPage({
               <RunRead classification={runKind} session={session} />
               <PrimaryRunMetrics activity={activity} session={session} />
             </div>
+            <ActivityNoteEditor activityId={activity.id} note={activity.activityNote ?? ''} onSave={onSaveNote} />
             <ActivityWeatherPanel activity={activity} />
             <ActivityEffortStrip totals={hrZoneTotals} loading={loading} />
             <ActivityBestEfforts groups={bestEfforts} loading={loading} />
@@ -1305,7 +1423,6 @@ function ActivityDetailPage({
                 <p>{planDay.notes}</p>
               </section>
             )}
-            <ActivityNoteEditor activityId={activity.id} note={activity.activityNote ?? ''} onSave={onSaveNote} />
           </aside>
         </div>
       </article>
@@ -1503,7 +1620,6 @@ function runReadCopy(kind: RunKind, session: SessionLoad): string {
 
 function ActivityEffortStrip({ totals, loading }: { totals?: HrZoneTotal[]; loading: boolean }) {
   const totalSeconds = totals?.reduce((total, item) => total + item.seconds, 0) ?? 0;
-  const activeTotals = totals?.filter((item) => item.seconds > 0) ?? [];
   return (
     <section className="activity-effort-strip" aria-label="Heart rate zone distribution">
       <header>
@@ -1511,25 +1627,28 @@ function ActivityEffortStrip({ totals, loading }: { totals?: HrZoneTotal[]; load
         <small>{totalSeconds > 0 ? formatDuration(totalSeconds) : loading ? 'Loading HR…' : 'No HR stream'}</small>
       </header>
       {totalSeconds > 0 ? (
-        <>
-          <div className="activity-effort-bar" aria-hidden="true">
-            {activeTotals.map((item) => (
-              <i
+        <div className="activity-effort-chart" role="list">
+          {totals?.map((item) => {
+            const percentage = (item.seconds / totalSeconds) * 100;
+            return (
+              <div
                 key={item.zone.key}
-                className={`tone-${item.zone.tone}`}
-                style={{ width: `${(item.seconds / totalSeconds) * 100}%` }}
-              />
-            ))}
-          </div>
-          <div className="activity-effort-legend">
-            {activeTotals.map((item) => (
-              <span key={item.zone.key} className={`tone-${item.zone.tone}`}>
-                <i aria-hidden="true" />
-                {item.zone.name} <strong>{Math.round((item.seconds / totalSeconds) * 100)}%</strong>
-              </span>
-            ))}
-          </div>
-        </>
+                className={`activity-effort-row tone-${item.zone.tone}`}
+                role="listitem"
+                aria-label={`${item.zone.name}: ${Math.round(percentage)}%, ${formatDuration(item.seconds)}`}
+              >
+                <span>{item.zone.name}</span>
+                <div className="activity-effort-track" aria-hidden="true">
+                  <i style={{ width: `${percentage}%` }} />
+                </div>
+                <div className="activity-effort-value">
+                  <strong>{Math.round(percentage)}%</strong>
+                  <small>{formatDuration(item.seconds)}</small>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       ) : (
         <p>{loading ? 'Loading heart-rate stream.' : 'Heart-rate distribution is unavailable for this run.'}</p>
       )}
@@ -1635,15 +1754,15 @@ function LapSplitsTable({
             <tbody>
               {splits.map((split) => (
                 <tr key={split.label}>
-                  <td>{split.label}</td>
-                  <td>{split.distanceKm.toFixed(split.distanceKm >= 0.95 ? 1 : 2)}</td>
-                  <td>{formatElevationChange(split.elevationChangeM)}</td>
-                  <td>{formatDuration(split.durationSec)}</td>
-                  <td>{formatCompactPace(split.paceSecPerKm)}</td>
-                  <td>{split.averageHeartRate ? Math.round(split.averageHeartRate) : '-'}</td>
-                  <td>{split.maxHeartRate ? Math.round(split.maxHeartRate) : '-'}</td>
-                  <td><span className={`lap-zone zone-${split.zone.key}`}>{split.zone.label}</span></td>
-                  <td>{split.averagePower ? Math.round(split.averagePower) : '-'}</td>
+                  <td data-label="Lap">{split.label}</td>
+                  <td data-label="Distance (km)">{split.distanceKm.toFixed(split.distanceKm >= 0.95 ? 1 : 2)}</td>
+                  <td data-label="Elevation Δ">{formatElevationChange(split.elevationChangeM)}</td>
+                  <td data-label="Time">{formatDuration(split.durationSec)}</td>
+                  <td data-label="Pace (/km)">{formatCompactPace(split.paceSecPerKm)}</td>
+                  <td data-label="HR avg (bpm)">{split.averageHeartRate ? Math.round(split.averageHeartRate) : '-'}</td>
+                  <td data-label="HR max (bpm)">{split.maxHeartRate ? Math.round(split.maxHeartRate) : '-'}</td>
+                  <td data-label="Zone"><span className={`lap-zone zone-${split.zone.key}`}>{split.zone.label}</span></td>
+                  <td data-label="Power (W)">{split.averagePower ? Math.round(split.averagePower) : '-'}</td>
                 </tr>
               ))}
             </tbody>
