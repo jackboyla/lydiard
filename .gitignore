@@ -10,8 +10,23 @@ dist
 .wrangler/
 .vscode/
 .claude/
-progress/backups/
-progress/logs/
+.venv/
+
+# Deployment-specific material: encryption keys, tokens, anything machine-bound.
+# config.example/ documents what belongs here.
+config/
+
+# Personal working notes, screenshots of real training data, and local backups.
+progress/
+
+# Coaching references are written per deployment; only the templates are shared.
+wisdom/*.md
+!wisdom/*.example.md
+!wisdom/README.md
+
+# Local-only scripts and one-off private tooling.
+.private/
+
 garmin_data.db
 garmin_data.db.*
 garmin_data.db-*

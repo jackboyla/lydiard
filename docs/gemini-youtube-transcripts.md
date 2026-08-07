@@ -6,13 +6,16 @@ track into exact 30-second blocks, then asks Google Gemini to faithfully clean a
 normalize one complete timestamped transcript per item. If a caption track is
 unavailable, the collector falls back to direct Gemini video transcription.
 
-The default target is Stephen Scullion's channel. As of 2026-07-13, discovery
-returns 284 unique items: 235 standard videos with 58.14 hours of known runtime
-and 49 Shorts whose durations are not included in YouTube's flat channel index.
+Pass the channel with `--channel`. Discovery counts standard videos and Shorts
+separately, because YouTube's flat channel index omits Shorts durations.
+
+Only collect transcripts you have the right to use. The transcripts are the
+channel owner's work: keep them out of source control, and do not redistribute
+them or publish text derived closely from them.
 
 ## Outputs
 
-The default output is `tmp/stephen-scullion-transcripts-cleaned/`, which is already
+The default output is `tmp/youtube-transcripts-cleaned/`, which is already
 gitignored. It contains:
 
 - `inventory.json` and `inventory.csv`: the current channel inventory;
@@ -53,13 +56,13 @@ GEMINI_API_KEY=<your Google AI Studio key>
 Refresh the inventory without making Gemini requests:
 
 ```bash
-python3 scripts/gemini-youtube-transcripts.py --inventory-only
+python3 scripts/gemini-youtube-transcripts.py --channel <CHANNEL_URL> --inventory-only
 ```
 
 Validate one end-to-end transcript before starting the corpus:
 
 ```bash
-python3 scripts/gemini-youtube-transcripts.py --limit 1
+python3 scripts/gemini-youtube-transcripts.py --channel <CHANNEL_URL> --limit 1
 ```
 
 The default caption-cleaning path sends text rather than YouTube video input, so
@@ -68,15 +71,15 @@ direct video transcription, use `--source video`; if using the free tier, leave
 headroom and run a resumable daily batch:
 
 ```bash
-python3 scripts/gemini-youtube-transcripts.py --source video --max-input-hours 7.5
+python3 scripts/gemini-youtube-transcripts.py --channel <CHANNEL_URL> --source video --max-input-hours 7.5
 ```
 
-Launch the full default job inside tmux because it is long-running:
+Launch the full job inside tmux because it is long-running:
 
 ```bash
 mkdir -p progress/logs
-tmux new -s scullion-transcripts
-python3 scripts/gemini-youtube-transcripts.py 2>&1 | tee progress/logs/scullion-transcripts-cleaned.log
+tmux new -s youtube-transcripts
+python3 scripts/gemini-youtube-transcripts.py --channel <CHANNEL_URL> 2>&1 | tee progress/logs/youtube-transcripts.log
 ```
 
 After detaching with `Ctrl-b d`, verify the process rather than relying on the
@@ -84,7 +87,7 @@ launch command alone:
 
 ```bash
 tmux ls
-tail -50 progress/logs/scullion-transcripts-cleaned.log
+tail -50 progress/logs/youtube-transcripts.log
 ps -eo pid,etime,cmd | rg 'gemini-youtube-transcripts'
 ```
 
@@ -96,6 +99,7 @@ incompatible transcripts cannot be mixed accidentally:
 
 ```bash
 python3 scripts/gemini-youtube-transcripts.py \
+  --channel <CHANNEL_URL> \
   --model <MODEL_NAME> \
-  --output tmp/stephen-scullion-transcripts-<MODEL_NAME>
+  --output tmp/youtube-transcripts-<MODEL_NAME>
 ```

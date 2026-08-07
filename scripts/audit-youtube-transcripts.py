@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_OUTPUT = Path("tmp/stephen-scullion-transcripts-cleaned")
+DEFAULT_OUTPUT = Path("tmp/youtube-transcripts-cleaned")
 
 
 def utc_now() -> str:
@@ -153,7 +153,7 @@ def main() -> int:
     }
     atomic_json_write(args.output / "audit.json", audit)
     index = (
-        "# Stephen Scullion transcript corpus\n\n"
+        "# Transcript corpus\n\n"
         f"Generated: {audit['generated_at']}\n\n"
         f"Accessible coverage: {complete_count}/{expected_count - unavailable_count}; "
         f"unavailable: {unavailable_count}; failures: {failed_count}; integrity "

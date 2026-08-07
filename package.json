@@ -4,8 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "wisdom:ensure": "node scripts/ensure-wisdom.mjs",
+    "predev": "npm run wisdom:ensure",
     "dev": "vite --host 0.0.0.0",
     "server": "tsx server/stravaServer.ts",
+    "preworker:dev": "npm run wisdom:ensure",
     "worker:dev": "wrangler dev",
     "worker:deploy": "npm run build && wrangler deploy",
     "d1:migrate:local": "wrangler d1 migrations apply lydiard --local",
@@ -16,6 +19,10 @@
     "garmin:import-gym": "tsx scripts/garmin-gym-import.ts",
     "fitbit:import": "tsx scripts/fitbit-recovery-import.ts",
     "google-health:auth": "tsx scripts/google-health-auth.ts",
+    "backup:d1": "tsx scripts/d1-backup.ts",
+    "backup:verify": "tsx scripts/verify-d1-backup.ts",
+    "backup:drive:auth": "tsx scripts/google-drive-backup-auth.ts",
+    "backup:drive:upload": "tsx scripts/google-drive-backup-upload.ts",
     "plan:import": "tsx scripts/import-plan-csv.ts",
     "garmin:sync": "npm run garmin:import-db",
     "coach:smoke": "tsx scripts/coach-engine-smoke.ts",
@@ -24,10 +31,13 @@
     "best-efforts:smoke": "tsx scripts/best-efforts-smoke.ts",
     "lap-profile:smoke": "tsx scripts/lap-profile-smoke.ts",
     "product:smoke": "tsx scripts/product-journey-smoke.ts",
+    "mobile-note:smoke": "tsx scripts/mobile-note-smoke.ts",
+    "weekly-totals:smoke": "tsx scripts/weekly-totals-smoke.ts",
     "recovery:smoke": "tsx scripts/recovery-smoke.ts",
     "gpu-monitor": "node gpu-monitor/server.mjs",
     "gpu-monitor:test": "node --test gpu-monitor/monitor.test.mjs",
     "gpu-monitor:watchdog": "bash gpu-monitor/watchdog.sh",
+    "prebuild": "npm run wisdom:ensure",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
@@ -61,5 +71,11 @@
     "typescript": "^6.0.3",
     "vite": "^8.0.16",
     "wrangler": "^4.106.0"
+  },
+  "license": "MIT",
+  "description": "A running diary with a coach behind it, running on Cloudflare Workers and D1.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jackboyla/lydiard.git"
   }
 }

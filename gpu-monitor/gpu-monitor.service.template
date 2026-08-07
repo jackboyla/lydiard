@@ -1,0 +1,18 @@
+[Unit]
+Description=Read-only GPU and tmux monitor
+After=network.target tailscaled.service
+ConditionPathExists=!__LYDIARD_ROOT__/.local/gpu-monitor-cron-managed
+
+[Service]
+Type=simple
+WorkingDirectory=__LYDIARD_ROOT__
+ExecStart=__NODE_BIN__ __LYDIARD_ROOT__/gpu-monitor/server.mjs
+Restart=on-failure
+RestartSec=3
+Environment=GPU_MONITOR_PORT=8789
+Environment=PATH=__NODE_DIR__:/usr/local/bin:/usr/bin:/bin
+StandardOutput=append:__LYDIARD_ROOT__/progress/logs/gpu-monitor.log
+StandardError=append:__LYDIARD_ROOT__/progress/logs/gpu-monitor.log
+
+[Install]
+WantedBy=default.target

@@ -5,9 +5,9 @@ A dependency-free, read-only dashboard for NVIDIA GPU metrics, owning processes,
 ## Access
 
 - On the workstation or through an SSH port forward: `http://127.0.0.1:8789`
-- From this tailnet: `http://workstation:8789` or `http://100.x.y.z:8789`
+- From your tailnet: `http://<workstation-host>:8789` or `http://<tailscale-ipv4>:8789`
 
-For an SSH-only laptop connection, add local forwarding with `ssh -L 8789:127.0.0.1:8789 workstation`, then open `http://127.0.0.1:8789` on the laptop.
+For an SSH-only laptop connection, add local forwarding with `ssh -L 8789:127.0.0.1:8789 <workstation-host>`, then open `http://127.0.0.1:8789` on the laptop.
 
 The service listens only on loopback and the workstation's Tailscale IPv4 address. It has no write, signal, terminal-input, or process-control endpoints.
 
@@ -15,12 +15,16 @@ The service listens only on loopback and the workstation's Tailscale IPv4 addres
 
 The workstation's user systemd manager can itself be killed during a global out-of-memory event. A cron watchdog therefore checks the local health endpoint every minute and relaunches the monitor independently when required:
 
+Render the unit and crontab for this machine first — both are templates, because absolute paths
+differ per checkout:
+
 ```bash
-crontab gpu-monitor/gpu-monitor.crontab
+gpu-monitor/render-config.sh          # writes .local/gpu-monitor.{service,crontab}
+crontab .local/gpu-monitor.crontab
 gpu-monitor/watchdog.sh
 ```
 
-Monitor output is appended to `progress/logs/gpu-monitor.log`. The legacy user unit is retained as documentation but is suppressed by `.local/gpu-monitor-cron-managed` to prevent two supervisors competing for port 8789.
+Monitor output is appended to `progress/logs/gpu-monitor.log`. The rendered user unit is retained as documentation but is suppressed by `.local/gpu-monitor-cron-managed` to prevent two supervisors competing for port 8789.
 
 ## Development
 

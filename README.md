@@ -1,9 +1,13 @@
 # Lydiard
 
-A private running diary with a coach behind it: a Strava-style training log with direct activity
-notes, all-time and seasonal best efforts, clear weekly progression, and an editable future plan.
-The deeper physiology and load models remain available without dominating the daily workflow. Runs
-free on Cloudflare with no always-on local machine.
+A running diary with a coach behind it: a Strava-style training log with direct activity notes,
+all-time and seasonal best efforts, clear weekly progression, and an editable future plan. The
+deeper physiology and load models remain available without dominating the daily workflow. Runs free
+on Cloudflare with no always-on local machine.
+
+The code is MIT-licensed and meant to be deployed by anyone. Each deployment keeps its own data:
+training history lives in your own Cloudflare D1 instance, and the read API sits behind a site
+password you set. Nothing personal is in this repository — see [Your own data](#your-own-data).
 
 ## Architecture — "one synced store, three consumers"
 
@@ -37,7 +41,7 @@ run in **both** the Worker and the browser.
   distance segments on each individual run.
 - **One visible future plan:** the deterministic coach proposes an approval-gated 1–3 week block,
   while a connected GPT can discuss and publish an agreed, deeply specified 1–12 week plan grounded
-  in current performance plus the Scullion/Magness wisdom files. Both use the same editable Plan
+  in current performance plus your own [wisdom files](wisdom/README.md). Both use the same editable Plan
   surface. Legacy RUNMASTER rows remain collapsed provenance rather than a competing plan.
 - **Plan-impact forecast:** proposed and accepted running sessions project the same power-first
   exponentially weighted 7-day/42-day stress balance used by the coach across the next 21 days.
@@ -57,7 +61,27 @@ run in **both** the Worker and the browser.
 - **Automatic zone reviews:** each final Garmin import checks whether new evidence can support a
   review. A daily Cloudflare job at 00:23 UTC runs the same check as a backstop. A review can hold
   the current zones when fewer than three new runs exist or the measured change stays below the
-  noise guard.
+  noise guard. In Progress, open **Training zones → Info** to see whether the last review changed
+  a boundary, why it changed or held, every saved zone set, and the runs that supported it.
+
+## Your own data
+
+Nothing personal is committed here. A clone gives you the application; you supply everything else.
+
+| What | Where it lives | Set it up with |
+| --- | --- | --- |
+| Training history | Your own Cloudflare D1 instance | `npm run d1:migrate` |
+| Secrets and tokens | Worker secrets and `.dev.vars` | [.env.example](.env.example) |
+| Coaching references | `wisdom/*.md`, gitignored | [wisdom/README.md](wisdom/README.md) |
+| Backup encryption key | `config/`, gitignored | [config.example/README.md](config.example/README.md) |
+| Working notes, screenshots | `progress/`, gitignored | — |
+
+The read API is open until you set the `SITE_PASSWORD` Worker secret. Set it before you import real
+training data, or `/api/*` will serve your history to anyone who finds the URL:
+
+```bash
+npx wrangler secret put SITE_PASSWORD
+```
 
 ## Run locally
 
@@ -104,15 +128,80 @@ npm run build          # typecheck app + production bundle
 npm run typecheck:worker
 npm run coach:smoke    # deterministic physiology/load/plan/adaptation invariants
 npm run product:smoke  # Log/notes/PBs/Plan mobile journey against the local Worker
+npm run mobile-note:smoke  # mobile Log note sizing/focus check against the local Worker
+npm run weekly-totals:smoke  # Progress weekly-totals chart: thumb-scrub, readout, open-in-Log, overflow
+# Verify the deployed site against production data (LYDIARD_SITE_KEY = the site password):
+LYDIARD_BASE_URL=https://<your-worker>.workers.dev LYDIARD_SITE_KEY=… npm run weekly-totals:smoke
+# To test deployed UI assets with a protected local data preview:
+LYDIARD_BASE_URL=https://<your-worker>.workers.dev LYDIARD_API_BASE_URL=http://127.0.0.1:8796 npm run mobile-note:smoke
 ```
+
+## Encrypted D1 backups
+
+`.github/workflows/d1-backup.yml` runs each day at 02:43 UTC. It exports the full production D1
+store, restores the SQL into a fresh local SQLite file, checks its tables, row floors, links, and
+integrity, then compresses and encrypts it. It uploads the dated encrypted file and its checksum
+manifest to the private Drive path `backup/lydiard/archives`. The upload step checks Drive's MD5
+before it removes old copies. It keeps 35 daily and 12 monthly copies.
+
+The job has read-only access to D1. Its Google token uses `drive.file`, so it can only manage files
+and folders made by this backup app. GitHub holds only the public encryption key, as the
+`LYDIARD_BACKUP_PUBLIC_KEY` secret. Generate the keypair and store the private half offline —
+see [config.example/README.md](config.example/README.md). Without it a backup cannot be read.
+
+One-time setup or token renewal:
+
+```bash
+# Reuse the Google Health OAuth client's registered http://localhost:8919/oauth2callback redirect.
+# This consent grants only drive.file to a new token.
+npm run backup:drive:auth
+
+# Cloudflare dashboard: create a custom token with Account / D1 Read for this account.
+gh secret set CLOUDFLARE_API_TOKEN
+gh secret set LYDIARD_BACKUP_PUBLIC_KEY < config/lydiard-backup-public.asc
+gh variable set CLOUDFLARE_ACCOUNT_ID --body '<your Cloudflare account id>'
+gh variable set GOOGLE_DRIVE_BACKUP_FOLDER_ID --body '<app-created Drive folder id>'
+
+# Make and watch the first daily and monthly copies.
+gh workflow run d1-backup.yml -f source=manual -f force_monthly=true
+gh run watch --exit-status
+```
+
+Make an encrypted local copy:
+
+```bash
+export CLOUDFLARE_API_TOKEN='...'
+export CLOUDFLARE_ACCOUNT_ID='...'
+npm run backup:d1
+```
+
+Check that an archive decrypts and restores cleanly without changing production:
+
+```bash
+npm run backup:verify -- \
+  progress/backups/lydiard-d1-<timestamp>.sql.gz.gpg \
+  progress/backups/lydiard-d1-<timestamp>.manifest.json
+```
+
+For a clean recovery host, import `private-key.asc` into a new owner-only GPG home first. Keep the
+password file out of shell history:
+
+```bash
+install -d -m 700 /path/to/lydiard-backup/gnupg
+GNUPGHOME=/path/to/lydiard-backup/gnupg gpg --import /path/to/private-key.asc
+LYDIARD_BACKUP_GNUPGHOME=/path/to/lydiard-backup/gnupg \
+LYDIARD_BACKUP_PASSPHRASE_FILE=/path/to/recovery-passphrase.txt \
+npm run backup:verify -- <archive.sql.gz.gpg> <manifest.json>
+```
+
+Do not restore over production until the check above passes and a fresh current backup exists.
 
 ## Strava app inactive
 
 If the site shows `Application Status Inactive`, Cloudflare and the site password are working; Strava
 is rejecting the API application. Check `https://www.strava.com/settings/api` while logged in as the
 account that owns the app, confirm the developer tier/app status is active, and confirm the
-Authorization Callback Domain matches the deployed Worker host (`lydiard.lydiard.workers.dev` for
-this app). After reactivation, click sync again. If you changed the Strava app/client credentials,
+Authorization Callback Domain matches the deployed Worker host (for example `lydiard.<subdomain>.workers.dev`). After reactivation, click sync again. If you changed the Strava app/client credentials,
 use the header unlink button to clear the stored connection, then connect Strava again.
 
 ## Garmin health-data automation
@@ -135,7 +224,7 @@ garmin extract --start-date "$START_DATE" --end-date "$END_DATE" \
   --data-types ACTIVITIES_LIST --data-types ACTIVITY
 npm run garmin:audit
 LYDIARD_INGEST_KEY='...' \
-LYDIARD_BASE_URL=https://lydiard.lydiard.workers.dev \
+LYDIARD_BASE_URL=https://<your-worker>.workers.dev \
 npm run garmin:import-db -- --no-replace --batch-size 20
 ```
 

@@ -1,0 +1,5 @@
+SHELL=/bin/bash
+PATH=__NODE_DIR__:/usr/local/bin:/usr/bin:/bin
+
+@reboot __LYDIARD_ROOT__/gpu-monitor/watchdog.sh >/dev/null 2>&1
+* * * * * __LYDIARD_ROOT__/gpu-monitor/watchdog.sh >/dev/null 2>&1

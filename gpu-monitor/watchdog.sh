@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly ROOT="/path/to/lydiard"
-readonly NODE="/usr/local/bin/node"
+# Locate the checkout from this script rather than a hardcoded path, so the unit is portable.
+readonly ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly NODE="${GPU_MONITOR_NODE:-$(command -v node)}"
 readonly SERVER="$ROOT/gpu-monitor/server.mjs"
 readonly LOG="$ROOT/progress/logs/gpu-monitor.log"
 readonly PID_FILE="$ROOT/.local/gpu-monitor.pid"
 readonly LOCK_FILE="/tmp/lydiard-gpu-monitor-watchdog.lock"
-readonly HEALTH_URL="http://127.0.0.1:8789/healthz"
+readonly PORT="${GPU_MONITOR_PORT:-8789}"
+readonly HEALTH_URL="http://127.0.0.1:$PORT/healthz"
 
 umask 077
+mkdir -p "$(dirname "$LOG")" "$(dirname "$PID_FILE")"
 exec 9>"$LOCK_FILE"
 /usr/bin/flock -n 9 || exit 0
 

@@ -1,17 +1,24 @@
-import magnessPrinciples from '../MAGNESS_PRINCIPLES.md';
-import scullionPrinciples from '../SCULLION_PRINCIPLES.md';
+// The two wisdom files are gitignored and supplied by the deployment, so titles come from each
+// file's own H1 rather than being hardcoded here. See wisdom/README.md.
+import magnessPrinciples from '../wisdom/magness-principles.md';
+import scullionPrinciples from '../wisdom/scullion-principles.md';
+
+function titleOf(content: string, fallback: string): string {
+  const heading = content.match(/^#\s+(.+)$/m);
+  return heading ? heading[1].trim() : fallback;
+}
 
 export const EXPERT_WISDOM_SOURCES = [
   {
     id: 'scullion',
-    title: "Stephen Scullion's Training Principles",
-    filename: 'SCULLION_PRINCIPLES.md',
+    title: titleOf(scullionPrinciples, 'Primary coaching principles'),
+    filename: 'wisdom/scullion-principles.md',
     content: scullionPrinciples,
   },
   {
     id: 'magness',
-    title: "Steve Magness's Base-Training Principles",
-    filename: 'MAGNESS_PRINCIPLES.md',
+    title: titleOf(magnessPrinciples, 'Secondary coaching principles'),
+    filename: 'wisdom/magness-principles.md',
     content: magnessPrinciples,
   },
 ] as const;

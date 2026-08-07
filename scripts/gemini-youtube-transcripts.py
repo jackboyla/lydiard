@@ -26,9 +26,8 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_CHANNEL = "https://www.youtube.com/@stephenscullion262"
 DEFAULT_MODEL = "gemini-3.1-flash-lite"
-DEFAULT_OUTPUT = Path("tmp/stephen-scullion-transcripts-cleaned")
+DEFAULT_OUTPUT = Path("tmp/youtube-transcripts-cleaned")
 UNKNOWN_SHORT_SECONDS = 60
 MANIFEST_VERSION = 1
 
@@ -605,7 +604,7 @@ def select_pending(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--channel", default=DEFAULT_CHANNEL)
+    parser.add_argument("--channel", required=True, help="Channel URL, e.g. https://www.youtube.com/@handle")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument(
