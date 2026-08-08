@@ -1,15 +1,15 @@
 ---
-name: analyze-jacks-running-training
-description: Use Lydiard's live coaching API to explain Jack's physiology, review planned versus completed runs, assess pain and fatigue, and communicate deterministic Lydiard-style weekly plans toward sub-15 5K and later sub-30 10K. Use whenever Jack asks what to run next, whether a run was absorbed, how zones were estimated, or whether the remaining week should change.
+name: analyze-running-training
+description: Use Lydiard's live coaching API to explain the runner's physiology, review planned versus completed runs, assess pain and fatigue, and communicate deterministic Lydiard-style weekly plans toward their stated race goals. Use whenever the runner asks what to run next, whether a run was absorbed, how zones were estimated, or whether the remaining week should change.
 ---
 
-# Coach Jack with Lydiard
+# Coach a runner with Lydiard
 
 Use the platform as the decision-maker. Explain its evidence and uncertainty; do not invent zones, training phases, or sessions directly from raw activity rows.
 
 ## Connect
 
-- Base URL: `https://lydiard.lydiard.workers.dev`
+- Base URL: `https://<your-worker>.workers.dev`
 - Prefer `Authorization: Bearer <AGENT_API_KEY>`.
 - In a chat that cannot set headers, append `?key=<AGENT_API_KEY>`.
 - Never print, quote, or expose the key.

@@ -14,7 +14,7 @@
 //   GOOGLE_HEALTH_REFRESH_TOKEN   consented refresh token
 //   GOOGLE_HEALTH_ACCESS_TOKEN    optional — use this token directly, skip refresh
 //   GOOGLE_HEALTH_USER            optional — API user id (default 'me')
-//   LYDIARD_BASE_URL              default https://lydiard.lydiard.workers.dev
+//   LYDIARD_BASE_URL              required — your Worker origin
 //   LYDIARD_INGEST_KEY | AGENT_API_KEY   ingest bearer token
 //
 // Field paths below are taken from the Google Health API v4 discovery document
@@ -34,7 +34,8 @@ const API_BASE = 'https://health.googleapis.com/v4';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DAY_MS = 86_400_000;
 
-const baseUrl = (process.env.LYDIARD_BASE_URL ?? 'https://lydiard.lydiard.workers.dev').replace(/\/$/, '');
+const baseUrl = (process.env.LYDIARD_BASE_URL ?? '').replace(/\/$/, '');
+if (!baseUrl) throw new Error('Set LYDIARD_BASE_URL to your Worker origin, e.g. https://lydiard.<subdomain>.workers.dev');
 const ingestKey = process.env.LYDIARD_INGEST_KEY ?? process.env.AGENT_API_KEY;
 const ghUser = process.env.GOOGLE_HEALTH_USER ?? 'me';
 const dryRun = process.argv.includes('--dry-run');

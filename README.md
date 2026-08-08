@@ -249,8 +249,15 @@ run it removes superseded Garmin caches, keeping the newest resumable snapshot. 
 - `GARMIN_PASSWORD`
 - `LYDIARD_INGEST_KEY`
 
-The ingest key is already configured as the Cloudflare Worker secret `INGEST_API_KEY` and as the
-GitHub secret `LYDIARD_INGEST_KEY` for this repo. The generated Garmin DB/files are ignored by git
+Both sync workflows also need the repository variable `LYDIARD_BASE_URL`, which every import script
+requires rather than defaulting to any particular deployment:
+
+```bash
+gh variable set LYDIARD_BASE_URL --body 'https://lydiard.<subdomain>.workers.dev'
+```
+
+The ingest key is configured as the Cloudflare Worker secret `INGEST_API_KEY` and as the
+GitHub secret `LYDIARD_INGEST_KEY`. The generated Garmin DB/files are ignored by git
 because they contain private health and route data. The GitHub Actions cache will still hold those
 artifacts for scheduled automation.
 

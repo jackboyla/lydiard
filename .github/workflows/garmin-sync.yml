@@ -127,13 +127,13 @@ jobs:
         run: npm run garmin:import-db -- --no-replace --allow-empty
         env:
           LYDIARD_INGEST_KEY: ${{ secrets.LYDIARD_INGEST_KEY }}
-          LYDIARD_BASE_URL: ${{ vars.LYDIARD_BASE_URL || 'https://lydiard.lydiard.workers.dev' }}
+          LYDIARD_BASE_URL: ${{ vars.LYDIARD_BASE_URL }}
           GARMIN_IMPORT_ACTIVITY_TYPES: running
       - name: Import Garmin gym sessions into Lydiard
         run: npm run garmin:import-gym -- --no-replace --allow-empty
         env:
           LYDIARD_INGEST_KEY: ${{ secrets.LYDIARD_INGEST_KEY }}
-          LYDIARD_BASE_URL: ${{ vars.LYDIARD_BASE_URL || 'https://lydiard.lydiard.workers.dev' }}
+          LYDIARD_BASE_URL: ${{ vars.LYDIARD_BASE_URL }}
       - name: Save Garmin health cache
         uses: actions/cache/save@v4
         with:

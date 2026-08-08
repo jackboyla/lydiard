@@ -37,7 +37,8 @@ const validateOnly = rawArgs.includes('--validate');
 const overwrite = rawArgs.includes('--overwrite');
 const requireActualMatches = !rawArgs.includes('--allow-unmatched');
 const fileArgs = rawArgs.filter((arg) => !arg.startsWith('--'));
-const baseUrl = (process.env.LYDIARD_BASE_URL ?? 'https://lydiard.lydiard.workers.dev').replace(/\/$/, '');
+const baseUrl = (process.env.LYDIARD_BASE_URL ?? '').replace(/\/$/, '');
+if (!baseUrl) throw new Error('Set LYDIARD_BASE_URL to your Worker origin, e.g. https://lydiard.<subdomain>.workers.dev');
 const ingestKey = process.env.LYDIARD_INGEST_KEY ?? process.env.AGENT_API_KEY;
 
 if (!dryRun && !ingestKey) {

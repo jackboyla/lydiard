@@ -62,7 +62,8 @@ interface IngestActivity {
 }
 
 const dbPath = process.env.GARMIN_DB_PATH ?? 'garmin_data.db';
-const baseUrl = (process.env.LYDIARD_BASE_URL ?? 'https://lydiard.lydiard.workers.dev').replace(/\/$/, '');
+const baseUrl = (process.env.LYDIARD_BASE_URL ?? '').replace(/\/$/, '');
+if (!baseUrl) throw new Error('Set LYDIARD_BASE_URL to your Worker origin, e.g. https://lydiard.<subdomain>.workers.dev');
 const ingestKey = process.env.LYDIARD_INGEST_KEY ?? process.env.AGENT_API_KEY;
 const dryRun = process.argv.includes('--dry-run');
 const allowEmpty = process.argv.includes('--allow-empty');

@@ -4,7 +4,7 @@ This is the stable decision policy behind the Lydiard coach. The platform calcul
 
 ## Philosophy
 
-Build the largest aerobic and mechanical foundation Jack can consistently absorb, then layer hills, anaerobic development, and race coordination without losing that foundation.
+Build the largest aerobic and mechanical foundation the runner can consistently absorb, then layer hills, anaerobic development, and race coordination without losing that foundation.
 
 - Make aerobic development the base of every phase.
 - Progress only training that is being absorbed.
@@ -52,7 +52,7 @@ LPS = 100 / 3600 × Σ((power / effective_CP)² × sample_seconds)
 
 One hour at CP therefore equals 100 LPS. Score every activity against the CP record effective on its date. Use pace/GAP load only as a labelled fallback when valid power is absent; never add a full power load and full GAP load together.
 
-Use HR to assess internal cost. Compare observed HR with Jack's personal HR at comparable %CP, duration, terrain, and run type. Treat raised HR cost, drift at stable power, falling power with stable/rising HR, and reduced power at a standard HR as response signals—not a second load to average into LPS.
+Use HR to assess internal cost. Compare observed HR with the runner's personal HR at comparable %CP, duration, terrain, and run type. Treat raised HR cost, drift at stable power, falling power with stable/rising HR, and reduced power at a standard HR as response signals—not a second load to average into LPS.
 
 Report fitness separately as:
 

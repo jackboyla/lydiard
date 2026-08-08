@@ -117,7 +117,7 @@ const lines: string[] = [];
 lines.push('DELETE FROM activity_streams; DELETE FROM activities; DELETE FROM weekly_features; DELETE FROM athlete;');
 lines.push(
   `INSERT INTO athlete (id, firstname, lastname, username, refresh_token, access_token, expires_at, scope, updated_at) ` +
-    `VALUES (1, 'Jack', 'Boylan', 'jack', 'seed-refresh', 'seed-access', 9999999999, 'read,activity:read_all', ${q(now)});`,
+    `VALUES (1, 'Test', 'Runner', 'testrunner', 'seed-refresh', 'seed-access', 9999999999, 'read,activity:read_all', ${q(now)});`,
 );
 
 for (const { summary } of fixtures) {
