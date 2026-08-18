@@ -144,6 +144,14 @@ integrity, then compresses and encrypts it. It uploads the dated encrypted file 
 manifest to the private Drive path `backup/lydiard/archives`. The upload step checks Drive's MD5
 before it removes old copies. It keeps 35 daily and 12 monthly copies.
 
+Every successful export also saves the encrypted archive and manifest as a GitHub Actions artifact
+for 14 days. This gives each run a recovery copy if Drive is not yet configured or its
+upload has a fault. Download one by run ID with:
+
+```bash
+gh run download <run-id> -n lydiard-d1-<run-id> -D progress/backups
+```
+
 The job has read-only access to D1. Its Google token uses `drive.file`, so it can only manage files
 and folders made by this backup app. GitHub holds only the public encryption key, as the
 `LYDIARD_BACKUP_PUBLIC_KEY` secret. Generate the keypair and store the private half offline —

@@ -41,6 +41,8 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      DRIVE_BACKUP_CONFIGURED: ${{ secrets.GOOGLE_DRIVE_BACKUP_CLIENT_ID != '' && secrets.GOOGLE_DRIVE_BACKUP_CLIENT_SECRET != '' && secrets.GOOGLE_DRIVE_BACKUP_REFRESH_TOKEN != '' && vars.GOOGLE_DRIVE_BACKUP_FOLDER_ID != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -55,7 +57,18 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           LYDIARD_BACKUP_PUBLIC_KEY: ${{ secrets.LYDIARD_BACKUP_PUBLIC_KEY }}
           NODE_OPTIONS: --max-old-space-size=2048
+      - name: Save encrypted recovery artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lydiard-d1-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/lydiard-backup/*.sql.gz.gpg
+            ${{ runner.temp }}/lydiard-backup/*.manifest.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
       - name: Upload and verify private Drive copy
+        if: env.DRIVE_BACKUP_CONFIGURED == 'true'
         env:
           GOOGLE_DRIVE_BACKUP_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_BACKUP_CLIENT_ID }}
           GOOGLE_DRIVE_BACKUP_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_BACKUP_CLIENT_SECRET }}
@@ -70,3 +83,6 @@ jobs:
             args+=(--force-monthly)
           fi
           npm run backup:drive:upload -- --archive "$archive" --manifest "$manifest" "${args[@]}"
+      - name: Report pending Drive setup
+        if: env.DRIVE_BACKUP_CONFIGURED != 'true'
+        run: echo "::notice::Google Drive is not configured; the encrypted 14-day Actions artifact is the recovery copy for this run."
