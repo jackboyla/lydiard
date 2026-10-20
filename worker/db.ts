@@ -10,6 +10,7 @@ import type {
   WeeklyRunBlock,
 } from '../src/types';
 import { bestEffortsForActivity } from '../src/analysis/bestEfforts';
+import type { ImportedActivity } from '../src/data/deriveWeekly';
 
 export interface AthleteRow {
   id: number;
@@ -330,6 +331,18 @@ export async function getActivities(
     ...rowToActivity(row),
     lapProfile: compactLapProfile(row.laps_json),
   }));
+}
+
+export async function getActivitiesForWeeklyFeatures(db: D1Database): Promise<ImportedActivity[]> {
+  // Weekly derivation needs neither routes nor lap profiles from the diary feed.
+  const result = await db.prepare(`
+    SELECT id, name, sport_type AS type, start_date AS date,
+      distance_km AS distanceKm, moving_time_s AS movingTimeSec, elapsed_time_s AS elapsedTimeSec,
+      average_heartrate AS averageHeartRate, average_cadence_spm AS averageCadenceSpm,
+      elevation_gain_m AS elevationGainM, relative_effort AS relativeEffort, decoupling_pct AS decouplingPct
+    FROM activities ORDER BY start_date ASC
+  `).all<Omit<ImportedActivity, 'date'> & { date: string }>();
+  return (result.results ?? []).map((row) => ({ ...row, date: new Date(row.date) }));
 }
 
 export async function getActivity(db: D1Database, id: string): Promise<StoredActivity | null> {

@@ -344,11 +344,11 @@ garmin extract --start-date "$START_DATE" --end-date "$END_DATE" \
 npm run garmin:audit
 LYDIARD_INGEST_KEY='...' \
 LYDIARD_BASE_URL=https://<your-worker>.workers.dev \
-npm run garmin:import-db -- --no-replace --batch-size 20
+npm run garmin:import-db -- --no-replace
 ```
 
-The importer uses Node's built-in SQLite support, batches uploads (`--batch-size`, default 25), and
-asks the Worker to recompute weekly features only on the final batch. For an already-live site, use
+The importer uses Node's built-in SQLite support and uploads one activity per request
+(`--batch-size` overrides this). It asks the Worker to recompute weekly features only on the final batch. For an already-live site, use
 `--no-replace` for the historical
 bootstrap so a failed midway upload cannot wipe the recent production rows. Omitting `--no-replace`
 is only appropriate when you intentionally want the first batch to clear all existing training data.

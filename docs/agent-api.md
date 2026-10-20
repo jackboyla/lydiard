@@ -117,9 +117,10 @@ External sync jobs can post normalized activities to `POST /api/ingest/activitie
 `garmin-health-data` downloads/processes Garmin Connect data into `garmin_data.db`. The route can
 replace existing training rows for a full local bootstrap, or upsert without replacement for
 scheduled incremental updates. It stores streams, recomputes weekly features, and updates sync
-status. Large historical imports should use `npm run garmin:import-db -- --no-replace --batch-size
-20`; intermediate batches skip weekly recomputation and the final batch refreshes the derived weekly
-features.
+status. The Garmin importer sends one activity per request to stay within the free Worker CPU limit.
+Use `npm run garmin:import-db -- --no-replace` for incremental or historical imports; intermediate
+requests skip weekly recomputation and the final request refreshes the derived weekly features.
+Larger `--batch-size` values require enough Worker CPU budget.
 
 ## Security notes
 

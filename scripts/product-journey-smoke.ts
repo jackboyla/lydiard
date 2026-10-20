@@ -432,7 +432,7 @@ try {
     weeklyTotals: 'distance + time + elevation',
     progressBlocks: '1/3/6/12 months + older/newer',
     progressWeekToLog: true,
-    touchWeekConfirmation: 'first tap totals, second tap Log',
+    progressWeekKeyboardActivation: true,
     persistentLogProgressState: true,
     scullionBuckets: 8,
     goalControls: true,

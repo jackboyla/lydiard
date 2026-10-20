@@ -1,10 +1,10 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import type { ActivitySummary } from '../src/types';
-import { buildImportedTrainingFromActivities, type ImportedActivity } from '../src/data/deriveWeekly';
+import { buildImportedTrainingFromActivities } from '../src/data/deriveWeekly';
 import type { Env } from './env';
 import { fetchYears, streamsPerRun } from './env';
 import {
-  getActivities,
+  getActivitiesForWeeklyFeatures,
   getActivitiesNeedingStreams,
   getSyncState,
   replaceWeeklyFeatures,
@@ -107,13 +107,12 @@ export async function runSync(env: Env, db: D1Database, options: { force?: boole
 }
 
 export async function recomputeWeeklyFeatures(db: D1Database): Promise<number> {
-  const activities = await getActivities(db);
-  const imported = activities.map(storedToImportedActivity);
+  const activities = await getActivitiesForWeeklyFeatures(db);
   const hasGarmin = activities.some((activity) => activity.id.startsWith('garmin-'));
   const source = hasGarmin ? 'garmin' : 'strava';
   try {
     const training = buildImportedTrainingFromActivities(
-      imported,
+      activities,
       source,
       hasGarmin ? 'garmin-health-data SQLite' : 'Strava API',
     );
@@ -123,23 +122,6 @@ export async function recomputeWeeklyFeatures(db: D1Database): Promise<number> {
     // Not enough running weeks yet (needs >= 4). Leave existing features in place.
     return 0;
   }
-}
-
-function storedToImportedActivity(activity: StoredActivity): ImportedActivity {
-  return {
-    id: activity.id,
-    name: activity.name,
-    type: activity.sportType,
-    date: new Date(activity.startDate),
-    distanceKm: activity.distanceKm,
-    movingTimeSec: activity.movingTimeSec,
-    elapsedTimeSec: activity.elapsedTimeSec,
-    averageHeartRate: activity.averageHeartRate,
-    averageCadenceSpm: activity.averageCadenceSpm,
-    elevationGainM: activity.elevationGainM,
-    relativeEffort: activity.relativeEffort,
-    decouplingPct: activity.decouplingPct,
-  };
 }
 
 function isRunLike(activity: StoredActivity): boolean {

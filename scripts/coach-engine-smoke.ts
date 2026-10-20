@@ -15,6 +15,22 @@ import {
 } from '../src/analysis/coachEngine';
 import { buildLoadForecast, estimatePlannedStress } from '../src/analysis/loadForecast';
 import type { StoredPlannedSession } from '../src/data/coachTypes';
+import { buildImportedTrainingFromActivities } from '../src/data/deriveWeekly';
+
+const weeklyRuns = [0, 7, 14, 21, 56, 63, 70, 77, 84].map((day, index) => ({
+  id: `weekly-${day}`,
+  name: 'Run',
+  type: 'running',
+  date: new Date(2026, 0, 5 + day),
+  distanceKm: 1800 / [180, 185, 190, 195, 300, 305, 310, 315, 320][index],
+  movingTimeSec: 1800,
+  elapsedTimeSec: 1800,
+  elevationGainM: 0,
+}));
+const derivedWeeks = buildImportedTrainingFromActivities([...weeklyRuns].reverse(), 'garmin', 'fixture').weeks;
+assert(derivedWeeks[4].thresholdPaceSecPerKm === 185, 'weekly threshold must include the exact 56-day boundary');
+assert(derivedWeeks[8].thresholdPaceSecPerKm === 305, 'weekly threshold must exclude old runs after a gap');
+assert(derivedWeeks[0].thresholdPaceSecPerKm === 180, 'weekly threshold must exclude future runs');
 
 const CP = 300;
 const CS = 4.5;

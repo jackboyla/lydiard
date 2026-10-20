@@ -44,6 +44,9 @@ interface WeekDraft extends Omit<WeeklyRunBlock, 'acuteLoad' | 'chronicLoad' | '
   trainingLoad: number;
 }
 
+const weekLabelFormat = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' });
+const shortDateFormat = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
 export function buildImportedTrainingFromActivities(
   activities: ImportedActivity[],
   source: DataSource,
@@ -107,6 +110,9 @@ function activitiesToWeeklyBlocks(
   const hasCadence = allCadences.length >= Math.max(3, sorted.length * 0.25);
   const hasRecovery = sorted.some((activity) => activity.hrvMs || activity.sleepHours);
 
+  let thresholdWindowStart = 0;
+  let thresholdWindowEnd = 0;
+
   const drafts: WeekDraft[] = [...grouped.entries()].map(([weekId, weekActivities]) => {
     const totalDistance = sum(weekActivities.map((activity) => activity.distanceKm));
     const totalMovingTime = sum(weekActivities.map((activity) => activity.movingTimeSec));
@@ -135,7 +141,20 @@ function activitiesToWeeklyBlocks(
         ? Math.round(relativeEffortLoad)
         : Math.round(totalDistance * 4.8 + sum(weekActivities.map((activity) => activity.elevationGainM)) * 0.025 + qualitySessions * 35);
     const weekStart = parseWeekId(weekId);
-    const thresholdPace = estimateThresholdPace(sorted, weekStart, fastPaceCutoff, easyPace);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    const windowStart = new Date(weekStart);
+    windowStart.setDate(windowStart.getDate() - 56);
+    // Weeks and runs are chronological; each run crosses each boundary once.
+    while (thresholdWindowStart < sorted.length && sorted[thresholdWindowStart].date < windowStart) {
+      thresholdWindowStart += 1;
+    }
+    while (thresholdWindowEnd < sorted.length && sorted[thresholdWindowEnd].date < weekEnd) {
+      thresholdWindowEnd += 1;
+    }
+    const thresholdPace = estimateThresholdPace(
+      sorted.slice(thresholdWindowStart, thresholdWindowEnd), fastPaceCutoff, easyPace,
+    );
     const hrvMs =
       weightedAverage(
         weekActivities
@@ -229,16 +248,10 @@ function chooseEasyActivities(
 
 function estimateThresholdPace(
   activities: ImportedActivity[],
-  weekStart: Date,
   fastPaceCutoff: number,
   fallbackEasyPace: number,
 ): number {
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekEnd.getDate() + 7);
-  const windowStart = new Date(weekStart);
-  windowStart.setDate(windowStart.getDate() - 56);
   const recentPaces = activities
-    .filter((activity) => activity.date >= windowStart && activity.date < weekEnd)
     .filter((activity) => activity.movingTimeSec >= 15 * 60 && activity.movingTimeSec <= 100 * 60)
     .map(activityPace)
     .filter(isFinitePositive);
@@ -398,16 +411,9 @@ function parseWeekId(weekId: string): Date {
 }
 
 function formatWeekLabel(date: Date): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric',
-    month: 'short',
-  }).format(date);
+  return weekLabelFormat.format(date);
 }
 
 function formatShortDate(date: Date): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  }).format(date);
+  return shortDateFormat.format(date);
 }
