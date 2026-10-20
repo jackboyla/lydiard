@@ -4,8 +4,13 @@
 
 import assert from 'node:assert/strict';
 import { compactLapProfile } from '../worker/db';
-import { buildLapProfileFromCompact } from '../src/data/activityLaps';
-import type { ActivityLap } from '../src/types';
+import {
+  buildActivityLaps,
+  buildKilometreSplitsWithinLap,
+  buildLapProfileFromCompact,
+  intensitySecondsFromLapProfile,
+} from '../src/data/activityLaps';
+import type { ActivityDetail, ActivityLap } from '../src/types';
 
 // --- compactLapProfile: steady 1 km auto-lap run (flat profile) ---
 const steadyLaps: ActivityLap[] = Array.from({ length: 6 }, (_, i) => ({
@@ -60,6 +65,42 @@ assert.ok(
   ['recovery', 'easy', 'steady'].includes(views[0].zone.key),
   `5:30 warmup should be an aerobic zone, got ${views[0].zone.key}`,
 );
+assert.equal(
+  intensitySecondsFromLapProfile(workout, thresholdPaceSecPerKm, 330),
+  168,
+  'only the two 84-second threshold-or-faster reps should count as intensity time',
+);
+assert.equal(intensitySecondsFromLapProfile(undefined, thresholdPaceSecPerKm), 0);
+
+// --- selected recorded lap: derive split-relative kilometres, not run-wide kilometres ---
+const detail: ActivityDetail = {
+  id: 'lap-drill-down',
+  name: 'Lap drill-down fixture',
+  sportType: 'Run',
+  startDate: '2026-08-18T08:00:00Z',
+  startDateLocal: '2026-08-18T08:00:00Z',
+  distanceKm: 3,
+  movingTimeSec: 900,
+  elapsedTimeSec: 900,
+  elevationGainM: 6,
+  hasStreams: true,
+  streams: {
+    distanceM: [0, 500, 1000, 1500, 2000, 2500, 3000],
+    timeSec: [0, 150, 300, 450, 600, 750, 900],
+    heartrate: [130, 132, 134, 136, 138, 140, 142],
+    altitude: [10, 11, 12, 13, 14, 15, 16],
+    laps: [
+      { index: 1, distanceM: 500, durationSec: 150 },
+      { index: 2, distanceM: 2500, durationSec: 750 },
+    ],
+  },
+};
+const recordedViews = buildActivityLaps(detail, thresholdPaceSecPerKm);
+const innerKilometres = buildKilometreSplitsWithinLap(detail, recordedViews[1], thresholdPaceSecPerKm);
+assert.deepEqual(innerKilometres.map((split) => split.distanceKm), [1, 1, 0.5]);
+assert.deepEqual(innerKilometres.map((split) => split.durationSec), [300, 300, 150]);
+assert.deepEqual(innerKilometres.map((split) => split.startDistanceM), [500, 1500, 2500]);
+assert.deepEqual(innerKilometres.map((split) => split.endDistanceM), [1500, 2500, 3000]);
 
 console.log('lap-profile smoke: OK');
 console.log('  steady paces :', steady.map((p) => p.paceSecPerKm).join(', '));

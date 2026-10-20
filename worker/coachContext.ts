@@ -1,8 +1,10 @@
+import { buildHeartRateDurationProfile, type HeartRateDurationProfile } from '../src/analysis/heartRateDuration';
 import type { D1Database } from '@cloudflare/workers-types';
 import {
   ADAPTIVE_ZONE_MIN_NEW_ACTIVITIES,
   adaptiveZoneReviewDateReached,
   calibrateAdaptivePhysiology,
+  criticalPowerNeedsReview,
   buildHrCostBaseline,
   buildPowerDurationCurve,
   estimatePhysiology,
@@ -91,6 +93,10 @@ export interface CoachObservedState {
   recoverySuppressedDays: number;
   /** Objective illness pattern (skin-temp + respiration + autonomic), distinct from subjective illnessSuspected. */
   systemicIllnessSignal: boolean;
+  /** Consecutive adjacent daily pulses with leg freshness at 1–2/5. */
+  lowFreshnessStreak: number;
+  /** True when the last three adjacent pulses show rising general niggles. */
+  worseningNiggles: boolean;
 }
 
 export interface CoachContextBundle {
@@ -141,6 +147,7 @@ export interface CoachContextBundle {
   }>;
   recentSessions: SessionStressAssessment[];
   powerDuration: PowerDurationPoint[];
+  heartRateDuration: HeartRateDurationProfile;
   recentFeedback: ActivityFeedback[];
   recentCheckins: DailyCheckin[];
   recovery: { summary: RecoverySummary; recent: RecoveryDaily[] };
@@ -239,9 +246,7 @@ export async function loadCoachRuntime(
     (activity.effortKind === 'race' || activity.effortKind === 'time_trial')
     && (activity.evidenceQuality ?? 0) >= 0.85,
   );
-  const criticalPowerChanged = previousReviewAt
-    ? criticalPowerHistory.some((record) => Date.parse(record.effectiveFrom) > Date.parse(previousReviewAt))
-    : false;
+  const criticalPowerChanged = criticalPowerNeedsReview(criticalPowerHistory, asOf, previousPhysiology);
   const scheduledReviewReady = previousReviewAt
     ? adaptiveZoneReviewDateReached(previousReviewAt, asOf)
       && newActivities.length >= ADAPTIVE_ZONE_MIN_NEW_ACTIVITIES
@@ -249,7 +254,8 @@ export async function loadCoachRuntime(
   // Fitting CS/CP/LT boundaries is the expensive part of context generation.
   // Between eligible reviews the adopted snapshot is authoritative, so do not
   // repeatedly refit the same evidence on ordinary page loads.
-  const physiologyCandidate = !previousPhysiology || strongEvidence || criticalPowerChanged || scheduledReviewReady
+  const needsPolicyReview = previousPhysiology && previousPhysiology.calibration?.policyVersion !== 'adaptive-zones-v3';
+  const physiologyCandidate = !previousPhysiology || strongEvidence || criticalPowerChanged || scheduledReviewReady || needsPolicyReview
     ? estimatePhysiology({ activities, criticalPowerHistory, asOf, lookbackDays })
     : previousPhysiology;
   const physiology = calibrateAdaptivePhysiology({
@@ -383,6 +389,7 @@ export async function loadCoachRuntime(
       recentRuns,
       recentSessions: sessionAssessments.slice(-28),
       powerDuration: buildPowerDurationCurve(sessionAssessments, asOf),
+      heartRateDuration: buildHeartRateDurationProfile(activities, asOf),
       recentFeedback,
       recentCheckins: checkins.slice(-42),
       recovery: { summary: recoverySummary, recent: recoveryDaily.slice(-14) },
@@ -684,6 +691,7 @@ function buildObservedState(
     0,
     ...recentFeedback.flatMap((item) => [item.painDuring ?? 0, item.painAfter ?? 0]),
     ...recentCheckins.flatMap((item) => [
+      painLevelToTen(item.painLevel),
       item.leftKneePain ?? 0,
       item.rightKneePain ?? 0,
       item.leftAchillesPain ?? 0,
@@ -692,6 +700,10 @@ function buildObservedState(
   );
   const alteredGait = recentFeedback.some((item) => item.alteredGait) || recentCheckins.some((item) => item.painAlteredGait);
   const illnessSuspected = recentCheckins.some((item) => item.illnessSuspected);
+  const lowFreshnessStreak = consecutiveLowCheckins(recentCheckins, 'legFreshness', 2, asOf);
+  const lowMotivationStreak = consecutiveLowCheckins(recentCheckins, 'motivation', 2, asOf);
+  const worseningNiggles = hasWorseningNiggles(recentCheckins, asOf);
+  const freshnessFallingWithDeterioration = lowFreshnessStreak >= 2 && deteriorating >= 1;
 
   // Objective overnight recovery. Low-confidence (sparse) data must not move the
   // light. The multi-day guard already lives in the recovery analysis — a single
@@ -721,11 +733,16 @@ function buildObservedState(
   }
   if (elevated >= 2) reasons.push(`${elevated} recent runs had elevated HR cost for power`);
   if (deteriorating >= 2) reasons.push(`${deteriorating} recent runs showed late deterioration`);
+  if (lowFreshnessStreak >= 3) reasons.push(`leg freshness has been 2/5 or lower for ${lowFreshnessStreak} days`);
+  if (lowMotivationStreak >= 3) reasons.push(`motivation has been 2/5 or lower for ${lowMotivationStreak} days`);
+  if (worseningNiggles) reasons.push('niggles have worsened across three daily check-ins');
+  if (freshnessFallingWithDeterioration) reasons.push('low leg freshness now overlaps with late-run deterioration');
 
   const state =
     alteredGait || maxPain >= 5 || illnessSuspected || recoveryRed
       ? 'red'
-      : maxPain >= 3 || elevated >= 2 || deteriorating >= 2 || recoveryAmber
+      : maxPain >= 3 || elevated >= 2 || deteriorating >= 2 || recoveryAmber || lowFreshnessStreak >= 3 ||
+          lowMotivationStreak >= 3 || worseningNiggles || freshnessFallingWithDeterioration
         ? 'amber'
         : 'green';
 
@@ -740,6 +757,8 @@ function buildObservedState(
     recoveryState: recovery.state,
     recoverySuppressedDays: recovery.suppressedStreak,
     systemicIllnessSignal: recovery.systemicIllnessSignal,
+    lowFreshnessStreak,
+    worseningNiggles,
   };
 }
 
@@ -768,14 +787,52 @@ function checkinToEngine(checkin: DailyCheckin): AthleteFeedback {
     date: checkin.day,
     energy: energyLabel(checkin.energy),
     legs: freshnessLabel(checkin.legFreshness),
-    painAfter: painValues.length > 0 ? Math.max(...painValues) : undefined,
-    painLocation: painLocation(checkin),
+    painAfter: Math.max(painLevelToTen(checkin.painLevel), ...(painValues.length > 0 ? painValues : [0])) || undefined,
+    painLocation: painLocation(checkin) ?? (checkin.painLevel ? 'general niggles' : undefined),
     alteredGait: checkin.painAlteredGait,
     illnessSuspected: checkin.illnessSuspected,
     sleepQuality: checkin.sleepQuality,
     motivation: checkin.motivation,
     note: checkin.note,
   };
+}
+
+function painLevelToTen(value: number | undefined): number {
+  return value === 1 ? 3 : value === 2 ? 6 : value === 3 ? 8 : 0;
+}
+
+function consecutiveLowCheckins(
+  checkins: DailyCheckin[],
+  key: 'legFreshness' | 'motivation',
+  ceiling: number,
+  asOf: string,
+): number {
+  const sorted = [...checkins].sort((a, b) => a.day.localeCompare(b.day));
+  const latest = sorted[sorted.length - 1];
+  if (!latest || Date.parse(`${asOf.slice(0, 10)}T00:00:00Z`) - Date.parse(`${latest.day}T00:00:00Z`) > DAY_MS) return 0;
+  let streak = 0;
+  let nextDay = latest.day;
+  for (let index = sorted.length - 1; index >= 0; index -= 1) {
+    const item = sorted[index];
+    if (item.day !== nextDay || item[key] === undefined || item[key]! > ceiling) break;
+    streak += 1;
+    nextDay = new Date(Date.parse(`${item.day}T00:00:00Z`) - DAY_MS).toISOString().slice(0, 10);
+  }
+  return streak;
+}
+
+function hasWorseningNiggles(checkins: DailyCheckin[], asOf: string): boolean {
+  const withPain = [...checkins]
+    .filter((item) => item.painLevel !== undefined)
+    .sort((a, b) => a.day.localeCompare(b.day))
+    .slice(-3);
+  if (withPain.length < 3) return false;
+  const latestGap = Date.parse(`${asOf.slice(0, 10)}T00:00:00Z`) - Date.parse(`${withPain[2].day}T00:00:00Z`);
+  const adjacent = withPain.slice(1).every((item, index) =>
+    Date.parse(`${item.day}T00:00:00Z`) - Date.parse(`${withPain[index].day}T00:00:00Z`) === DAY_MS,
+  );
+  const values = withPain.map((item) => item.painLevel!);
+  return latestGap <= DAY_MS && adjacent && values[2] >= 1 && values[0] < values[2] && values[0] <= values[1] && values[1] <= values[2];
 }
 
 function inferEvidence(name: string, sportType: string): { kind: CoachActivitySummary['effortKind']; quality: number } {

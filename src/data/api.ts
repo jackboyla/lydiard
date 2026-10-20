@@ -6,6 +6,8 @@ import type {
   ActivityWeather,
   BestEffortDistance,
   ActivitySummary,
+  DailyCheckin,
+  DailyCheckinDraft,
   GymSession,
   SyncStatus,
   TrainingPlanDay,
@@ -180,6 +182,28 @@ export function setBestEffortRejection(input: {
 export async function getGymSessions(range?: DateRange): Promise<GymSession[]> {
   const data = await getJson<{ sessions: GymSession[] }>(`/api/gym${rangeQuery(range)}`);
   return data.sessions;
+}
+
+export async function getDailyCheckins(range?: DateRange): Promise<DailyCheckin[]> {
+  const data = await getJson<{ checkins: DailyCheckin[] }>(`/api/checkins${rangeQuery(range)}`);
+  return data.checkins;
+}
+
+export async function saveDailyCheckin(draft: DailyCheckinDraft): Promise<DailyCheckin> {
+  const data = await mutationJson<{ checkin: DailyCheckin }>('/api/checkins', 'POST', draft);
+  return data.checkin;
+}
+
+export function getPushConfig(endpoint?: string): Promise<{ enabled: boolean; publicKey: string | null; subscribed: boolean }> {
+  return getJson(`/api/push/config${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ''}`);
+}
+
+export function subscribeToPush(subscription: PushSubscriptionJSON): Promise<{ subscribed: boolean; delivered: boolean }> {
+  return mutationJson('/api/push/subscribe', 'POST', subscription);
+}
+
+export function unsubscribeFromPush(endpoint: string): Promise<{ subscribed: boolean }> {
+  return mutationJson('/api/push/unsubscribe', 'POST', { endpoint });
 }
 
 export async function getCoachContext(opts: { weekStart?: string; asOf?: string; horizonWeeks?: number } = {}): Promise<CoachContextData> {
@@ -389,4 +413,8 @@ export async function disconnectStrava(): Promise<void> {
   if (!response.ok) {
     throw new Error(`Disconnect request failed: ${response.status}`);
   }
+}
+
+export function fetchRecentBestEfforts(): Promise<import('../analysis/bakken').RecentEffortsResponse> {
+  return getJson('/api/best-efforts/recent');
 }

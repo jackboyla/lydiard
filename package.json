@@ -10,7 +10,7 @@
     "server": "tsx server/stravaServer.ts",
     "preworker:dev": "npm run wisdom:ensure",
     "worker:dev": "wrangler dev",
-    "worker:deploy": "npm run build && wrangler deploy",
+    "worker:deploy": "npm run build && wrangler deploy --keep-vars",
     "d1:migrate:local": "wrangler d1 migrations apply lydiard --local",
     "d1:migrate": "wrangler d1 migrations apply lydiard --remote",
     "garmin:audit": "tsx scripts/garmin-health-audit.ts",
@@ -18,6 +18,7 @@
     "garmin:backfill-laps": "tsx scripts/garmin-laps-backfill.ts",
     "garmin:import-gym": "tsx scripts/garmin-gym-import.ts",
     "fitbit:import": "tsx scripts/fitbit-recovery-import.ts",
+    "push:keys": "tsx scripts/generate-vapid-keys.ts",
     "google-health:auth": "tsx scripts/google-health-auth.ts",
     "backup:d1": "tsx scripts/d1-backup.ts",
     "backup:verify": "tsx scripts/verify-d1-backup.ts",
@@ -34,6 +35,8 @@
     "mobile-note:smoke": "tsx scripts/mobile-note-smoke.ts",
     "weekly-totals:smoke": "tsx scripts/weekly-totals-smoke.ts",
     "recovery:smoke": "tsx scripts/recovery-smoke.ts",
+    "push-reminder:smoke": "tsx scripts/push-reminder-smoke.ts",
+    "screenshots": "tsx scripts/capture-screenshots.ts",
     "gpu-monitor": "node gpu-monitor/server.mjs",
     "gpu-monitor:test": "node --test gpu-monitor/monitor.test.mjs",
     "gpu-monitor:watchdog": "bash gpu-monitor/watchdog.sh",
@@ -45,6 +48,7 @@
     "typecheck:scripts": "tsc -p tsconfig.scripts.json"
   },
   "dependencies": {
+    "@block65/webcrypto-web-push": "^2.0.0",
     "@fontsource-variable/manrope": "^5.2.8",
     "@mapbox/polyline": "^1.2.1",
     "dotenv": "^17.4.2",

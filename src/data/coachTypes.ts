@@ -1,3 +1,4 @@
+import type { HeartRateDurationProfile } from '../analysis/heartRateDuration';
 import type {
   AdaptiveZoneCalibrationStatus,
   AdaptiveZoneReviewTrigger,
@@ -164,6 +165,8 @@ export interface CoachContextData {
     recoveryState: RecoverySummary['state'];
     recoverySuppressedDays: number;
     systemicIllnessSignal: boolean;
+    lowFreshnessStreak: number;
+    worseningNiggles: boolean;
   };
   // Objective overnight recovery (Fitbit via Google Health). Optional so the UI
   // tolerates a coach payload from a Worker deployed before this shipped.
@@ -188,6 +191,7 @@ export interface CoachContextData {
   recentRuns: CoachRecentRun[];
   recentSessions: SessionStressAssessment[];
   powerDuration: PowerDurationPoint[];
+  heartRateDuration: HeartRateDurationProfile;
   recentFeedback: CoachFeedbackRecord[];
   recentCheckins: Array<Record<string, unknown>>;
   recentDecisions: CoachDecisionRecord[];

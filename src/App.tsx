@@ -16,6 +16,7 @@ import {
 import {
   ArrowDownToLine,
   CalendarDays,
+  Check,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -33,6 +34,7 @@ import {
 } from 'lucide-react';
 import { analyzeWeeks, formatPace } from './analysis/fatigue';
 import type { PhysiologyEstimate } from './analysis/coachEngine';
+import { intensitySecondsFromLapProfile } from './data/activityLaps';
 import {
   buildTrainingLoadModel,
   type CanonicalActivityMetric,
@@ -43,14 +45,18 @@ import {
 import { CoachPanel } from './components/CoachPanel';
 import { PlanView } from './components/PlanView';
 import { PowerDurationChart } from './components/PowerDurationChart';
+import { HeartRateDurationChart } from './components/HeartRateDurationChart';
+import { RecentBestEfforts } from './components/RecentBestEfforts';
 import { ProgressZoneBreakdown } from './components/ProgressZoneBreakdown';
 import { TrainingView, TrainingZoneSummary, type TrainingJumpApi } from './components/TrainingView';
 import { WeeklyTotalsChart } from './components/WeeklyTotalsChart';
+import { RollingLoadChart } from './components/RollingLoadChart';
 import {
   getActivities,
   getActivity,
   getBestEfforts,
   getCoachContext,
+  getDailyCheckins,
   getGymSessions,
   getPlanDays,
   getSiteKey,
@@ -67,6 +73,7 @@ import {
   proposeCoachBlock,
   acceptCoachBlock,
   saveCoachFeedback,
+  saveDailyCheckin,
   evaluateCoachActivity,
   applyCoachDecision,
   rejectCoachDecision,
@@ -83,6 +90,8 @@ import type {
   ActivitySummary,
   BestEffortDistance,
   BestEffortEntry,
+  DailyCheckin,
+  DailyCheckinDraft,
   GymSession,
   Severity,
   SyncStatus,
@@ -146,6 +155,8 @@ export default function App() {
   const [activities, setActivities] = useState<ActivitySummary[]>([]);
   const [allActivitiesLoaded, setAllActivitiesLoaded] = useState(false);
   const [gymSessions, setGymSessions] = useState<GymSession[]>([]);
+  const [dailyCheckins, setDailyCheckins] = useState<DailyCheckin[]>([]);
+  const [checkinsLoading, setCheckinsLoading] = useState(true);
   const [planDays, setPlanDays] = useState<TrainingPlanDay[]>([]);
   const [planLoading, setPlanLoading] = useState(true);
   const [planLoadError, setPlanLoadError] = useState('');
@@ -175,6 +186,7 @@ export default function App() {
   const [banner, setBanner] = useState('');
   const [loadError, setLoadError] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncQueued, setSyncQueued] = useState(false);
   const [needsPassword, setNeedsPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
 
@@ -336,11 +348,13 @@ export default function App() {
     const request = ++coreLoadRequest.current;
     setLoadError('');
     try {
-      const [nextStatus, nextWeeks, nextActivities, nextGym] = await Promise.all([
+      setCheckinsLoading(true);
+      const [nextStatus, nextWeeks, nextActivities, nextGym, nextCheckins] = await Promise.all([
         getSyncStatus(),
         getWeeks(),
         getActivities({ from: recentHistoryFrom() }),
         getGymSessions().catch(() => [] as GymSession[]),
+        getDailyCheckins(),
       ]);
       if (request !== coreLoadRequest.current) {
         return;
@@ -349,6 +363,8 @@ export default function App() {
       setApiWeeks(nextWeeks);
       setActivities(nextActivities);
       setGymSessions(nextGym);
+      setDailyCheckins(nextCheckins);
+      setCheckinsLoading(false);
       // Garmin data syncs via GitHub Actions; a stale "Strava is not connected"
       // error is irrelevant noise for a Garmin-sourced store, so don't surface it.
       const garminSourced =
@@ -370,6 +386,7 @@ export default function App() {
       } else {
         setLoadError(error instanceof Error ? error.message : 'Could not reach the training API.');
       }
+      setCheckinsLoading(false);
     }
   }, []);
 
@@ -426,6 +443,13 @@ export default function App() {
       }
     }
   }, []);
+
+  const handleSaveDailyCheckin = useCallback(async (draft: DailyCheckinDraft) => {
+    const saved = await saveDailyCheckin(draft);
+    setDailyCheckins((current) => [...current.filter((item) => item.day !== saved.day), saved]
+      .sort((a, b) => a.day.localeCompare(b.day)));
+    void loadCoachData();
+  }, [loadCoachData]);
 
   const handleSavePlanDay = useCallback(
     async (
@@ -592,7 +616,7 @@ export default function App() {
   }, [confirmPlanNavigation, view]);
 
   useEffect(() => {
-    if (view !== 'progress' || activities.length === 0) {
+    if (view !== 'progress' || !status) {
       setBestEffortGroups([]);
       setBestEffortsLoading(false);
       setBestEffortsError('');
@@ -620,7 +644,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [activities.length, bestEffortFrom, bestEffortsRefresh, view]);
+  }, [status?.lastSyncAt, status?.activityCount, Boolean(status), bestEffortFrom, bestEffortsRefresh, view]);
 
   useEffect(() => {
     setSelectedIndex(Math.max(0, analyses.length - 1));
@@ -667,18 +691,19 @@ export default function App() {
 
   const handleSyncNow = useCallback(async () => {
     setIsSyncing(true);
+    setSyncQueued(false);
     setLoadError('');
-    setBanner(isGarminSource ? 'Queueing Garmin sync…' : 'Sync started — pulling new activities and streams.');
     try {
       if (isGarminSource) {
-        const result = await triggerGarminSync();
-        setBanner(`${result.message} New activities normally appear here within 3–6 minutes.`);
+        await triggerGarminSync();
         window.setTimeout(() => void loadData(), 90_000);
         window.setTimeout(() => void loadData(), 300_000);
       } else {
         await triggerSync();
         window.setTimeout(() => void loadData(), 5000);
       }
+      setSyncQueued(true);
+      window.setTimeout(() => setSyncQueued(false), 8000);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'Sync failed.');
     } finally {
@@ -747,6 +772,22 @@ export default function App() {
           <button role="tab" aria-selected={view === 'progress'} className={view === 'progress' ? 'active' : ''} type="button" onClick={() => selectView('progress')}><TrendingUp size={16} aria-hidden="true" /> Progress</button>
           <button role="tab" aria-selected={view === 'plan'} className={view === 'plan' ? 'active' : ''} type="button" onClick={() => selectView('plan')}><ClipboardList size={16} aria-hidden="true" /> Plan</button>
         </div>
+
+        <button
+          className={`icon-button topbar-sync-button${syncQueued ? ' synced' : ''}`}
+          type="button"
+          aria-label={syncQueued ? 'Sync queued' : 'Sync now'}
+          title={isGarminSource ? 'Queue Garmin sync now' : 'Sync now'}
+          disabled={isSyncing || (!isGarminSource && !status?.connected)}
+          onClick={handleSyncNow}
+        >
+          {syncQueued
+            ? <Check size={17} aria-hidden="true" />
+            : <RefreshCw size={17} aria-hidden="true" className={isSyncing ? 'spin' : ''} />}
+          <span className="sr-only" role="status">
+            {isSyncing ? 'Syncing' : syncQueued ? 'Sync queued — new activities appear within a few minutes' : ''}
+          </span>
+        </button>
 
         <button
           className="topbar-menu-toggle"
@@ -836,16 +877,6 @@ export default function App() {
             <MapIcon size={16} aria-hidden="true" /> Explore routes
           </button>
 
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="Sync now"
-            title={isGarminSource ? 'Queue Garmin sync now' : 'Sync now'}
-            disabled={isSyncing || (!isGarminSource && !status?.connected)}
-            onClick={handleSyncNow}
-          >
-            <RefreshCw size={17} aria-hidden="true" className={isSyncing ? 'spin' : ''} />
-          </button>
           {status?.connected && (
             <button
               className="icon-button"
@@ -917,6 +948,7 @@ export default function App() {
       ) : view === 'progress' ? (
         <ProgressView
           loadModel={loadModel}
+          gymSessions={gymSessions}
           analyses={usingSample ? [] : analyses}
           currentRead={currentRead}
           bestEffortGroups={bestEffortGroups}
@@ -937,6 +969,8 @@ export default function App() {
           scrollTopRef={progressScrollTop}
           physiology={coachContext?.physiology}
           zoneReviewHistory={coachContext?.zoneReviewHistory}
+          recentEffortsRefreshKey={status ? `${status.lastSyncAt}:${status.activityCount}:${bestEffortsRefresh}` : undefined}
+          heartRateDuration={coachContext?.heartRateDuration}
           powerDuration={coachContext?.powerDuration}
           powerDurationLoading={coachLoading}
           powerDurationError={coachError}
@@ -1010,6 +1044,9 @@ export default function App() {
           onSaveDayNote={handleSaveLogDayNote}
           onRequestFullHistory={loadAllActivities}
           allHistoryLoaded={allActivitiesLoaded}
+          dailyCheckins={dailyCheckins}
+          checkinsLoading={checkinsLoading}
+          onSaveDailyCheckin={handleSaveDailyCheckin}
         />
       )}
 
@@ -1071,6 +1108,7 @@ function readForWeek(week?: WeekLoadSummary): CurrentTrainingRead {
 
 function ProgressView({
   loadModel,
+  gymSessions,
   analyses,
   currentRead,
   bestEffortGroups,
@@ -1091,12 +1129,15 @@ function ProgressView({
   scrollTopRef,
   physiology,
   zoneReviewHistory,
+  recentEffortsRefreshKey,
+  heartRateDuration,
   powerDuration,
   powerDurationLoading,
   powerDurationError,
   onReloadPowerDuration,
 }: {
   loadModel: TrainingLoadModel;
+  gymSessions: GymSession[];
   analyses: WeeklyAnalysis[];
   currentRead: CurrentTrainingRead;
   bestEffortGroups: BestEffortDistance[];
@@ -1117,6 +1158,8 @@ function ProgressView({
   scrollTopRef: MutableRefObject<number>;
   physiology?: PhysiologyEstimate;
   zoneReviewHistory: CoachContextData['zoneReviewHistory'] | undefined;
+  recentEffortsRefreshKey: string | undefined;
+  heartRateDuration: CoachContextData['heartRateDuration'] | undefined;
   powerDuration: CoachContextData['powerDuration'] | undefined;
   powerDurationLoading: boolean;
   powerDurationError: string;
@@ -1138,7 +1181,18 @@ function ProgressView({
   const canGoOlder = blockStart > 0;
   const canGoNewer = progressBlockOffset > 0;
   const activeWeek = blockWeeks.find((week) => week.weekId === activeWeekId) ?? lastItem(blockWeeks) ?? latestWeek;
-  const lastSevenDays = summarizeRollingSessions(loadModel.sessions, 7);
+  const progressNow = new Date();
+  const lastSevenDays = summarizeRollingSessions(
+    loadModel.sessions,
+    7,
+    loadModel.thresholds.thresholdPaceSecPerKm,
+    progressNow,
+  );
+  const latestWeekGymCount = latestWeek
+    ? gymSessions.filter((session) => toWeekIdUtc(session.startDate) === latestWeek.weekId).length
+    : 0;
+  const lastSevenDaysGymCount = countRollingGymSessions(gymSessions, 7, progressNow);
+  const lastSevenDaysRange = formatRollingDateRange(7, progressNow);
   const scopedProgress = useMemo(
     () => scopeProgressData(loadModel, analyses, blockWeeks),
     [analyses, blockWeeks, loadModel],
@@ -1190,27 +1244,23 @@ function ProgressView({
             <Stat label="Runs" value={latestWeek ? String(latestWeek.activityCount) : '-'} />
             <Stat label="Time" value={latestWeek ? formatHours(latestWeek.durationHours) : '-'} />
             <Stat label="Load" value={latestWeek ? latestWeek.load.toFixed(1) : '-'} />
+            <Stat label="Gym" value={String(latestWeekGymCount)} />
+            <Stat label="Intensity" value={latestWeek ? `${intensityMinutesForSessions(latestWeek.sessions, loadModel.thresholds.thresholdPaceSecPerKm)} min` : '-'} />
           </div>
         </article>
         <article className="product-card progress-week-card">
           <span>Last 7 days</span>
+          <p className="progress-date-range">{lastSevenDaysRange}, inclusive</p>
           <h3>{lastSevenDays.activityCount > 0 ? `${lastSevenDays.distanceKm.toFixed(1)} km` : 'No runs yet'}</h3>
           <div>
             <Stat label="Runs" value={String(lastSevenDays.activityCount)} />
             <Stat label="Time" value={formatHours(lastSevenDays.durationHours)} />
             <Stat label="Load" value={lastSevenDays.load.toFixed(1)} />
+            <Stat label="Gym" value={String(lastSevenDaysGymCount)} />
+            <Stat label="Intensity" value={`${Math.round(lastSevenDays.intensityMinutes)} min`} />
           </div>
         </article>
       </section>
-
-      <PowerDurationChart
-        points={powerDuration}
-        criticalPowerWatts={physiology?.canonicalCriticalPower?.watts}
-        loading={powerDurationLoading}
-        error={powerDurationError}
-        onRetry={onReloadPowerDuration}
-        onOpenActivity={onOpenActivity}
-      />
 
       <section className="product-card progress-load-panel weekly-totals-panel">
         <div className="progress-block-toolbar">
@@ -1296,6 +1346,37 @@ function ProgressView({
           {progressBlockOffset === 0 ? 'Latest' : 'Earlier'} {blockWeeks.length} weeks · {formatProgressBlockRange(blockWeeks)} · {activeWeek && armedWeekId === activeWeek.weekId ? 'tap again to open that week in Log' : 'select a week to open it in Log'}
         </p>
       </section>
+
+      <section className="product-card rolling-load-panel" aria-labelledby="rolling-load-heading">
+        <header className="rolling-load-head">
+          <span id="rolling-load-heading">Rolling 7-day load</span>
+          <small>Same range as above · each day totals the week before it</small>
+        </header>
+        <RollingLoadChart
+          sessions={loadModel.sessions}
+          fromDay={blockWeeks[0]?.weekId ?? ''}
+          untilDay={blockWeeks.length > 0 ? addDaysToDayId(lastItem(blockWeeks)!.weekId, 6) : ''}
+        />
+      </section>
+
+      <PowerDurationChart
+        points={powerDuration}
+        criticalPowerWatts={physiology?.canonicalCriticalPower?.watts}
+        loading={powerDurationLoading}
+        error={powerDurationError}
+        onRetry={onReloadPowerDuration}
+        onOpenActivity={onOpenActivity}
+      />
+
+      <HeartRateDurationChart
+        profile={heartRateDuration}
+        zoneReferenceBpm={physiology?.maxObservedHeartRate}
+        loading={powerDurationLoading}
+        error={powerDurationError}
+        onRetry={onReloadPowerDuration}
+        onOpenActivity={onOpenActivity}
+      />
+      {recentEffortsRefreshKey !== undefined && <RecentBestEfforts refreshKey={recentEffortsRefreshKey} onOpenActivity={onOpenActivity} />}
 
       <section className="progress-zones-section" aria-labelledby="progress-zones-heading">
         <div className="progress-section-heading">
@@ -1971,11 +2052,17 @@ function formatHomeLoadMetric(week: WeekLoadSummary, metric: 'time' | 'distance'
   return metric === 'time' ? formatHours(week.durationHours) : `${week.distanceKm.toFixed(1)} km`;
 }
 
-function summarizeRollingSessions(sessions: SessionLoad[], days: number, now = new Date()): {
+function summarizeRollingSessions(
+  sessions: SessionLoad[],
+  days: number,
+  thresholdPaceSecPerKm: number,
+  now = new Date(),
+): {
   activityCount: number;
   distanceKm: number;
   durationHours: number;
   load: number;
+  intensityMinutes: number;
 } {
   const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - Math.max(0, days - 1));
@@ -1987,8 +2074,51 @@ function summarizeRollingSessions(sessions: SessionLoad[], days: number, now = n
     total.distanceKm += session.activity.distanceKm;
     total.durationHours += session.activity.movingTimeSec / 3600;
     total.load += session.load;
+    total.intensityMinutes += intensitySecondsFromLapProfile(
+      session.activity.lapProfile,
+      thresholdPaceSecPerKm,
+      session.paceSecPerKm,
+    ) / 60;
     return total;
-  }, { activityCount: 0, distanceKm: 0, durationHours: 0, load: 0 });
+  }, { activityCount: 0, distanceKm: 0, durationHours: 0, load: 0, intensityMinutes: 0 });
+}
+
+function intensityMinutesForSessions(sessions: SessionLoad[], thresholdPaceSecPerKm: number): number {
+  return Math.round(sessions.reduce((total, session) => total + intensitySecondsFromLapProfile(
+    session.activity.lapProfile,
+    thresholdPaceSecPerKm,
+    session.paceSecPerKm,
+  ), 0) / 60);
+}
+
+function countRollingGymSessions(gymSessions: GymSession[], days: number, now = new Date()): number {
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - Math.max(0, days - 1));
+  const startId = localDateId(start);
+  const endId = localDateId(end);
+  return gymSessions.filter((session) => {
+    const day = (session.startDateLocal || session.startDate).slice(0, 10);
+    return day >= startId && day <= endId;
+  }).length;
+}
+
+function formatRollingDateRange(days: number, now = new Date()): string {
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - Math.max(0, days - 1));
+  const day = (date: Date) => String(date.getDate());
+  const month = (date: Date) => new Intl.DateTimeFormat('en-GB', { month: 'short' }).format(date);
+
+  if (start.getFullYear() !== end.getFullYear()) {
+    return `${day(start)} ${month(start)} ${start.getFullYear()}–${day(end)} ${month(end)} ${end.getFullYear()}`;
+  }
+  if (start.getMonth() === end.getMonth()) {
+    return `${day(start)}–${day(end)} ${month(end)} ${end.getFullYear()}`;
+  }
+  return `${day(start)} ${month(start)}–${day(end)} ${month(end)} ${end.getFullYear()}`;
+}
+
+function addDaysToDayId(day: string, days: number): string {
+  return new Date(Date.parse(`${day}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 }
 
 function localDateId(date: Date): string {

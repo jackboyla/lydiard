@@ -6,13 +6,13 @@ workers_dev = true
 [triggers]
 # Run date-based coach maintenance every day. Activity ingest also starts the
 # same task after its final batch, so reviews do not wait for this backstop.
-crons = ["23 0 * * *"]
+crons = ["23 * * * *"]
 
 [assets]
 directory = "./dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*", "/auth/*", "/openapi.json"]
+run_worker_first = ["/api/*", "/auth/*", "/check-in/*", "/openapi.json"]
 
 [[rules]]
 type = "Text"
@@ -43,3 +43,8 @@ STREAMS_PER_RUN = "40"         # legacy Strava stream fetches per manual sync
 GITHUB_SYNC_REPOSITORY = "jackboyla/lydiard"
 GITHUB_SYNC_WORKFLOW = "garmin-sync.yml"
 GITHUB_SYNC_REF = "main"
+CHECKIN_TIME_ZONE = "Europe/London"
+CHECKIN_HOUR = "19"
+WHATSAPP_TEMPLATE_NAME = "daily_training_checkin"
+WHATSAPP_TEMPLATE_LANGUAGE = "en_GB"
+WHATSAPP_GRAPH_VERSION = "v26.0"

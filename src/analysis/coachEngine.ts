@@ -1,3 +1,5 @@
+import { buildHeartRateDurationProfile } from './heartRateDuration';
+
 /**
  * Deterministic physiology, load, planning, and post-run decision engine.
  *
@@ -151,7 +153,7 @@ export type AdaptiveZoneCalibrationStatus = 'collecting' | 'initialized' | 'upda
 export type AdaptiveZoneReviewTrigger = 'initial' | 'scheduled' | 'race_or_time_trial' | 'critical_power' | 'none';
 
 export interface AdaptiveZoneCalibration {
-  policyVersion: 'adaptive-zones-v1';
+  policyVersion: 'adaptive-zones-v1' | 'adaptive-zones-v2' | 'adaptive-zones-v3';
   status: AdaptiveZoneCalibrationStatus;
   reviewedAt: string;
   nextReviewAt: string;
@@ -563,6 +565,22 @@ export function effectiveCriticalPower(
     .sort((a, b) => Date.parse(b.effectiveFrom) - Date.parse(a.effectiveFrom))[0];
 }
 
+/** A newly entered dated CP must take effect even if its date precedes the last review. */
+export function criticalPowerNeedsReview(
+  history: CriticalPowerHistoryRecord[],
+  asOf: string,
+  previous: PhysiologyEstimate | undefined,
+): boolean {
+  const current = effectiveCriticalPower(history, asOf);
+  if (!current || current.confidence < 0.45) return false;
+  const adopted = previous?.canonicalCriticalPower;
+  return !adopted
+    || adopted.watts !== current.criticalPowerWatts
+    || adopted.source !== current.source
+    || Date.parse(adopted.effectiveFrom) !== Date.parse(current.effectiveFrom)
+    || adopted.device !== current.device;
+}
+
 export function estimatePhysiology(input: PhysiologyInput): PhysiologyEstimate {
   const activities = input.activities
     .filter(isRunLike)
@@ -589,7 +607,7 @@ export function estimatePhysiology(input: PhysiologyInput): PhysiologyEstimate {
   const cpHistory = input.criticalPowerHistory ?? [];
   const currentCp = effectiveCriticalPower(cpHistory, asOf);
   const canonicalCriticalPower = selectCanonicalCriticalPower(currentCp, platformCriticalPower, asOf);
-  const maxObservedHeartRate = credibleMaxHeartRate(eligible);
+  const maxObservedHeartRate = buildHeartRateDurationProfile(eligible, asOf, lookbackDays).maxObserved?.bpm;
   const lt2HeartRate = estimateLt2HeartRate(efforts, criticalSpeed, canonicalCriticalPower?.watts);
   const lt1HeartRate = estimateLt1HeartRate(
     eligible,
@@ -649,10 +667,13 @@ export function calibrateAdaptivePhysiology(input: AdaptivePhysiologyInput): Phy
     });
   }
 
+  const policyChanged = previous.calibration?.policyVersion !== 'adaptive-zones-v3';
   const previousReview = previous.calibration?.reviewedAt ?? previous.asOf;
   const scheduled = adaptiveZoneReviewDateReached(previousReview, input.asOf);
   const trigger: AdaptiveZoneReviewTrigger = input.criticalPowerChanged
     ? 'critical_power'
+    : policyChanged
+      ? 'initial'
     : input.strongEvidence
       ? 'race_or_time_trial'
       : scheduled
@@ -698,7 +719,12 @@ export function calibrateAdaptivePhysiology(input: AdaptivePhysiologyInput): Phy
   const canonicalCriticalPower = adoptCanonicalCriticalPower(previous, candidate, platformCriticalPower, changes);
   const lt1HeartRate = adoptHeartRateBand(previous.lt1HeartRate, candidate.lt1HeartRate, 'LT1 heart rate', changes);
   const lt2HeartRate = adoptHeartRateBand(previous.lt2HeartRate, candidate.lt2HeartRate, 'LT2 heart rate', changes);
-  const maxObservedHeartRate = adoptMaxHeartRate(previous.maxObservedHeartRate, candidate.maxObservedHeartRate, changes);
+  // Old snapshots accepted raw summary spikes. Re-establish this field from
+  // supported peak readings once, including clearing unsupported old values.
+  const maxObservedHeartRate = policyChanged
+    ? candidate.maxObservedHeartRate
+    : adoptMaxHeartRate(previous.maxObservedHeartRate, candidate.maxObservedHeartRate, changes);
+  if (policyChanged) changes.push('Maximum observed heart rate rechecked using supported peak readings');
   const adopted: PhysiologyEstimate = {
     asOf: input.asOf,
     criticalSpeed,
@@ -738,7 +764,7 @@ function withCalibration(
     ...physiology,
     calibration: {
       ...calibration,
-      policyVersion: 'adaptive-zones-v1',
+      policyVersion: 'adaptive-zones-v3',
       nextReviewAt: new Date(Date.parse(calibration.reviewedAt) + ADAPTIVE_ZONE_REVIEW_DAYS * DAY_MS).toISOString(),
       minimumActivitiesForScheduledReview: ADAPTIVE_ZONE_MIN_NEW_ACTIVITIES,
     },
@@ -2903,19 +2929,6 @@ function sum(values: number[]): number {
   return values.reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0);
 }
 
-function credibleMaxHeartRate(activities: CoachActivitySummary[]): number | undefined {
-  const observations: number[] = [];
-  for (const activity of activities) {
-    if (usefulHeartRate(activity.maxHeartRate)) observations.push(activity.maxHeartRate);
-    const stream = activity.streams?.heartRateBpm?.filter(usefulHeartRate) ?? [];
-    if (stream.length >= 30) observations.push(weightedQuantile(stream, stream.map(() => 1), 0.995));
-  }
-  if (!observations.length) return undefined;
-  observations.sort((a, b) => a - b);
-  const top = observations[observations.length - 1];
-  const supporting = observations.filter((value) => value >= top - 4);
-  return supporting.length >= 2 ? Math.round(weightedQuantile(supporting, supporting.map(() => 1), 0.75)) : Math.round(top);
-}
 
 function durationBucket(durationSec: number): 1 | 2 | 3 {
   if (durationSec <= 360) return 1;

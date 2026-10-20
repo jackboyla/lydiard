@@ -3,6 +3,7 @@ import type { D1Database } from '@cloudflare/workers-types';
 import type { ActivityDetail, BestEffortDistance, BestEffortEntry, SyncStatus, WeeklyAnalysis } from '../../src/types';
 import { analyzeWeeks } from '../../src/analysis/fatigue';
 import { BEST_EFFORT_TARGETS } from '../../src/analysis/bestEfforts';
+import { inferGoldenZone, recentEffortRange, RECENT_EFFORT_WINDOWS } from '../../src/analysis/bakken';
 import type { Env } from '../env';
 import {
   clearAthleteConnection,
@@ -11,6 +12,7 @@ import {
   getAthlete,
   getCounts,
   getDateRange,
+  getDailyCheckins,
   getGymSessions,
   getStreams,
   getSyncState,
@@ -22,6 +24,15 @@ import {
   setBestEffortRejection,
   TrainingPlanConflictError,
 } from '../db';
+import { parsePulse, savePulse } from '../checkins';
+import {
+  hasPushSubscription,
+  parsePushSubscription,
+  removePushSubscription,
+  savePushSubscription,
+  sendPushNotification,
+  webPushConfigured,
+} from '../webPush';
 import { normalizeFrom, normalizeTo } from '../http';
 import {
   dispatchGarminWorkflow,
@@ -87,6 +98,81 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
     return c.json(status);
   });
 
+  app.get('/checkins', async (c) => {
+    const checkins = await getDailyCheckins(c.env.lydiard, {
+      from: normalizeFrom(c.req.query('from')),
+      to: normalizeTo(c.req.query('to')),
+    });
+    return c.json({ checkins });
+  });
+
+  app.post('/checkins', async (c) => {
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json({ error: 'Request body must be JSON.' }, 400);
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return c.json({ error: 'Request body must be an object.' }, 400);
+    }
+    const body = payload as Record<string, unknown>;
+    const day = typeof body.day === 'string' ? body.day : '';
+    const timestamp = Date.parse(`${day}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== day) {
+      return c.json({ error: 'day must be a real date in YYYY-MM-DD form.' }, 400);
+    }
+    const pulse = parsePulse(body);
+    if (pulse instanceof Error) return c.json({ error: pulse.message }, 400);
+    const checkin = await savePulse(c.env.lydiard, day, pulse, 'platform');
+    return c.json({ checkin }, 201);
+  });
+
+  app.get('/push/config', async (c) => c.json({
+    enabled: webPushConfigured(c.env),
+    publicKey: webPushConfigured(c.env) ? c.env.VAPID_PUBLIC_KEY : null,
+    subscribed: c.req.query('endpoint')
+      ? await hasPushSubscription(c.env.lydiard, c.req.query('endpoint')!)
+      : false,
+  }));
+
+  app.post('/push/subscribe', async (c) => {
+    if (!webPushConfigured(c.env)) return c.json({ error: 'Phone reminders are not configured yet.' }, 503);
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json({ error: 'Request body must be JSON.' }, 400);
+    }
+    const subscription = parsePushSubscription(payload);
+    if (subscription instanceof Error) return c.json({ error: subscription.message }, 400);
+    const endpointHash = await savePushSubscription(c.env.lydiard, subscription, c.req.header('User-Agent') ?? '');
+    const delivered = await sendPushNotification(c.env, { ...subscription, endpointHash }, {
+      title: 'Lydiard reminders are on',
+      body: 'You’ll get one short daily pulse. Tap it to check in.',
+      url: `${c.env.CHECKIN_BASE_URL?.replace(/\/$/, '') ?? new URL(c.req.url).origin}/?view=log`,
+      tag: 'lydiard-reminders-ready',
+    }, 'reminders-ready');
+    return c.json({ subscribed: await hasPushSubscription(c.env.lydiard, subscription.endpoint), delivered }, 201);
+  });
+
+  app.post('/push/unsubscribe', async (c) => {
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json({ error: 'Request body must be JSON.' }, 400);
+    }
+    const endpoint = payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>).endpoint
+      : undefined;
+    if (typeof endpoint !== 'string' || !endpoint.startsWith('https://')) {
+      return c.json({ error: 'A valid subscription endpoint is required.' }, 400);
+    }
+    await removePushSubscription(c.env.lydiard, endpoint);
+    return c.json({ subscribed: false });
+  });
+
   app.get('/activities', async (c) => {
     const activities = await getActivities(c.env.lydiard, {
       from: normalizeFrom(c.req.query('from')),
@@ -101,6 +187,22 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
       to: normalizeTo(c.req.query('to')),
     });
     return c.json({ distances });
+  });
+
+  app.get('/best-efforts/recent', async (c) => {
+    const now = new Date();
+    // One indexed 90-day read serves every window; do not scan all history
+    // three times with date functions or SQL window rankings.
+    const oldest = recentEffortRange(90, now).from;
+    const rows = await loadBestEffortRows(c.env.lydiard, {
+      from: `${oldest}T00:00:00`, to: now.toISOString(), streamOnly: true,
+    });
+    const windows = RECENT_EFFORT_WINDOWS.map((days) => {
+      const range = recentEffortRange(days, now);
+      const distances = rankBestEfforts(rows.filter((row) => row.start_date >= `${range.from}T00:00:00`));
+      return { days, ...range, distances, goldenZone: inferGoldenZone(distances) };
+    });
+    return c.json({ asOf: now.toISOString(), windows });
   });
 
   app.patch('/best-efforts/rejections', async (c) => {
@@ -380,15 +482,23 @@ interface StoredBestEffortRow {
   source: BestEffortEntry['source'];
   segment_start_sec: number | null;
   segment_end_sec: number | null;
-  effort_rank: number;
 }
 
-async function computeBestEfforts(
+const BEST_EFFORT_COLUMNS = `e.distance_label, e.distance_km, e.activity_id, a.name AS activity_name,
+  a.start_date, a.start_date_local, e.seconds, e.pace_sec_per_km, e.source,
+  e.segment_start_sec, e.segment_end_sec`;
+const ACCEPTED_BEST_EFFORT = `NOT EXISTS (
+  SELECT 1 FROM best_effort_rejections r
+  WHERE r.distance_label = e.distance_label AND r.activity_id = e.activity_id
+)`;
+
+async function loadBestEffortRows(
   db: D1Database,
-  opts: { from?: string; to?: string },
-): Promise<BestEffortDistance[]> {
-  const clauses: string[] = [];
+  opts: { from?: string; to?: string; streamOnly?: boolean },
+): Promise<StoredBestEffortRow[]> {
+  const clauses = [ACCEPTED_BEST_EFFORT];
   const binds: string[] = [];
+  if (opts.streamOnly) clauses.push("e.source = 'stream'");
   if (opts.from) {
     binds.push(opts.from);
     clauses.push(`a.start_date >= ?${binds.length}`);
@@ -397,35 +507,44 @@ async function computeBestEfforts(
     binds.push(opts.to);
     clauses.push(`a.start_date <= ?${binds.length}`);
   }
-  const where = clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : '';
-  const rows = await db
-    .prepare(
-      `SELECT * FROM (
-         SELECT e.distance_label, e.distance_km, e.activity_id, a.name AS activity_name,
-                a.start_date, a.start_date_local, e.seconds, e.pace_sec_per_km, e.source,
-                e.segment_start_sec, e.segment_end_sec,
-                ROW_NUMBER() OVER (
-                  PARTITION BY e.distance_label
-                  ORDER BY e.seconds ASC, a.start_date DESC, e.activity_id ASC
-                ) AS effort_rank
-           FROM activity_best_efforts e
-           JOIN activities a ON a.id = e.activity_id
-          WHERE NOT EXISTS (
-                  SELECT 1 FROM best_effort_rejections r
-                   WHERE r.distance_label = e.distance_label AND r.activity_id = e.activity_id
-                )
-                ${where}
-       ) ranked
-       WHERE effort_rank <= 5
-       ORDER BY distance_label, effort_rank`,
-    )
-    .bind(...binds)
-    .all<StoredBestEffortRow>();
+  // CROSS JOIN keeps the small, date-indexed activities range on the outer
+  // loop. The efforts primary key then looks up each activity's distances.
+  const rows = await db.prepare(`SELECT ${BEST_EFFORT_COLUMNS}
+    FROM activities a INDEXED BY idx_activities_start
+    CROSS JOIN activity_best_efforts e ON e.activity_id = a.id
+    WHERE ${clauses.join(' AND ')}`).bind(...binds).all<StoredBestEffortRow>();
+  return rows.results ?? [];
+}
+
+async function computeBestEfforts(
+  db: D1Database,
+  opts: { from?: string; to?: string },
+): Promise<BestEffortDistance[]> {
+  if (opts.from || opts.to) return rankBestEfforts(await loadBestEffortRows(db, opts));
+  // Seek directly to each distance's fastest efforts and stop at five.
+  // This avoids ranking every persisted effort for the all-time panel.
+  const groups = await Promise.all(BEST_EFFORT_TARGETS.map(async (target) => {
+    const rows = await db.prepare(`SELECT ${BEST_EFFORT_COLUMNS}
+      FROM activity_best_efforts e INDEXED BY idx_activity_best_efforts_distance_time
+      CROSS JOIN activities a ON a.id = e.activity_id
+      WHERE e.distance_label = ?1 AND ${ACCEPTED_BEST_EFFORT}
+      ORDER BY e.seconds ASC, a.start_date DESC, e.activity_id ASC LIMIT 5`)
+      .bind(target.label).all<StoredBestEffortRow>();
+    return rows.results ?? [];
+  }));
+  return rankBestEfforts(groups.flat());
+}
+
+function rankBestEfforts(rows: StoredBestEffortRow[]): BestEffortDistance[] {
+  const sorted = [...rows].sort((a, b) => a.seconds - b.seconds
+    || (a.start_date > b.start_date ? -1 : a.start_date < b.start_date ? 1 : 0)
+    || (a.activity_id < b.activity_id ? -1 : a.activity_id > b.activity_id ? 1 : 0));
   const byLabel = new Map<string, BestEffortEntry[]>();
-  for (const row of rows.results ?? []) {
+  for (const row of sorted) {
     const efforts = byLabel.get(row.distance_label) ?? [];
+    if (efforts.length >= 5) continue;
     efforts.push({
-      rank: row.effort_rank,
+      rank: efforts.length + 1,
       activityId: row.activity_id,
       activityName: row.activity_name,
       startDate: row.start_date,

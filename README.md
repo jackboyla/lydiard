@@ -9,7 +9,37 @@ The code is MIT-licensed and meant to be deployed by anyone. Each deployment kee
 training history lives in your own Cloudflare D1 instance, and the read API sits behind a site
 password you set. Nothing personal is in this repository — see [Your own data](#your-own-data).
 
-## Architecture — "one synced store, three consumers"
+## Screenshots
+
+Every shot below is fixture data, not real training. The same three destinations work at both sizes.
+
+| | Desktop | Mobile |
+| --- | --- | --- |
+| **Log** — the week you are in, run by run | ![Training log on desktop](docs/screenshots/log-desktop.png) | ![Training log on a phone](docs/screenshots/log-mobile.png) |
+| **A run** — route, read, splits and your note | ![A single run on desktop](docs/screenshots/activity-desktop.png) | ![A single run on a phone](docs/screenshots/activity-mobile.png) |
+| **Progress** — weekly totals, zones and bests | ![Progress on desktop](docs/screenshots/progress-desktop.png) | ![Progress on a phone](docs/screenshots/progress-mobile.png) |
+| **Plan** — the goal and the week ahead | ![Plan on desktop](docs/screenshots/plan-desktop.png) | ![Plan on a phone](docs/screenshots/plan-mobile.png) |
+
+To regenerate them, seed the fixture into a throwaway D1 store so no real training data is captured,
+serve it, then shoot both sizes:
+
+```bash
+npm run build
+rm -rf tmp/shots-state
+npx wrangler d1 migrations apply lydiard --local --persist-to tmp/shots-state
+LYDIARD_FIXTURE_ANCHOR=today npx tsx scripts/seed-fixture.ts > tmp/shots-seed.sql
+npx wrangler d1 execute lydiard --local --persist-to tmp/shots-state --file=tmp/shots-seed.sql
+
+# Terminal 2
+npx wrangler dev --persist-to tmp/shots-state --port 8798
+
+npm run screenshots   # writes docs/screenshots/*.png
+```
+
+`LYDIARD_FIXTURE_ANCHOR=today` dates the fixture runs up to today, so no week reads as empty. Point
+the capture at another host with `LYDIARD_BASE_URL`, and never at production.
+
+## Architecture — "one synced store, four consumers"
 
 ```
 Garmin Connect
@@ -19,6 +49,7 @@ Garmin Connect
    Cloudflare Worker (Hono + static assets) ──► Cloudflare D1 (SQLite) = single source of truth
         │                          activities(+route/power) · activity_streams · weekly_features
         ├─► MapLibre map + training log + dashboard  (same workers.dev site, phone-accessible)
+        ├─► Daily phone push → five-tap check-in → subjective coach signals
         ├─► Public REST API           (/api/*)
         └─► Agent API + /openapi.json (/api/agent/*, Bearer key)  →  ChatGPT Scheduled Tasks
 ```
@@ -55,6 +86,9 @@ run in **both** the Worker and the browser.
   wisdom, discuss the next 1–12 weeks, and publish only the agreed plan. See
   [docs/agent-api.md](docs/agent-api.md).
 - **Personalized:** all signals compare each week to the runner's own rolling baselines.
+- **Active daily pulse:** a free evening phone notification asks for leg freshness, energy, niggles,
+  motivation, sleep, and an optional note on run and rest days. The same short form sits at the top
+  of Log. It uses the browser's standard push service, with no second phone number or paid provider.
 - **Stateful Lydiard coach:** date-effective Stryd Critical Power, evidence-backed CS/CP and LT1/LT2
   bands, power-first load with separate HR cost, coherent future blocks, post-run feedback, and an
   audit trail live behind the simple recommendation and plan workflow.
@@ -109,7 +143,7 @@ npx tsx scripts/seed-fixture.ts > /tmp/seed.sql
 npx wrangler d1 execute lydiard --local --file=/tmp/seed.sql
 
 # clear local fixture data
-npx wrangler d1 execute lydiard --local --command "DELETE FROM activity_streams; DELETE FROM weekly_features; DELETE FROM activities; DELETE FROM athlete; UPDATE sync_state SET last_sync_at=NULL, last_activity_date=NULL, last_result=NULL, last_error=NULL, rate_limit=NULL WHERE id=1;"
+npx wrangler d1 execute lydiard --local --command "DELETE FROM activity_streams; DELETE FROM activity_feedback; DELETE FROM daily_checkins; DELETE FROM daily_checkin_prompts; DELETE FROM web_push_subscriptions; DELETE FROM weekly_features; DELETE FROM activities; DELETE FROM athlete; UPDATE sync_state SET last_sync_at=NULL, last_activity_date=NULL, last_result=NULL, last_error=NULL, rate_limit=NULL WHERE id=1;"
 ```
 
 ## Deploy (free tier)
@@ -118,8 +152,83 @@ Full steps in [docs/agent-api.md](docs/agent-api.md): `wrangler d1 create lydiar
 `[vars]`, `npm run d1:migrate`, `npm run worker:deploy`, then configure the Garmin GitHub Actions
 secrets and visit the `workers.dev` URL on desktop or phone.
 
-`npm run worker:deploy` also installs the daily `23 0 * * *` UTC maintenance trigger declared in
-`wrangler.toml`. Cloudflare runs it without a browser session or local machine.
+`npm run worker:deploy` also installs the hourly `23 * * * *` UTC trigger declared in
+`wrangler.toml`. The phone reminder uses it to follow the configured local hour through
+daylight-saving changes; the heavier coach maintenance still runs only at 00:23 UTC. Cloudflare
+runs it without a browser session or local machine.
+
+## Free phone check-in reminders
+
+Lydiard uses standard Web Push, so it can contact the runner without a second phone number, Meta
+account, or paid messaging service. At the chosen local hour, the Worker sends one notification to
+each enabled device unless today's check-in already exists. Tapping it opens the secure five-answer
+form. The browser only shares an opaque push endpoint and encryption keys; it does not share a phone
+number.
+
+To enable it on Android or desktop, open Log, tap **Enable free phone reminder**, then allow
+notifications. On iPhone or iPad, first open Lydiard in Safari, use **Share → Add to Home Screen**,
+open the new Home Screen app, then enable the reminder. Apple supports standards-based Web Push for
+Home Screen web apps on iOS 16.4 and later and does not require an Apple Developer Program account.
+
+A new deployment needs one free VAPID key pair:
+
+```bash
+npm run push:keys
+npx wrangler secret put VAPID_PRIVATE_KEY
+```
+
+Set `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT`, and `CHECKIN_BASE_URL` in your Worker’s dashboard
+variables. `worker:deploy` preserves those deployment settings. Set the local time controls in
+`wrangler.toml`. Keep the private key stable: replacing it requires each device to enable reminders
+again.
+
+The hourly Cloudflare trigger is free at this scale. It only does the small local-hour check outside
+the target hour; coach maintenance still runs once per day.
+
+## Optional WhatsApp transport
+
+The code can also use Meta's official WhatsApp Cloud API, but it is optional and is not needed for
+the free phone reminder. If its secrets are absent, WhatsApp stays off.
+
+1. In Meta's WhatsApp Manager, connect a business phone number and create a Utility template named
+   `daily_training_checkin` in `en_GB`. Its body must contain one text variable for the secure link.
+   Suggested body:
+
+   ```text
+   Daily Lydiard check-in: how are you absorbing the work? Tap {{1}}. Or reply with five numbers:
+   legs 1–5, energy 1–5, niggles 0–3, motivation 1–5, sleep 1–5. Rest days count too.
+   ```
+
+2. Set the private values. Use the recipient's full international number with digits only.
+
+   ```bash
+   npx wrangler secret put WHATSAPP_ACCESS_TOKEN
+   npx wrangler secret put WHATSAPP_APP_SECRET
+   npx wrangler secret put WHATSAPP_VERIFY_TOKEN
+   npx wrangler secret put WHATSAPP_RECIPIENT
+   npx wrangler secret put WHATSAPP_PHONE_NUMBER_ID
+   ```
+
+3. In the Meta app, set the callback URL to
+   `https://<your-worker>.workers.dev/api/whatsapp/webhook`, enter the same verify token, and
+   subscribe the WhatsApp Business Account to `messages`. The Worker checks Meta's
+   `X-Hub-Signature-256` before it reads an incoming reply.
+
+4. Adjust `CHECKIN_TIME_ZONE`, `CHECKIN_HOUR`, `CHECKIN_BASE_URL`, template name, language, or Graph
+   API version in `wrangler.toml`, then deploy. `CHECKIN_HOUR=19` means 19:00 in the named time zone.
+
+Test the scheduled handler locally. It sends only when the supplied time lands in `CHECKIN_HOUR` in
+the configured time zone:
+
+```bash
+npx wrangler dev --test-scheduled
+curl "http://localhost:8787/cdn-cgi/local/scheduled?time=$(date +%s000)"
+```
+
+Outside WhatsApp's user-started messaging window, Meta requires the approved template for the
+daily prompt. Once the runner replies, Lydiard can send the short saved confirmation as a normal
+message. See Meta's [official Cloud API collection](https://www.postman.com/meta/whatsapp-business-platform/documentation/wlk6lh4/whatsapp-cloud-api)
+and Cloudflare's [Cron Trigger guide](https://developers.cloudflare.com/workers/configuration/cron-triggers/).
 
 ## Verify
 
@@ -130,6 +239,8 @@ npm run coach:smoke    # deterministic physiology/load/plan/adaptation invariant
 npm run product:smoke  # Log/notes/PBs/Plan mobile journey against the local Worker
 npm run mobile-note:smoke  # mobile Log note sizing/focus check against the local Worker
 npm run weekly-totals:smoke  # Progress weekly-totals chart: thumb-scrub, readout, open-in-Log, overflow
+npm run lap-profile:smoke     # lap zones, split drill-down, and Log/Progress intensity-minute calculation
+npm run push-reminder:smoke   # phone reminder control against a running local Worker
 # Verify the deployed site against production data (LYDIARD_SITE_KEY = the site password):
 LYDIARD_BASE_URL=https://<your-worker>.workers.dev LYDIARD_SITE_KEY=… npm run weekly-totals:smoke
 # To test deployed UI assets with a protected local data preview:
@@ -304,3 +415,64 @@ The deployed Worker is the default destination; set `LYDIARD_BASE_URL=http://loc
 local D1. The importer preserves Planned/Notes cell text, ignores spreadsheet total rows, and refuses
 to write when a legacy Actual duration cannot be matched to same-local-date Garmin runs. See
 [docs/real-data-import.md](docs/real-data-import.md#manual-training-plan-csv).
+
+### Rolling best efforts, Bakken paces, and heart-rate evidence
+
+Progress shows measured best efforts for the last 30, 60, and 90 days, including today
+and the prior 29, 59, or 89 UTC dates. Imports update the stored distance records;
+rejected records stay excluded. Each window uses the strongest measured 5K, 10K,
+half-marathon, or marathon result to infer paces with
+[Bakken’s calculator formulas](https://www.mariusbakken.com/vdot.html).
+These training-derived paces are provisional: a training segment may be slower than
+a race, and GPS errors or hills can distort a result. Whole-run pace projections do
+not feed these estimates.
+
+The heart-rate duration curve shows the highest supported sample and rolling
+averages from 5 seconds to 1 hour for each window. The observed maximum can last
+just one sample: it needs a valid reading within 5 bpm on each side within 5 seconds.
+At the first or last sample, two nearby readings on the available side can support
+it. The chart's first position says “Sample”, since sparse recordings cannot prove
+that a peak lasted a full second. If Garmin's full-resolution activity summary is
+up to 5 bpm above a supported stored-stream peak, the chart uses that summary value;
+the saved stream may be decimated and omit the exact maximum. It links to the
+supporting runs. Parallel time and HR streams may differ by one trailing value;
+the shared valid prefix still counts.
+The filter excludes invalid readings and isolated high spikes; rolling averages do
+not cross gaps over 5 seconds. The result is a lower bound on maximum HR; sensor
+faults with nearby support can still pass. Zone reviews
+use the longer physiology lookback for this evidence. A dated Stryd CP entry takes
+effect at the next context refresh even when entered after an earlier review.
+
+Run the focused checks (the rolling-effort SQL test also needs Python 3):
+
+```bash
+npx tsx scripts/recent-efforts-smoke.ts
+npx tsx scripts/heart-rate-duration-smoke.ts
+npm run coach:smoke
+npm run typecheck:worker
+npm run typecheck:scripts
+npm run build
+```
+
+### D1 read usage
+
+Best-effort queries use existing indexes: all-time results stop after five accepted
+records per distance; recent results read the last 90 days once and share those
+rows across all three windows. Progress waits for sync state before fetching and
+does not fetch efforts again when coach context arrives.
+
+To inspect usage without scanning training tables:
+
+```bash
+npx wrangler d1 insights lydiard --time-period 3d --sort-by reads --sort-type sum --limit 10 --json
+```
+
+Run the local query-cost regression (Python 3 required; no D1 connection):
+
+```bash
+npx tsx scripts/best-efforts-query-cost.ts
+```
+
+This compares SQLite execution steps and query plans on 10,000 sample activities.
+Execution steps are a cost proxy, not D1 billed rows. Cloudflare's query metadata
+and insights report actual row reads. See [D1 metrics](https://developers.cloudflare.com/d1/observability/metrics-analytics/).

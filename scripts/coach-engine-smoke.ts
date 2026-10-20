@@ -1,5 +1,7 @@
 import {
   calibrateAdaptivePhysiology,
+  criticalPowerNeedsReview,
+  effectiveCriticalPower,
   buildHrCostBaseline,
   buildLydiardBlock,
   buildLydiardWeek,
@@ -173,6 +175,38 @@ const strongEvidenceCalibration = calibrateAdaptivePhysiology({
 });
 assert(strongEvidenceCalibration.calibration?.status === 'updated', 'a strong race/test signal should permit an early material update');
 assert((strongEvidenceCalibration.criticalSpeed?.estimate ?? 0) > (initialCalibration.criticalSpeed?.estimate ?? 0), 'material supported improvement should raise adopted critical speed');
+
+const legacySpikeCalibration = calibrateAdaptivePhysiology({
+  candidate: { ...physiology, maxObservedHeartRate: undefined },
+  previous: { ...initialCalibration, maxObservedHeartRate: 225, calibration: { ...initialCalibration.calibration!, policyVersion: 'adaptive-zones-v1' } },
+  asOf, newActivityCount: 0, strongEvidence: false, criticalPowerChanged: false,
+});
+assert(legacySpikeCalibration.maxObservedHeartRate === undefined, 'policy upgrade must remove an unsupported historic HR spike even without new runs');
+assert(legacySpikeCalibration.calibration?.policyVersion === 'adaptive-zones-v3', 'supported HR calibration must persist the new policy version');
+const samplePeakCalibration = calibrateAdaptivePhysiology({
+  candidate: { ...physiology, maxObservedHeartRate: 184 },
+  previous: { ...initialCalibration, maxObservedHeartRate: 182, calibration: { ...initialCalibration.calibration!, policyVersion: 'adaptive-zones-v2' } },
+  asOf, newActivityCount: 0, strongEvidence: false, criticalPowerChanged: false,
+});
+assert(samplePeakCalibration.maxObservedHeartRate === 184, 'v3 must adopt a supported sample peak even below the routine 3bpm change gate');
+const summaryOnlyHr = estimatePhysiology({ activities: [{ id: 'summary-spike', name: 'Summary-only run', sportType: 'Run', startDate: asOf, movingTimeSec: 1800, distanceKm: 5, maxHeartRate: 225 }], asOf });
+assert(summaryOnlyHr.maxObservedHeartRate === undefined, 'summary max HR cannot establish the physiological ceiling');
+
+const reportedCp: CriticalPowerHistoryRecord = {
+  effectiveFrom: '2026-07-10T00:00:00.000Z', criticalPowerWatts: 310,
+  source: 'stryd_manual', device: 'Stryd', confidence: 0.9,
+};
+const updatedCpHistory = [...cpHistory, reportedCp];
+assert(criticalPowerNeedsReview(updatedCpHistory, asOf, initialCalibration), 'newly entered CP dated before the last review must trigger immediate review');
+assert(!criticalPowerNeedsReview([...cpHistory, { ...reportedCp, effectiveFrom: '2027-01-01T00:00:00.000Z' }], asOf, initialCalibration), 'future CP must not trigger an early review');
+assert(effectiveCriticalPower(updatedCpHistory, '2026-07-09T00:00:00.000Z')?.criticalPowerWatts === CP, 'new CP must not rewrite historical activity calibration');
+const cpCalibration = calibrateAdaptivePhysiology({
+  candidate: estimatePhysiology({ activities: history, criticalPowerHistory: updatedCpHistory, asOf }),
+  previous: initialCalibration, asOf, newActivityCount: 0, strongEvidence: false, criticalPowerChanged: true,
+});
+assert(cpCalibration.canonicalCriticalPower?.watts === 310, 'reported Stryd CP must override the independent platform estimate immediately');
+assert(cpCalibration.zones.find((zone) => zone.name === 'threshold')?.powerWatts?.low === 279, 'threshold power zone must use the new CP');
+assert(!criticalPowerNeedsReview(updatedCpHistory, asOf, cpCalibration), 'adopted dated CP must not trigger repeated reviews');
 
 const baseline = buildHrCostBaseline({ activities: aerobic, criticalPowerHistory: cpHistory, asOf });
 assert(baseline.bins.length > 0, 'HR-cost baseline should have a personal %CP bin');

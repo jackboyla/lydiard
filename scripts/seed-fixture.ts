@@ -5,10 +5,27 @@
 //   npx wrangler d1 execute lydiard --local --file=scratch/seed.sql
 
 import polyline from '@mapbox/polyline';
+import { bestEffortsForActivity } from '../src/analysis/bestEfforts';
 import { buildImportedTrainingFromActivities, type ImportedActivity } from '../src/data/deriveWeekly';
-import type { ActivitySummary } from '../src/types';
+import type { ActivityLap, ActivitySummary } from '../src/types';
+import { normalizeStreams } from '../worker/streams';
 
-const ANCHOR = new Date('2026-06-28T08:00:00Z').getTime();
+// Fixed by default so smoke runs stay reproducible. Set LYDIARD_FIXTURE_ANCHOR
+// (an ISO date, or `today`) when the fixture should look like current training —
+// the README screenshots do that so no week reads as empty.
+const ANCHOR = resolveAnchor();
+
+function resolveAnchor(): number {
+  const requested = process.env.LYDIARD_FIXTURE_ANCHOR;
+  if (!requested) return new Date('2026-06-28T08:00:00Z').getTime();
+  if (requested === 'today') {
+    const today = new Date();
+    return Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 8, 0, 0);
+  }
+  const parsed = new Date(requested).getTime();
+  if (Number.isNaN(parsed)) throw new Error(`LYDIARD_FIXTURE_ANCHOR is not a date: ${requested}`);
+  return parsed;
+}
 const DAY = 86400000;
 
 // A base loop near Dublin; jittered per activity so routes differ on the map.
@@ -113,11 +130,18 @@ for (let week = 11; week >= 0; week -= 1) {
 }
 
 const now = new Date(ANCHOR).toISOString();
+const pulseDay = new Date(ANCHOR - DAY).toISOString().slice(0, 10);
 const lines: string[] = [];
-lines.push('DELETE FROM activity_streams; DELETE FROM activities; DELETE FROM weekly_features; DELETE FROM athlete;');
+lines.push(
+  'DELETE FROM activity_streams; DELETE FROM activity_feedback; DELETE FROM daily_checkins; DELETE FROM activities; DELETE FROM weekly_features; DELETE FROM athlete;',
+);
 lines.push(
   `INSERT INTO athlete (id, firstname, lastname, username, refresh_token, access_token, expires_at, scope, updated_at) ` +
     `VALUES (1, 'Test', 'Runner', 'testrunner', 'seed-refresh', 'seed-access', 9999999999, 'read,activity:read_all', ${q(now)});`,
+);
+lines.push(
+  `INSERT INTO daily_checkins (day, energy, leg_freshness, motivation, pain_level, sleep_quality, note, source, created_at, updated_at) VALUES (` +
+    `${q(pulseDay)}, 4, 4, 3, 0, 5, ${q('Legs settled after an easy morning.')}, 'platform', ${q(now)}, ${q(now)});`,
 );
 
 for (const { summary } of fixtures) {
@@ -133,20 +157,65 @@ for (const { summary } of fixtures) {
   );
 }
 
+const byNewest = [...fixtures].sort((a, b) => b.summary.startDate.localeCompare(a.summary.startDate));
+
 // One streamed activity (most recent) so the detail card shows decoupling + streams.
-const latest = fixtures[fixtures.length - 1].summary;
+const latest = byNewest[0].summary;
 const latestRoute = polyline.decode(latest.summaryPolyline as string);
-const streamLatLng = JSON.stringify(latestRoute);
-const timeArr = latestRoute.map((_, i) => i * 30);
-const hrArr = latestRoute.map((_, i) => 150 + i);
-const distArr = latestRoute.map((_, i) => i * 200);
+const sampleCount = Math.ceil(latest.movingTimeSec / 3);
+const time = Array.from({ length: sampleCount + 1 }, (_, i) => Math.round(i * latest.movingTimeSec / sampleCount));
+const streams = normalizeStreams({
+  latlng: latestRoute,
+  time,
+  distance: time.map((seconds) => seconds / latest.movingTimeSec * latest.distanceKm * 1000),
+  heartrate: time.map((seconds) => Math.round(150 + 15 * seconds / latest.movingTimeSec)),
+  power: time.map((_, i) => (latest.averageWatts ?? 220) + Math.round(8 * Math.sin(i / 10))),
+  cadence: time.map(() => latest.averageCadenceSpm ?? 180),
+  velocity_smooth: time.map(() => latest.distanceKm * 1000 / latest.movingTimeSec),
+  altitude: time.map((_, i) => 30 + 5 * Math.sin(i / 20)),
+});
+const laps: ActivityLap[] = Array.from({ length: Math.ceil(latest.distanceKm / 2) }, (_, i) => {
+  const distanceM = Math.min(2, latest.distanceKm - i * 2) * 1000;
+  return {
+    index: i + 1,
+    distanceM,
+    durationSec: distanceM / (latest.distanceKm * 1000) * latest.movingTimeSec,
+    averageHeartRate: Math.round(150 + 15 * (i * 2 + distanceM / 2000) / latest.distanceKm),
+    averagePower: latest.averageWatts ?? 220,
+    averageSpeedMps: latest.distanceKm * 1000 / latest.movingTimeSec,
+  };
+});
 lines.push(
   `UPDATE activities SET has_streams = 1, decoupling_pct = 6.4 WHERE id = ${q(latest.id)};`,
 );
 lines.push(
-  `INSERT INTO activity_streams (activity_id, latlng, time_s, heartrate, distance_m, point_count, fetched_at) VALUES (` +
-    `${q(latest.id)}, ${q(streamLatLng)}, ${q(JSON.stringify(timeArr))}, ${q(JSON.stringify(hrArr))}, ${q(JSON.stringify(distArr))}, ${latestRoute.length}, ${q(now)});`,
+  `INSERT INTO activity_streams (activity_id, latlng, time_s, heartrate, cadence, power, velocity, altitude, distance_m, laps, point_count, fetched_at) VALUES (` +
+    `${q(latest.id)}, ${q(JSON.stringify(streams.latlng))}, ${q(JSON.stringify(streams.timeSec))}, ${q(JSON.stringify(streams.heartrate))}, ` +
+    `${q(JSON.stringify(streams.cadence))}, ${q(JSON.stringify(streams.power))}, ${q(JSON.stringify(streams.velocity))}, ${q(JSON.stringify(streams.altitude))}, ` +
+    `${q(JSON.stringify(streams.distanceM))}, ${q(JSON.stringify(laps))}, ${streams.latlng?.length ?? time.length}, ${q(now)});`,
 );
+for (const group of bestEffortsForActivity({ ...latest, timeSec: streams.timeSec, distanceM: streams.distanceM })) {
+  const effort = group.efforts[0];
+  lines.push(
+    `INSERT INTO activity_best_efforts (activity_id, distance_label, distance_km, seconds, pace_sec_per_km, source, segment_start_sec, segment_end_sec, computed_at) VALUES (` +
+      `${q(latest.id)}, ${q(group.label)}, ${group.distanceKm}, ${effort.seconds}, ${effort.paceSecPerKm}, ${q(effort.source)}, ` +
+      `${num(effort.segmentStartSec)}, ${num(effort.segmentEndSec)}, ${q(now)});`,
+  );
+}
+
+// A few notes on recent runs, so the log shows the note surface in use.
+const FIXTURE_NOTES = [
+  'Legs came round after 3km. Held the effort honest on the second half.',
+  'Windy out and back. Kept it conversational the whole way.',
+  'Best session of the block—reps felt controlled rather than forced.',
+];
+FIXTURE_NOTES.forEach((note, offset) => {
+  const target = byNewest[offset].summary;
+  lines.push(
+    `INSERT INTO activity_feedback (activity_id, note, created_at, updated_at) VALUES (` +
+      `${q(target.id)}, ${q(note)}, ${q(now)}, ${q(now)});`,
+  );
+});
 
 // Derive weekly_features with the real pipeline.
 const training = buildImportedTrainingFromActivities(

@@ -14,6 +14,9 @@ export interface ActivityLapView {
   averagePower?: number;
   maxPower?: number;
   elevationChangeM?: number;
+  /** Distance offsets from the start of the activity, used for lap drill-downs. */
+  startDistanceM?: number;
+  endDistanceM?: number;
   zone: {
     key: ActivityLapZoneKey;
     label: string;
@@ -36,6 +39,8 @@ export function buildActivityLaps(detail: ActivityDetail, thresholdPaceSecPerKm:
         thresholdPaceSecPerKm,
         activityAveragePace,
         elevationChangeForRange(detail, startDistanceM, distanceCursorM),
+        startDistanceM,
+        distanceCursorM,
       );
     })
     .filter((lap): lap is ActivityLapView => Boolean(lap));
@@ -74,6 +79,22 @@ export function buildLapProfileFromCompact(
   });
 }
 
+/**
+ * Sum time spent at threshold pace or faster from the compact recorded laps.
+ * This includes threshold, high-intensity, and short stride laps; easier laps
+ * never contribute.
+ */
+export function intensitySecondsFromLapProfile(
+  points: LapProfilePoint[] | undefined,
+  thresholdPaceSecPerKm: number,
+  activityAveragePaceSecPerKm?: number,
+): number {
+  if (!points?.length || thresholdPaceSecPerKm <= 0) return 0;
+  return Math.round(buildLapProfileFromCompact(points, thresholdPaceSecPerKm, activityAveragePaceSecPerKm)
+    .filter((lap) => ['threshold', 'high-intensity', 'strides'].includes(lap.zone.key))
+    .reduce((total, lap) => total + lap.durationSec, 0));
+}
+
 export function classifyActivityLapZone(
   distanceM: number,
   paceSecPerKm: number,
@@ -101,6 +122,8 @@ function recordedLapView(
   thresholdPaceSecPerKm: number,
   activityAveragePace: number | undefined,
   elevationChangeM: number | undefined,
+  startDistanceM: number,
+  endDistanceM: number,
 ): ActivityLapView | undefined {
   const distanceM = positive(lap.distanceM);
   const durationSec = positive(lap.durationSec);
@@ -121,6 +144,8 @@ function recordedLapView(
     averagePower: usefulPower(lap.averagePower),
     maxPower: usefulPower(lap.maxPower),
     elevationChangeM,
+    startDistanceM,
+    endDistanceM,
     zone: classifyActivityLapZone(distanceM, paceSecPerKm, thresholdPaceSecPerKm, 'recorded', activityAveragePace),
   };
 }
@@ -133,7 +158,32 @@ export function buildDerivedKilometreLaps(detail: ActivityDetail, thresholdPaceS
   const endDistance = lastFinite(distance);
   if (startDistance === undefined || endDistance === undefined || endDistance - startDistance < 200) return [];
 
-  const totalDistanceM = endDistance - startDistance;
+  return buildKilometreSplitsForRange(detail, thresholdPaceSecPerKm, 0, endDistance - startDistance);
+}
+
+/** Build split-relative kilometres inside one recorded device lap. */
+export function buildKilometreSplitsWithinLap(
+  detail: ActivityDetail,
+  lap: ActivityLapView,
+  thresholdPaceSecPerKm: number,
+): ActivityLapView[] {
+  if (lap.source !== 'recorded' || lap.startDistanceM === undefined || lap.endDistanceM === undefined) return [];
+  return buildKilometreSplitsForRange(detail, thresholdPaceSecPerKm, lap.startDistanceM, lap.endDistanceM);
+}
+
+function buildKilometreSplitsForRange(
+  detail: ActivityDetail,
+  thresholdPaceSecPerKm: number,
+  rangeStartM: number,
+  rangeEndM: number,
+): ActivityLapView[] {
+  const time = detail.streams?.timeSec;
+  const distance = detail.streams?.distanceM;
+  if (!time || !distance || Math.min(time.length, distance.length) < 3) return [];
+  const streamStartDistance = firstFinite(distance);
+  if (streamStartDistance === undefined || rangeEndM - rangeStartM < 200) return [];
+
+  const totalDistanceM = rangeEndM - rangeStartM;
   const boundaries = [0];
   for (let marker = 1000; marker < totalDistanceM - 50; marker += 1000) boundaries.push(marker);
   boundaries.push(totalDistanceM);
@@ -142,8 +192,10 @@ export function buildDerivedKilometreLaps(detail: ActivityDetail, thresholdPaceS
   for (let index = 1; index < boundaries.length; index += 1) {
     const startM = boundaries[index - 1];
     const endM = boundaries[index];
-    const startTime = timeAtDistance(time, distance, startDistance + startM);
-    const endTime = timeAtDistance(time, distance, startDistance + endM);
+    const absoluteStartOffsetM = rangeStartM + startM;
+    const absoluteEndOffsetM = rangeStartM + endM;
+    const startTime = timeAtDistance(time, distance, streamStartDistance + absoluteStartOffsetM);
+    const endTime = timeAtDistance(time, distance, streamStartDistance + absoluteEndOffsetM);
     if (startTime === undefined || endTime === undefined || endTime <= startTime) continue;
     const distanceM = endM - startM;
     const distanceKm = distanceM / 1000;
@@ -161,7 +213,9 @@ export function buildDerivedKilometreLaps(detail: ActivityDetail, thresholdPaceS
       maxHeartRate: maxStream(time, detail.streams?.heartrate, startTime, endTime, usefulHeartRate),
       averagePower: weightedAverageStream(time, detail.streams?.power, startTime, endTime, usefulPower),
       maxPower: maxStream(time, detail.streams?.power, startTime, endTime, usefulPower),
-      elevationChangeM: elevationChangeForRange(detail, startM, endM),
+      elevationChangeM: elevationChangeForRange(detail, absoluteStartOffsetM, absoluteEndOffsetM),
+      startDistanceM: absoluteStartOffsetM,
+      endDistanceM: absoluteEndOffsetM,
       zone: classifyActivityLapZone(distanceM, paceSecPerKm, thresholdPaceSecPerKm, 'derived'),
     });
   }

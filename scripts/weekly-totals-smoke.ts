@@ -44,6 +44,31 @@ try {
     await page.waitForSelector('.weekly-totals-hit', { timeout: 45_000 });
     await page.waitForTimeout(500);
 
+    const rollingDates = await page.evaluate(() => {
+      const end = new Date();
+      end.setHours(0, 0, 0, 0);
+      const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 6);
+      return {
+        startDay: start.getDate(),
+        startMonth: start.getMonth(),
+        startYear: start.getFullYear(),
+        endDay: end.getDate(),
+        endMonth: end.getMonth(),
+        endYear: end.getFullYear(),
+      };
+    });
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
+    const expectedRollingRange = rollingDates.startYear !== rollingDates.endYear
+      ? `${rollingDates.startDay} ${months[rollingDates.startMonth]} ${rollingDates.startYear}–${rollingDates.endDay} ${months[rollingDates.endMonth]} ${rollingDates.endYear}, inclusive`
+      : rollingDates.startMonth === rollingDates.endMonth
+        ? `${rollingDates.startDay}–${rollingDates.endDay} ${months[rollingDates.endMonth]} ${rollingDates.endYear}, inclusive`
+        : `${rollingDates.startDay} ${months[rollingDates.startMonth]}–${rollingDates.endDay} ${months[rollingDates.endMonth]} ${rollingDates.endYear}, inclusive`;
+    const rollingRange = (await page.locator('.progress-date-range').innerText()).trim();
+    assert(
+      rollingRange === expectedRollingRange,
+      `${label}: rolling range is "${rollingRange}" instead of "${expectedRollingRange}".`,
+    );
+
     const weekCount = await page.locator('.weekly-totals-hit').count();
     assert(weekCount > 4, `${label}: expected a week per point, got ${weekCount}.`);
 
@@ -85,11 +110,39 @@ try {
       `${label}: expected distance, time and elevation, got ${stats.join(' | ')}.`,
     );
 
+    // Volume sits straight under the summary cards, with the rolling 7-day card after it.
+    const order = await page.evaluate(() => [...document.querySelectorAll('.progress-view > *')].map((node) => node.className));
+    const volumeAt = order.findIndex((name) => name.includes('weekly-totals-panel'));
+    assert(
+      volumeAt === order.findIndex((name) => name.includes('progress-summary-grid')) + 1
+        && order[volumeAt + 1]?.includes('rolling-load-panel'),
+      `${label}: unexpected Progress order ${order.join(' | ')}.`,
+    );
+
+    // The rolling readout tracks the day under the pointer and ends on today by default.
+    const rolling = page.locator('.rolling-load-surface');
+    const rollingReadout = () => page.locator('.rolling-load-summary h3').innerText();
+    const rollingEnd = await rollingReadout();
+    assert(rollingEnd.startsWith('7 days to '), `${label}: rolling readout reads "${rollingEnd}".`);
+    await rolling.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+    const rollingBox = (await rolling.boundingBox())!;
+    await page.mouse.move(rollingBox.x + rollingBox.width * 0.3, rollingBox.y + rollingBox.height / 2);
+    await page.waitForTimeout(250);
+    assert(await rollingReadout() !== rollingEnd, `${label}: the rolling chart ignored the pointer.`);
+    const rollingStats = await page.locator('.rolling-load-stats strong').allInnerTexts();
+    assert(rollingStats.length === 3, `${label}: expected rolling distance, time and runs, got ${rollingStats.join(' | ')}.`);
+    await surface.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+    const tapBox = (await surface.boundingBox())!;
+    const tapX = tapBox.x + tapBox.width * 0.5;
+    const tapY = tapBox.y + tapBox.height / 2;
+
     // A tap in place opens the week; phones need the second tap to confirm.
-    await page.mouse.click(atFraction(0.5), midY);
+    await page.mouse.click(tapX, tapY);
     if (mobile) {
       await page.waitForTimeout(300);
-      await page.mouse.click(atFraction(0.5), midY);
+      await page.mouse.click(tapX, tapY);
     }
     await page.waitForTimeout(1500);
     view = new URL(page.url()).searchParams.get('view');

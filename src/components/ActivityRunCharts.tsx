@@ -9,7 +9,7 @@ import {
   YAxis,
 } from 'recharts';
 import { formatPace } from '../analysis/fatigue';
-import type { ActivityLapView } from '../data/activityLaps';
+import { buildKilometreSplitsWithinLap, type ActivityLapView } from '../data/activityLaps';
 import type { ActivityDetail } from '../types';
 
 interface DistanceHeartRatePoint {
@@ -31,10 +31,12 @@ export function ActivityRunCharts({
   detail,
   loading,
   laps,
+  thresholdPaceSecPerKm,
 }: {
   detail: ActivityDetail | null;
   loading: boolean;
   laps: ActivityLapView[];
+  thresholdPaceSecPerKm: number;
 }) {
   const heartRatePoints = buildDistanceHeartRatePoints(detail);
   const powerPoints = buildDistancePowerPoints(detail);
@@ -50,7 +52,7 @@ export function ActivityRunCharts({
           <small>{laps.length > 0 ? `${laps.length} ${recorded ? 'recorded laps' : 'derived splits'}` : loading ? 'Loading…' : 'No lap data'}</small>
         </header>
         {laps.length > 0 ? (
-          <LapProfileChart detail={detail} laps={laps} />
+          <LapProfileChart detail={detail} laps={laps} thresholdPaceSecPerKm={thresholdPaceSecPerKm} />
         ) : (
           <p className="activity-chart-empty">{loading ? 'Loading recorded laps…' : 'Recorded laps or a continuous distance stream are needed for this chart.'}</p>
         )}
@@ -186,12 +188,23 @@ function ChartSummary({
   );
 }
 
-function LapProfileChart({ detail, laps }: { detail: ActivityDetail | null; laps: ActivityLapView[] }) {
+function LapProfileChart({
+  detail,
+  laps,
+  thresholdPaceSecPerKm,
+}: {
+  detail: ActivityDetail | null;
+  laps: ActivityLapView[];
+  thresholdPaceSecPerKm: number;
+}) {
   const model = buildLapProfileModel(detail, laps);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [pinnedIndex, setPinnedIndex] = useState<number | null>(null);
   const activeIndex = hoveredIndex ?? pinnedIndex;
   const activeLap = activeIndex === null ? undefined : model.bars[activeIndex]?.lap;
+  const innerKilometres = detail && activeLap
+    ? buildKilometreSplitsWithinLap(detail, activeLap, thresholdPaceSecPerKm)
+    : [];
   return (
     <div className="lap-profile-shell">
       <div className="lap-profile-scroll" onMouseLeave={() => setHoveredIndex(null)}>
@@ -251,8 +264,8 @@ function LapProfileChart({ detail, laps }: { detail: ActivityDetail | null; laps
         </svg>
       </div>
       {activeLap ? (
-        <div className="lap-profile-detail" role="status" aria-live="polite">
-          <div><span>Selected split</span><strong>Split {activeLap.label}</strong><small>{activeLap.zone.label}</small></div>
+        <div className="lap-profile-detail" aria-live="polite">
+          <div className="lap-profile-detail-heading"><span>Selected split</span><strong>Split {activeLap.label}</strong><small>{activeLap.zone.label}</small></div>
           <dl>
             <div><dt>Distance</dt><dd>{formatLapDistance(activeLap.distanceKm)}</dd></div>
             <div><dt>Time</dt><dd>{formatLapDuration(activeLap.durationSec)}</dd></div>
@@ -261,10 +274,40 @@ function LapProfileChart({ detail, laps }: { detail: ActivityDetail | null; laps
             <div><dt>Avg power</dt><dd>{activeLap.averagePower ? `${Math.round(activeLap.averagePower)} W` : '—'}</dd></div>
             <div><dt>Elev change</dt><dd>{formatElevationChange(activeLap.elevationChangeM)}</dd></div>
           </dl>
+          {innerKilometres.length > 1 && <InnerKilometreSplits splits={innerKilometres} />}
+          {activeLap.source === 'recorded' && activeLap.distanceKm > 1.05 && innerKilometres.length === 0 && (
+            <p className="lap-profile-km-empty">Continuous distance data is needed to show the kilometres inside this split.</p>
+          )}
         </div>
       ) : (
         <p>Hover, focus, or tap a column for split distance, time, pace, heart rate, power, and elevation change. Bar width follows split distance.</p>
       )}
+    </div>
+  );
+}
+
+function InnerKilometreSplits({ splits }: { splits: ActivityLapView[] }) {
+  return (
+    <div className="lap-profile-km-splits">
+      <header><strong>1 km splits within this split</strong><small>{splits.length} segments</small></header>
+      <div className="lap-profile-km-scroll">
+        <table>
+          <thead><tr><th>Km</th><th>Dist</th><th>Time</th><th>Pace</th><th>HR</th><th>Power</th><th>Elev Δ</th></tr></thead>
+          <tbody>
+            {splits.map((split) => (
+              <tr key={`${split.startDistanceM}-${split.endDistanceM}`}>
+                <td>{split.label}</td>
+                <td>{formatLapDistance(split.distanceKm)}</td>
+                <td>{formatLapDuration(split.durationSec)}</td>
+                <td>{formatPace(split.paceSecPerKm)}</td>
+                <td>{split.averageHeartRate ? `${Math.round(split.averageHeartRate)} bpm` : '—'}</td>
+                <td>{split.averagePower ? `${Math.round(split.averagePower)} W` : '—'}</td>
+                <td>{formatElevationChange(split.elevationChangeM)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

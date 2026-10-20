@@ -8,6 +8,7 @@ import {
   Dumbbell,
   Gauge,
   Info,
+  MessageCircleHeart,
   MessageSquareText,
   Mountain,
   Save,
@@ -28,12 +29,20 @@ import {
 import type { PhysiologyEstimate, PracticalZone } from '../analysis/coachEngine';
 import { getActivity, getActivityWeather } from '../data/api';
 import type { AdaptiveZoneReviewHistoryEntry } from '../data/coachTypes';
-import { buildActivityLaps, buildDerivedKilometreLaps, buildLapProfileFromCompact, type ActivityLapView } from '../data/activityLaps';
+import {
+  buildActivityLaps,
+  buildDerivedKilometreLaps,
+  buildLapProfileFromCompact,
+  intensitySecondsFromLapProfile,
+  type ActivityLapView,
+} from '../data/activityLaps';
 import { localWeekId, millisecondsUntilNextLocalWeek } from '../data/calendar';
 import { activityPaceSecPerKm, toWeekIdUtc } from '../data/mapRoutes';
 import type { ActivityDetail, ActivitySummary, ActivityWeather, GymSession, TrainingPlanDay, WeeklyAnalysis } from '../types';
+import type { DailyCheckin, DailyCheckinDraft } from '../types';
 import { MetricInfo, MetricsGuide, type MetricKey } from './MetricInfo';
 import { MiniLapProfile } from './MiniLapProfile';
+import { DailyCheckinCard } from './DailyCheckinCard';
 
 const LazyActivityRouteMap = lazy(() => import('./ActivityRouteMap'));
 const LazyActivityRunCharts = lazy(() => import('./ActivityRunCharts').then((module) => ({ default: module.ActivityRunCharts })));
@@ -81,6 +90,9 @@ interface TrainingViewProps {
   onSaveDayNote: (date: string, note: string, expectedUpdatedAt: string | null) => Promise<TrainingPlanDay>;
   onRequestFullHistory: () => Promise<void>;
   allHistoryLoaded?: boolean;
+  dailyCheckins: DailyCheckin[];
+  checkinsLoading: boolean;
+  onSaveDailyCheckin: (draft: DailyCheckinDraft) => Promise<void>;
 }
 
 // A week in the log is either a scored run week (with any gym that week attached)
@@ -101,6 +113,7 @@ interface CalendarDay {
   load: number;
   tone: MetricTone;
   planDay?: TrainingPlanDay;
+  checkin?: DailyCheckin;
 }
 
 type MetricTone = 'easy' | 'moderate' | 'hard' | 'danger' | 'muted';
@@ -180,6 +193,9 @@ export function TrainingView({
   onSaveDayNote,
   onRequestFullHistory,
   allHistoryLoaded = false,
+  dailyCheckins,
+  checkinsLoading,
+  onSaveDailyCheckin,
 }: TrainingViewProps) {
   const [visibleWeekCount, setVisibleWeekCount] = useState(INITIAL_WEEK_COUNT);
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -202,14 +218,15 @@ export function TrainingView({
     [activities, canonicalMetrics],
   );
   const scoped = useMemo(
-    () => scopeLoadModel(loadModel, gymSessions, currentWeekId),
-    [currentWeekId, gymSessions, loadModel],
+    () => scopeLoadModel(loadModel, gymSessions, dailyCheckins, currentWeekId),
+    [currentWeekId, dailyCheckins, gymSessions, loadModel],
   );
   const trainingZoneModel = useMemo(
     () => buildTrainingZoneModel(physiology, loadModel.thresholds),
     [physiology, loadModel.thresholds],
   );
   const planByDate = useMemo(() => new Map(planDays.map((day) => [day.date, day])), [planDays]);
+  const checkinByDate = useMemo(() => new Map(dailyCheckins.map((checkin) => [checkin.day, checkin])), [dailyCheckins]);
   const analysisByWeek = useMemo(
     () => new Map(analyses.map((analysis) => [analysis.week.weekStart, analysis])),
     [analyses],
@@ -221,7 +238,6 @@ export function TrainingView({
   const previewPlanDay = previewSession
     ? planByDate.get((previewSession.activity.startDateLocal || previewSession.activity.startDate).slice(0, 10))
     : undefined;
-  const runCount = scoped.sessions.length;
   const gymCount = scoped.gymCount;
   const hrCount = scoped.sessions.filter((session) => session.activity.averageHeartRate).length;
   const powerCount = scoped.sessions.filter((session) => session.activity.averageWatts).length;
@@ -604,38 +620,7 @@ export function TrainingView({
         )
       ) : (
         <>
-      <section className="training-toolbar log-history-hero" aria-label="All training history">
-        <div className="log-history-intro">
-          <p className="eyebrow">
-            <CalendarDays size={15} aria-hidden="true" />
-            Training almanac
-          </p>
-          <h2>The running year</h2>
-          <p className="log-history-deck">Every run, rest day and field note—laid out in the rhythm you trained it.</p>
-          <small>{allHistoryLoaded ? `${scoped.months.length} months on record` : 'Opening your full history…'}</small>
-        </div>
-        <div className="log-history-totals" aria-label="All-time totals">
-          <div className="log-history-total distance">
-            <span>Distance</span>
-            <strong>{Math.round(scoped.distanceKm).toLocaleString()}<small> km</small></strong>
-          </div>
-          <div className="log-history-total time">
-            <span>Time</span>
-            <strong>{formatLifetimeDuration(scoped.durationSec)}</strong>
-          </div>
-          <div className="log-history-total runs">
-            <span>Runs</span>
-            <strong>{runCount.toLocaleString()}</strong>
-          </div>
-          <div className="calendar-tone-key" aria-label="Calendar effort key">
-            <span><i className="tone-easy" aria-hidden="true" /> Easy</span>
-            <span><i className="tone-moderate" aria-hidden="true" /> Steady</span>
-            <span><i className="tone-hard" aria-hidden="true" /> Hard</span>
-            <span><i className="tone-danger" aria-hidden="true" /> High load</span>
-          </div>
-        </div>
-      </section>
-
+      <DailyCheckinCard checkins={dailyCheckins} loading={checkinsLoading} onSave={onSaveDailyCheckin} />
       <section className="training-log-shell" aria-label="Activity log">
         <div
           ref={weekListRef}
@@ -661,6 +646,7 @@ export function TrainingView({
                       gym={entry.gym}
                       analysis={analysisByWeek.get(entry.weekId)}
                       planByDate={planByDate}
+                      checkinByDate={checkinByDate}
                       thresholdPaceSecPerKm={loadModel.thresholds.thresholdPaceSecPerKm}
                       previewId={previewId}
                       onPreview={openPreview}
@@ -673,6 +659,7 @@ export function TrainingView({
                       weekId={entry.weekId}
                       gym={entry.gym}
                       planByDate={planByDate}
+                      checkinByDate={checkinByDate}
                       onSaveDayNote={onSaveDayNote}
                       currentWeek={entry.weekId === currentWeekId}
                     />
@@ -702,6 +689,7 @@ function WeekBlock({
   gym,
   analysis,
   planByDate,
+  checkinByDate,
   thresholdPaceSecPerKm,
   previewId,
   onPreview,
@@ -713,6 +701,7 @@ function WeekBlock({
   gym: GymSession[];
   analysis?: WeeklyAnalysis;
   planByDate: Map<string, TrainingPlanDay>;
+  checkinByDate: Map<string, DailyCheckin>;
   thresholdPaceSecPerKm: number;
   previewId: string | null;
   onPreview: (id: string) => void;
@@ -720,7 +709,8 @@ function WeekBlock({
   onSaveDayNote: TrainingViewProps['onSaveDayNote'];
   currentWeek: boolean;
 }) {
-  const days = buildWeekCalendarDays(week.weekId, week.sessions, gym, planByDate);
+  const days = buildWeekCalendarDays(week.weekId, week.sessions, gym, planByDate, checkinByDate);
+  const intensityMinutes = weeklyIntensityMinutes(week.sessions, thresholdPaceSecPerKm);
   return (
     <article className={`training-week-block ${week.severity}${currentWeek ? ' current-week' : ''}`}>
       <header className="training-week-head">
@@ -735,6 +725,8 @@ function WeekBlock({
             distanceKm={week.distanceKm}
             durationHours={week.durationHours}
             runCount={week.activityCount}
+            gymCount={gym.length}
+            intensityMinutes={intensityMinutes}
           />
         </div>
       </header>
@@ -970,19 +962,36 @@ function WeekTotalReadout({
   distanceKm,
   durationHours,
   runCount,
+  gymCount,
+  intensityMinutes,
 }: {
   label: string;
   distanceKm: number;
   durationHours: number;
   runCount: number;
+  gymCount: number;
+  intensityMinutes: number;
 }) {
   return (
     <div className="week-total-readout" aria-label={`${label} totals`}>
       <div><span>Distance</span><strong>{distanceKm.toFixed(1)} km</strong></div>
       <div><span>Time</span><strong>{formatHoursMinutes(durationHours)}</strong></div>
+      <div><span>Gym</span><strong>{gymCount}</strong></div>
+      <div title="Recorded lap time in threshold, VO₂/high-intensity, or stride zones">
+        <span>Intensity</span><strong>{intensityMinutes} min</strong>
+      </div>
       <small>{runCount} {runCount === 1 ? 'run' : 'runs'}</small>
     </div>
   );
+}
+
+export function weeklyIntensityMinutes(sessions: SessionLoad[], thresholdPaceSecPerKm: number): number {
+  const seconds = sessions.reduce((total, session) => total + intensitySecondsFromLapProfile(
+    session.activity.lapProfile,
+    thresholdPaceSecPerKm,
+    activityPaceSecPerKm(session.activity),
+  ), 0);
+  return Math.round(seconds / 60);
 }
 
 // The diary is a continuous calendar. Gym-only and fully empty weeks retain
@@ -991,16 +1000,18 @@ function NoRunWeekBlock({
   weekId,
   gym,
   planByDate,
+  checkinByDate,
   onSaveDayNote,
   currentWeek,
 }: {
   weekId: string;
   gym: GymSession[];
   planByDate: Map<string, TrainingPlanDay>;
+  checkinByDate: Map<string, DailyCheckin>;
   onSaveDayNote: TrainingViewProps['onSaveDayNote'];
   currentWeek: boolean;
 }) {
-  const days = buildWeekCalendarDays(weekId, [], gym, planByDate);
+  const days = buildWeekCalendarDays(weekId, [], gym, planByDate, checkinByDate);
   const label = `Week of ${formatWeekIdLabel(weekId)}`;
   return (
     <article className={`training-week-block ${gym.length > 0 ? 'gym-only' : 'empty-week'}${currentWeek ? ' current-week' : ''}`}>
@@ -1011,14 +1022,14 @@ function NoRunWeekBlock({
             {currentWeek && <span className="current-week-marker">This week</span>}
             <h3>{gym.length > 0 ? 'Gym week' : 'No runs'}</h3>
           </div>
-          <WeekTotalReadout label={label} distanceKm={0} durationHours={0} runCount={0} />
-          {gym.length > 0 && (
-            <div className="week-gym-count">
-              <Dumbbell size={16} aria-hidden="true" />
-              <strong>{gym.length}</strong>
-              <small>gym {gym.length === 1 ? 'session' : 'sessions'}</small>
-            </div>
-          )}
+          <WeekTotalReadout
+            label={label}
+            distanceKm={0}
+            durationHours={0}
+            runCount={0}
+            gymCount={gym.length}
+            intensityMinutes={0}
+          />
         </div>
       </header>
       <WeekCalendar days={days} onSaveDayNote={onSaveDayNote} ariaLabel={`${label} calendar`} />
@@ -1077,6 +1088,7 @@ function CalendarDayColumn({
 }) {
   const hasRun = day.sessions.length > 0;
   const hasGym = day.gym.length > 0;
+  const hasCheckin = Boolean(day.checkin);
   const note = day.planDay?.notes;
   const hasNote = Boolean(note && note.length > 0);
   const today = new Date();
@@ -1084,7 +1096,7 @@ function CalendarDayColumn({
   const isToday = day.dayId === todayId;
   return (
     <section
-      className={`week-day-cell tone-${day.tone}${hasRun ? ' has-run' : ''}${hasGym ? ' has-gym' : ''}${hasNote ? ' has-note' : ''}${isToday ? ' is-today' : ''}`}
+      className={`week-day-cell tone-${day.tone}${hasRun ? ' has-run' : ''}${hasGym ? ' has-gym' : ''}${hasCheckin ? ' has-checkin' : ''}${hasNote ? ' has-note' : ''}${isToday ? ' is-today' : ''}`}
       aria-label={`${day.weekday} ${day.dateLabel}`}
       aria-current={isToday ? 'date' : undefined}
     >
@@ -1116,11 +1128,54 @@ function CalendarDayColumn({
         {day.gym.map((session) => (
           <GymSessionPill key={session.id} session={session} />
         ))}
-        {!hasRun && !hasGym && !hasNote && <span className="week-rest-label">Rest</span>}
+        {day.checkin && <CalendarDailyPulse checkin={day.checkin} />}
+        {!hasRun && !hasGym && !hasCheckin && !hasNote && <span className="week-rest-label">Rest</span>}
         <DayNoteEditor dayId={day.dayId} planDay={day.planDay} onSave={onSaveDayNote} />
       </div>
     </section>
   );
+}
+
+function CalendarDailyPulse({ checkin }: { checkin: DailyCheckin }) {
+  const tone = calendarPulseTone(checkin);
+  const status = checkin.painLevel && checkin.painLevel > 0
+    ? ['No pain', 'Mild niggle', 'Moderate pain', 'Significant pain'][checkin.painLevel]
+    : ['Not rated', 'Cooked', 'Heavy', 'Okay', 'Good', 'Fresh'][checkin.legFreshness ?? 0];
+  const readings = [
+    ['Legs', checkin.legFreshness],
+    ['Energy', checkin.energy],
+    ['Drive', checkin.motivation],
+    ['Sleep', checkin.sleepQuality],
+  ] as const;
+  const ariaReadings = readings.map(([label, value]) => `${label} ${value ?? 'not rated'} out of 5`).join(', ');
+
+  return (
+    <article
+      className={`calendar-daily-pulse tone-${tone}`}
+      aria-label={`Daily pulse. ${status}. ${ariaReadings}`}
+      title={`Daily pulse: ${status}. ${ariaReadings}`}
+    >
+      <header>
+        <MessageCircleHeart size={13} aria-hidden="true" />
+        <strong>Daily pulse</strong>
+        <span>{status}</span>
+      </header>
+      <div className="calendar-daily-pulse-readings" aria-hidden="true">
+        {readings.map(([label, value]) => (
+          <span key={label}><small>{label}</small><b>{value ?? '—'}</b></span>
+        ))}
+      </div>
+      {checkin.note && <p>“{checkin.note}”</p>}
+    </article>
+  );
+}
+
+function calendarPulseTone(checkin: DailyCheckin): 'good' | 'watch' | 'low' | 'muted' {
+  if (checkin.painLevel !== undefined && checkin.painLevel >= 2) return 'low';
+  if (checkin.legFreshness !== undefined && checkin.legFreshness <= 2) return 'low';
+  if (checkin.painLevel === 1 || checkin.legFreshness === 3) return 'watch';
+  if (checkin.legFreshness !== undefined) return 'good';
+  return 'muted';
 }
 
 function CalendarRunCard({
@@ -1171,7 +1226,7 @@ function CalendarRunCard({
       {activity.activityNote && (
         <span className="calendar-run-note">
           <MessageSquareText size={12} aria-hidden="true" />
-          {notePreview(activity.activityNote)}
+          <span>{activity.activityNote}</span>
         </span>
       )}
       {!activity.activityNote && (
@@ -1241,7 +1296,7 @@ function DayNoteEditor({
         aria-label={`${saved ? 'Edit' : 'Add'} note for ${dayId}`}
       >
         <MessageSquareText size={12} aria-hidden="true" />
-        <span>{saved ? notePreview(saved) : 'Add day note'}</span>
+        <span>{saved || 'Add day note'}</span>
       </button>
     );
   }
@@ -1365,7 +1420,12 @@ function ActivityDetailPage({
                 <small>Stream and model detail</small>
               </header>
               <Suspense fallback={<div className="surface-loading">Loading run charts…</div>}>
-                <LazyActivityRunCharts detail={detail} loading={loading} laps={lapSplits} />
+                <LazyActivityRunCharts
+                  detail={detail}
+                  loading={loading}
+                  laps={lapSplits}
+                  thresholdPaceSecPerKm={thresholdPaceSecPerKm}
+                />
               </Suspense>
               {recordedLapSplits.length > 0 && (
                 <LapSplitsTable
@@ -1831,7 +1891,12 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function scopeLoadModel(model: TrainingLoadModel, gymSessions: GymSession[], currentWeekId: string) {
+function scopeLoadModel(
+  model: TrainingLoadModel,
+  gymSessions: GymSession[],
+  dailyCheckins: DailyCheckin[],
+  currentWeekId: string,
+) {
   const sessionsAsc = model.sessions;
   const sessions = [...sessionsAsc].reverse();
   const weekIds = new Set(sessionsAsc.map((session) => session.weekId));
@@ -1858,6 +1923,10 @@ function scopeLoadModel(model: TrainingLoadModel, gymSessions: GymSession[], cur
     if (!entriesById.has(weekId)) {
       entriesById.set(weekId, { weekId, gym });
     }
+  }
+  for (const checkin of dailyCheckins) {
+    const weekId = toWeekIdUtc(checkin.day);
+    if (!entriesById.has(weekId)) entriesById.set(weekId, { weekId, gym: [] });
   }
   if (!entriesById.has(currentWeekId)) {
     entriesById.set(currentWeekId, { weekId: currentWeekId, gym: [] });
@@ -2151,6 +2220,7 @@ function buildWeekCalendarDays(
   sessions: SessionLoad[],
   gym: GymSession[],
   planByDate: Map<string, TrainingPlanDay>,
+  checkinByDate: Map<string, DailyCheckin>,
 ): CalendarDay[] {
   const weekStart = new Date(`${weekId}T00:00:00Z`).getTime();
   return Array.from({ length: 7 }, (_, index) => {
@@ -2172,6 +2242,7 @@ function buildWeekCalendarDays(
       load: daySessions.reduce((total, session) => total + session.load, 0),
       tone: toneForDay(daySessions),
       planDay: planByDate.get(dayId),
+      checkin: checkinByDate.get(dayId),
     };
   });
 }
@@ -2431,9 +2502,6 @@ function formatRunTime(iso: string): string {
   return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
 }
 
-function notePreview(note: string): string {
-  return note.length > 100 ? `${note.slice(0, 100)}…` : note;
-}
 
 function formatCompactPace(totalSeconds: number): string {
   return formatPace(totalSeconds).replace('/km', '');
@@ -2473,12 +2541,6 @@ function formatDuration(totalSeconds: number): string {
     return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   }
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
-}
-
-function formatLifetimeDuration(totalSeconds: number): string {
-  const totalHours = Math.round(totalSeconds / 3600);
-  if (totalHours < 1000) return `${totalHours.toLocaleString()}h`;
-  return `${(totalHours / 1000).toFixed(totalHours >= 10_000 ? 0 : 1)}k h`;
 }
 
 function formatHoursMinutes(hours: number): string {

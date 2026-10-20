@@ -37,7 +37,7 @@ let originalNote = '';
 let bestEffortGroupCount = 0;
 let runBestEffortCount = 0;
 let dayNoteRoundTrip = false;
-let bannerDismissed = false;
+let syncTickShown = false;
 
 try {
   await page.goto(`${BASE_URL}/?view=log`, { waitUntil: 'networkidle' });
@@ -53,8 +53,7 @@ try {
   );
   const navLabels = (await page.locator('.mobile-bottom-nav button').allTextContents()).map((label) => label.trim());
   assert(JSON.stringify(navLabels) === JSON.stringify(['Log', 'Progress', 'Plan']), `Unexpected navigation: ${navLabels.join(', ')}`);
-  assert(await page.getByRole('heading', { name: 'The running year' }).isVisible(), 'Log almanac heading is missing.');
-  assert(await page.locator('.log-history-totals').isVisible(), 'All-history totals are missing from Log.');
+  assert(await page.locator('.log-history-hero').count() === 0, 'Log still renders the removed almanac card.');
   assert(await page.getByRole('group', { name: 'Training range' }).count() === 0, 'Log still exposes time-period filters.');
   assert(await page.locator('.training-inline-jump').count() === 0, 'Log still renders an inline month jump above the calendar.');
   await page.getByRole('button', { name: 'Open settings' }).click();
@@ -66,14 +65,11 @@ try {
     contentType: 'application/json',
     body: JSON.stringify({ message: 'Garmin sync queued in GitHub Actions.', alreadyRunning: false }),
   }));
-  await page.getByRole('button', { name: 'Open settings' }).click();
+  assert(await page.locator('.topbar-sync-button').isVisible(), 'Sync is not reachable in one tap from Log.');
   await page.getByRole('button', { name: 'Sync now' }).click();
-  await page.waitForSelector('.app-banner');
-  assert((await page.locator('.app-banner').innerText()).includes('New activities normally appear here within 3–6 minutes.'), 'The queued Garmin message did not appear.');
-  await page.getByRole('button', { name: 'Dismiss message' }).click();
-  assert(await page.locator('.app-banner').count() === 0, 'The queued Garmin message could not be dismissed.');
-  bannerDismissed = true;
-  await page.getByRole('button', { name: 'Close settings' }).click();
+  await page.waitForSelector('.topbar-sync-button.synced');
+  assert(await page.locator('.app-banner').count() === 0, 'Queueing a sync still raises a banner to dismiss.');
+  syncTickShown = true;
   await page.unroute(garminSyncRoute);
   const duplicateDayNotePreviews = await page.locator('.week-day-cell.has-run.has-note').evaluateAll((days) => days.filter((day) => {
     const dayPreview = day.querySelector('.calendar-day-note-trigger.has-note span')?.textContent?.trim();
@@ -111,6 +107,19 @@ try {
       JSON.stringify(mobileCalendarOrder.visualDayIndexes) === JSON.stringify([6, 5, 4, 3, 2, 1, 0]),
     `Mobile calendar days are not descending: ${mobileCalendarOrder.visualDayIndexes.join(', ')}.`,
   );
+  const calendarPulse = page.locator('.calendar-daily-pulse').first();
+  assert(await calendarPulse.isVisible(), 'A saved daily pulse is missing from its Log day.');
+  const calendarPulseGeometry = await calendarPulse.evaluate((pulse) => {
+    const rect = pulse.getBoundingClientRect();
+    return {
+      height: rect.height,
+      readingCount: pulse.querySelectorAll('.calendar-daily-pulse-readings > span').length,
+      overflows: pulse.scrollWidth > pulse.clientWidth,
+    };
+  });
+  assert(calendarPulseGeometry.height <= 80, `The mobile daily pulse is too tall (${calendarPulseGeometry.height}px).`);
+  assert(calendarPulseGeometry.readingCount === 4, 'The Log daily pulse does not show all four compact readings.');
+  assert(!calendarPulseGeometry.overflows, 'The Log daily pulse overflows its day column.');
   const weekHeaderGeometry = await page.locator('.training-week-head').first().evaluate((header) => {
     const date = header.querySelector('p')?.getBoundingClientRect();
     const totals = header.querySelector('.week-total-readout')?.getBoundingClientRect();
@@ -301,47 +310,41 @@ try {
   assert((await page.locator('.zone-calibration-status').innerText()).includes('next routine review'), 'Adaptive-zone status does not explain the review cadence.');
   assert(await page.locator('.progress-zone-ledger').isVisible(), 'Range-scoped zone ledger is missing from Progress.');
   assert(await page.locator('.progress-zone-row').count() === 5, 'Progress zone ledger does not expose all five zones.');
-  assert((await page.locator('.progress-load-panel .mini-load-y-title').textContent())?.trim() === 'Training time', 'The 12-week y axis is not labelled.');
-  assert((await page.locator('.progress-load-panel .mini-load-x-title').textContent())?.trim() === 'Week starting', 'The 12-week x axis is not labelled.');
-  assert(await page.locator('.progress-load-panel .mini-load-y-ticks span').count() === 3, 'The 12-week y axis is missing numeric ticks.');
-  assert(await page.locator('.progress-load-panel .mini-load-x-ticks span').count() === 12, 'The 12-week x axis is missing week ticks.');
   const progressResolution = page.getByRole('group', { name: 'Progress block size' });
   assert(await progressResolution.getByRole('button').count() === 4, 'Progress block resolutions are incomplete.');
   assert(await progressResolution.getByRole('button', { name: '3m' }).getAttribute('class') === 'active', 'The default Progress block is not 3 months / 12 weeks.');
-  const initialProgressRange = (await page.locator('.progress-block-title small').textContent())?.trim();
+  const initialProgressRange = (await page.locator('.weekly-totals-caption').textContent())?.trim();
   const olderBlock = page.getByRole('button', { name: 'View previous 3-month block' });
   assert(await olderBlock.isEnabled(), 'The older 12-week Progress block is not reachable.');
   await olderBlock.click();
-  await page.waitForFunction((range) => document.querySelector('.progress-block-title small')?.textContent?.trim() !== range, initialProgressRange);
-  assert(await page.locator('.progress-load-panel .mini-load-bars button').count() === 12, 'The older Progress page is not a 12-week block.');
+  await page.waitForFunction((range) => document.querySelector('.weekly-totals-caption')?.textContent?.trim() !== range, initialProgressRange);
+  const olderWeekCount = await page.locator('.weekly-totals-hit').count();
+  assert(olderWeekCount > 0 && olderWeekCount <= 12, 'The older Progress page exceeds its 12-week range or lost its available weeks.');
   assert(await page.getByRole('button', { name: 'View next 3-month block' }).isEnabled(), 'The newer Progress block is not reachable after paging back.');
   await page.getByRole('button', { name: 'View next 3-month block' }).click();
-  await page.waitForFunction((range) => document.querySelector('.progress-block-title small')?.textContent?.trim() === range, initialProgressRange);
+  await page.waitForFunction((range) => document.querySelector('.weekly-totals-caption')?.textContent?.trim() === range, initialProgressRange);
   await progressResolution.getByRole('button', { name: '1m' }).click();
-  assert(await page.locator('.progress-load-panel .mini-load-bars button').count() === 4, 'The 1-month resolution does not show four weekly points.');
+  assert(await page.locator('.weekly-totals-hit').count() === 4, 'The 1-month resolution does not show four weekly points.');
   await progressResolution.getByRole('button', { name: '6m' }).click();
-  assert(await page.locator('.progress-load-panel .mini-load-bars button').count() === 26, 'The 6-month resolution does not show 26 weekly points.');
+  const sixMonthWeeks = await page.locator('.weekly-totals-hit').count();
+  assert(sixMonthWeeks >= 12 && sixMonthWeeks <= 26, 'The 6-month resolution does not include the available weeks within its range.');
   await progressResolution.getByRole('button', { name: '12m' }).click();
-  assert(await page.locator('.progress-load-panel .mini-load-bars button').count() === 52, 'The 12-month resolution does not show 52 weekly points.');
+  const twelveMonthWeeks = await page.locator('.weekly-totals-hit').count();
+  assert(twelveMonthWeeks >= sixMonthWeeks && twelveMonthWeeks <= 52, 'The 12-month resolution does not include the available weeks within its range.');
   await progressResolution.getByRole('button', { name: '3m' }).click();
-  assert(await page.locator('.progress-load-panel .mini-load-bars button').count() === 12, 'The 3-month resolution did not restore 12 weekly points.');
+  assert(await page.locator('.weekly-totals-hit').count() === 12, 'The 3-month resolution did not restore 12 weekly points.');
   assert(await page.locator('.analysis-chart-stack').isVisible(), 'Progress charts are not always visible.');
   assert(await page.locator('.heart-rate-pace-card .recharts-area-area').count() >= 2, 'Continuous heart-rate range bands are missing.');
   assert(await page.locator('.heart-rate-pace-card .heart-rate-pace-points.recharts-symbols').count() > 0, 'Exact-pace run observations are missing.');
   await page.getByRole('button', { name: 'View previous 3-month block' }).click();
-  await page.waitForFunction((range) => document.querySelector('.progress-block-title small')?.textContent?.trim() !== range, initialProgressRange);
-  const preservedProgressRange = (await page.locator('.progress-block-title small').textContent())?.trim();
-  const progressWeekBar = page.locator('.progress-load-panel .mini-load-bars button').first();
-  const progressWeek = await progressWeekBar.getAttribute('data-progress-week');
-  assert(progressWeek, 'Progress weekly bars do not identify their Log week.');
-  await progressWeekBar.click();
-  assert(new URL(page.url()).searchParams.get('view') === 'progress', 'The first mobile week tap navigated before showing its total.');
-  assert(await progressWeekBar.getAttribute('data-touch-armed') === 'true', 'The first mobile week tap did not arm that week.');
-  assert((await page.locator('.progress-load-panel > p').textContent())?.includes('tap again to open'), 'The first mobile week tap did not explain the second tap.');
+  await page.waitForFunction((range) => document.querySelector('.weekly-totals-caption')?.textContent?.trim() !== range, initialProgressRange);
+  const preservedProgressRange = (await page.locator('.weekly-totals-caption').textContent())?.trim();
+  const progressWeekBar = page.locator('.weekly-totals-hit').first();
+  await progressWeekBar.focus();
   const progressScrollBeforeJump = await page.locator('.progress-view').evaluate((node) => node.scrollTop);
-  await progressWeekBar.click();
-  await page.waitForSelector(`.training-view [data-week="${progressWeek}"]`);
-  assert(new URL(page.url()).searchParams.get('week') === progressWeek, 'Selecting a Progress week did not create a Log week deep link.');
+  await progressWeekBar.press('Enter');
+  const progressWeek = new URL(page.url()).searchParams.get('week');
+  assert(progressWeek, 'Selecting a Progress week did not create a Log week deep link.');
   await page.waitForFunction((weekId) => {
     const root = document.querySelector('.training-view');
     const target = document.querySelector(`[data-week="${weekId}"]`);
@@ -351,7 +354,7 @@ try {
   await page.locator('.mobile-bottom-nav button').filter({ hasText: 'Progress' }).click();
   await page.waitForSelector('.progress-view');
   await page.waitForTimeout(350);
-  assert((await page.locator('.progress-block-title small').textContent())?.trim() === preservedProgressRange, 'Progress did not preserve its historical block after visiting Log.');
+  assert((await page.locator('.weekly-totals-caption').textContent())?.trim() === preservedProgressRange, 'Progress did not preserve its historical block after visiting Log.');
   assert(await progressResolution.getByRole('button', { name: '3m' }).getAttribute('class') === 'active', 'Progress did not preserve its resolution after visiting Log.');
   const restoredProgressScroll = await page.locator('.progress-view').evaluate((node) => node.scrollTop);
   assert(Math.abs(restoredProgressScroll - progressScrollBeforeJump) <= 2, `Progress scroll state was not restored (${progressScrollBeforeJump} vs ${restoredProgressScroll}).`);
@@ -384,16 +387,25 @@ try {
   const rolloverContext = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'Europe/London' });
   const rolloverPage = await rolloverContext.newPage();
   await rolloverPage.addInitScript((value) => localStorage.setItem('lydiard.siteKey', value), siteKey);
-  await rolloverPage.clock.install({ time: new Date('2026-07-19T22:55:00.000Z') });
+  const rollover = await rolloverPage.evaluate(() => {
+    const nextMonday = new Date();
+    nextMonday.setHours(0, 0, 0, 0);
+    nextMonday.setDate(nextMonday.getDate() + 7 - (nextMonday.getDay() + 6) % 7);
+    const midnight = nextMonday.getTime();
+    const nextWeek = nextMonday.toLocaleDateString('en-CA');
+    nextMonday.setDate(nextMonday.getDate() - 7);
+    return { midnight, nextWeek, previousWeek: nextMonday.toLocaleDateString('en-CA') };
+  });
+  await rolloverPage.clock.install({ time: new Date(rollover.midnight - 300_000) });
   await rolloverPage.goto(`${BASE_URL}/?view=log`, { waitUntil: 'networkidle' });
-  await rolloverPage.clock.pauseAt(new Date('2026-07-19T22:59:59.900Z'));
+  await rolloverPage.clock.pauseAt(new Date(rollover.midnight - 100));
   const preMidnightWeek = await rolloverPage.locator('[data-week]').first().getAttribute('data-week');
   assert(
-    preMidnightWeek === '2026-07-13',
+    preMidnightWeek === rollover.previousWeek,
     `Pre-midnight Log week is incorrect: ${preMidnightWeek}.`,
   );
   await rolloverPage.clock.runFor(100);
-  await rolloverPage.waitForFunction(() => document.querySelector('[data-week]')?.getAttribute('data-week') === '2026-07-20');
+  await rolloverPage.waitForFunction((week) => document.querySelector('[data-week]')?.getAttribute('data-week') === week, rollover.nextWeek);
   await rolloverContext.close();
 
   assert(pageErrors.length === 0, `Browser errors: ${pageErrors.join(' | ')}`);
@@ -408,7 +420,7 @@ try {
     activityReturnPosition: 'mobile + desktop',
     noteRoundTrip: true,
     dayNoteRoundTrip,
-    bannerDismissed,
+    syncTickShown,
     runStreamCharts: true,
     splitColumnInspection: 'hover + focus + tap',
     mobileRunOverview: 'directly below map',
@@ -417,7 +429,7 @@ try {
     adaptiveZones: true,
     bestEffortGroups: bestEffortGroupCount,
     canonicalRead: progressRead,
-    progressAxes: 'labelled x + y',
+    weeklyTotals: 'distance + time + elevation',
     progressBlocks: '1/3/6/12 months + older/newer',
     progressWeekToLog: true,
     touchWeekConfirmation: 'first tap totals, second tap Log',

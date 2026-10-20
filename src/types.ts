@@ -121,6 +121,31 @@ export interface RecoveryObservation {
   raw?: Record<string, unknown>;
 }
 
+/** Short subjective pulse used on run and rest days. */
+export interface DailyCheckin {
+  day: string;
+  energy?: number;
+  legFreshness?: number;
+  motivation?: number;
+  painLevel?: number;
+  sleepQuality?: number;
+  note: string;
+  source: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DailyCheckinDraft {
+  day: string;
+  energy: number;
+  legFreshness: number;
+  motivation: number;
+  painLevel: number;
+  sleepQuality: number;
+  note: string;
+}
+
 /**
  * One recorded lap distilled to just what the calendar mini lap-profile needs:
  * pace and distance. Kept tiny so the /api/activities feed can carry it for

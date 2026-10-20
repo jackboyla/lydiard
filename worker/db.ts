@@ -1461,6 +1461,8 @@ export interface DailyCheckin {
   energy?: number;
   legFreshness?: number;
   motivation?: number;
+  /** none=0, mild=1, moderate=2, significant=3 */
+  painLevel?: number;
   generalFatigue?: number;
   lifeStress?: number;
   leftKneePain?: number;
@@ -1472,6 +1474,7 @@ export interface DailyCheckin {
   sleepQuality?: number;
   bodyweightKg?: number;
   note: string;
+  source: string;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -1484,6 +1487,7 @@ interface DailyCheckinRow {
   energy: number | null;
   leg_freshness: number | null;
   motivation: number | null;
+  pain_level: number | null;
   general_fatigue: number | null;
   life_stress: number | null;
   left_knee_pain: number | null;
@@ -1495,6 +1499,7 @@ interface DailyCheckinRow {
   sleep_quality: number | null;
   bodyweight_kg: number | null;
   note: string;
+  source: string;
   version: number;
   created_at: string;
   updated_at: string;
@@ -1506,6 +1511,7 @@ function rowToDailyCheckin(row: DailyCheckinRow): DailyCheckin {
     energy: row.energy ?? undefined,
     legFreshness: row.leg_freshness ?? undefined,
     motivation: row.motivation ?? undefined,
+    painLevel: row.pain_level ?? undefined,
     generalFatigue: row.general_fatigue ?? undefined,
     lifeStress: row.life_stress ?? undefined,
     leftKneePain: row.left_knee_pain ?? undefined,
@@ -1517,6 +1523,7 @@ function rowToDailyCheckin(row: DailyCheckinRow): DailyCheckin {
     sleepQuality: row.sleep_quality ?? undefined,
     bodyweightKg: row.bodyweight_kg ?? undefined,
     note: row.note,
+    source: row.source,
     version: row.version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1555,26 +1562,29 @@ export async function upsertDailyCheckin(db: D1Database, checkin: DailyCheckinIn
   await db
     .prepare(
       `INSERT INTO daily_checkins (
-         day, energy, leg_freshness, motivation, general_fatigue, life_stress,
+         day, energy, leg_freshness, motivation, pain_level, general_fatigue, life_stress,
          left_knee_pain, right_knee_pain, left_achilles_pain, right_achilles_pain,
-         pain_altered_gait, illness_suspected, sleep_quality, bodyweight_kg, note,
+         pain_altered_gait, illness_suspected, sleep_quality, bodyweight_kg, note, source,
          version, created_at, updated_at
-       ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,1,?16,?16)
+       ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,1,?18,?18)
        ON CONFLICT(day) DO UPDATE SET
          energy=excluded.energy, leg_freshness=excluded.leg_freshness,
-         motivation=excluded.motivation, general_fatigue=excluded.general_fatigue,
+         motivation=excluded.motivation, pain_level=excluded.pain_level,
+         general_fatigue=excluded.general_fatigue,
          life_stress=excluded.life_stress, left_knee_pain=excluded.left_knee_pain,
          right_knee_pain=excluded.right_knee_pain, left_achilles_pain=excluded.left_achilles_pain,
          right_achilles_pain=excluded.right_achilles_pain,
          pain_altered_gait=excluded.pain_altered_gait, illness_suspected=excluded.illness_suspected,
          sleep_quality=excluded.sleep_quality, bodyweight_kg=excluded.bodyweight_kg,
-         note=excluded.note, version=daily_checkins.version+1, updated_at=excluded.updated_at`,
+         note=excluded.note, source=excluded.source,
+         version=daily_checkins.version+1, updated_at=excluded.updated_at`,
     )
     .bind(
       checkin.day,
       checkin.energy ?? null,
       checkin.legFreshness ?? null,
       checkin.motivation ?? null,
+      checkin.painLevel ?? null,
       checkin.generalFatigue ?? null,
       checkin.lifeStress ?? null,
       checkin.leftKneePain ?? null,
@@ -1586,6 +1596,7 @@ export async function upsertDailyCheckin(db: D1Database, checkin: DailyCheckinIn
       checkin.sleepQuality ?? null,
       checkin.bodyweightKg ?? null,
       checkin.note,
+      checkin.source,
       now,
     )
     .run();

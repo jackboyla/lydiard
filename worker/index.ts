@@ -9,6 +9,7 @@ import { authRoutes } from './routes/auth';
 import { ingestRoutes } from './routes/ingest';
 import { coachRoutes } from './routes/coach';
 import { refreshAdaptiveZones } from './maintenance';
+import { checkinPageRoutes, sendDailyCheckinIfDue, whatsappWebhookRoutes } from './checkins';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -25,6 +26,8 @@ app.use('/api/*', (c, next) => {
 app.get('/openapi.json', (c) => c.json(buildOpenApiDocument(new URL(c.req.url).origin) as object));
 
 app.route('/auth', authRoutes());
+app.route('/check-in', checkinPageRoutes());
+app.route('/api/whatsapp/webhook', whatsappWebhookRoutes());
 app.route('/api/agent', agentRoutes());
 app.route('/api/ingest', ingestRoutes());
 app.route('/api/coach', coachRoutes());
@@ -39,7 +42,13 @@ export default {
 
   // Cloud cron is the backstop for date-based work. Garmin activity sync runs
   // in GitHub Actions and also asks for this refresh after each final batch.
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(refreshAdaptiveZones(env.lydiard));
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    const tasks: Promise<unknown>[] = [sendDailyCheckinIfDue(env)];
+    // Keep the prior once-daily maintenance cadence even though outreach needs
+    // an hourly tick to follow the configured local hour through DST.
+    if (new Date(controller.scheduledTime).getUTCHours() === 0) {
+      tasks.push(refreshAdaptiveZones(env.lydiard));
+    }
+    ctx.waitUntil(Promise.all(tasks).then(() => undefined));
   },
 };
