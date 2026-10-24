@@ -10,9 +10,8 @@ import {
   saveStreams,
   updateSyncState,
   replaceGymSessions,
-  replaceDailyRecovery,
   saveActivityLaps,
-  upsertDailyRecovery,
+  upsertDailyRecoveries,
   upsertGymSessions,
   type TrainingPlanImportInput,
 } from '../db';
@@ -256,12 +255,7 @@ export function ingestRoutes(): Hono<{ Bindings: Env }> {
       clean.push(normalizeRecoveryRecord(record, defaultSource));
     }
 
-    if (payload.replace) {
-      await replaceDailyRecovery(c.env.lydiard);
-    }
-    for (const record of clean) {
-      await upsertDailyRecovery(c.env.lydiard, record);
-    }
+    await upsertDailyRecoveries(c.env.lydiard, clean, Boolean(payload.replace));
 
     return c.json({
       ok: true,

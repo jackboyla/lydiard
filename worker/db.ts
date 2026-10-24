@@ -1735,10 +1735,9 @@ export async function getDailyRecoveries(
   return (result.results ?? []).map(rowToDailyRecovery);
 }
 
-export async function upsertDailyRecovery(db: D1Database, recovery: DailyRecoveryInput): Promise<DailyRecovery> {
-  const now = new Date().toISOString();
+function dailyRecoveryStatement(db: D1Database, recovery: DailyRecoveryInput, now: string) {
   const rawJson = recovery.raw && Object.keys(recovery.raw).length > 0 ? JSON.stringify(recovery.raw) : '{}';
-  await db
+  return db
     .prepare(
       `INSERT INTO daily_recovery (
          day, source, sleep_start, sleep_end, sleep_duration_min, time_in_bed_min, sleep_efficiency,
@@ -1783,21 +1782,24 @@ export async function upsertDailyRecovery(db: D1Database, recovery: DailyRecover
       recovery.hrvStatus ?? null,
       rawJson,
       now,
-    )
-    .run();
-  const saved = await getDailyRecovery(db, recovery.day);
-  if (!saved) {
-    throw new Error(`Daily recovery ${recovery.day} was not saved.`);
-  }
-  return saved;
+    );
+}
+
+export async function upsertDailyRecoveries(
+  db: D1Database,
+  recoveries: DailyRecoveryInput[],
+  replace = false,
+): Promise<void> {
+  const now = new Date().toISOString();
+  const statements = recoveries.map((recovery) => dailyRecoveryStatement(db, recovery, now));
+  if (replace) statements.unshift(db.prepare('DELETE FROM daily_recovery'));
+  if (statements.length === 0) return;
+  // One D1 round trip avoids per-day write/read overhead; replacement is atomic.
+  await db.batch(statements);
 }
 
 export async function deleteDailyRecovery(db: D1Database, day: string): Promise<void> {
   await db.prepare('DELETE FROM daily_recovery WHERE day=?1').bind(day).run();
-}
-
-export async function replaceDailyRecovery(db: D1Database): Promise<void> {
-  await db.prepare('DELETE FROM daily_recovery').run();
 }
 
 export type SessionFeel = 'easier' | 'as_expected' | 'harder';
