@@ -4,9 +4,8 @@ compatibility_date = "2026-06-30"
 workers_dev = true
 
 [triggers]
-# Run date-based coach maintenance every day. Activity ingest also starts the
-# same task after its final batch, so reviews do not wait for this backstop.
-crons = ["23 * * * *"]
+# Garmin polls run twice an hour; checkins and coach maintenance use the :23 tick.
+crons = ["7,37 * * * *", "23 * * * *"]
 
 [assets]
 directory = "./dist"

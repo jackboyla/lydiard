@@ -9,9 +9,7 @@ on:
         required: false
         default: manual
   schedule:
-    # Hourly at :17. The distinct 06:17 expression also runs the wider daily
-    # reconciliation window without adding a second job in that hour.
-    - cron: "17 0-5,7-23 * * *"
+    # Cloudflare dispatches regular polls. Keep a daily wider reconciliation.
     - cron: "17 6 * * *"
 
 permissions:
@@ -67,7 +65,7 @@ jobs:
           if [ "$GARMIN_SCHEDULE" = "17 6 * * *" ]; then
             DEFAULT_INCREMENTAL_DAYS=45
           else
-            DEFAULT_INCREMENTAL_DAYS=7
+            DEFAULT_INCREMENTAL_DAYS=2
           fi
           INCREMENTAL_DAYS="${GARMIN_INCREMENTAL_DAYS:-$DEFAULT_INCREMENTAL_DAYS}"
           START_DATE="${GARMIN_EXTRACT_START:-$(date -u -d "$INCREMENTAL_DAYS days ago" +%F)}"
@@ -89,11 +87,17 @@ jobs:
               set +e
               "$@" 2>&1 | tee "$log_file"
               status="${PIPESTATUS[0]}"
+              set -e
+              if grep -Eiq 'too.?many.?requests|rate.?limit|http[^[:digit:]]*429|429[^[:digit:]]*(client error|too.?many)' "$log_file"; then
+                echo "::error::Garmin $label was rate limited; leaving retries to the next scheduled poll."
+                rm -f "$log_file"
+                return 1
+              fi
               if [ "$status" -eq 0 ]; then
                 rm -f "$log_file"
                 return 0
               fi
-              if grep -Eiq '429|too many requests|rate.?limit|temporarily unavailable|timed? ?out|connection reset|502|503|504' "$log_file"; then
+              if grep -Eiq 'temporarily unavailable|timed? ?out|connection reset|502|503|504' "$log_file"; then
                 if [ "$attempt" -lt 3 ]; then
                   wait_seconds=$((60 * attempt))
                   echo "Garmin $label hit a transient upstream error; retrying in ${wait_seconds}s."

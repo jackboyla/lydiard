@@ -80,7 +80,7 @@ run in **both** the Worker and the browser.
   explicit stress provenance and no claim that a load ratio is an injury probability.
 - **Route explorer:** the all-routes MapLibre view remains available under settings as a secondary
   tool, with fatigue / pace / recency coloring and range controls.
-- **Cloud sync:** an hourly GitHub Action runs `garmin-health-data`, verifies the SQLite DB,
+- **Cloud sync:** a GitHub Action triggered every 30 minutes runs `garmin-health-data`, verifies the SQLite DB,
   audits coverage, and imports Garmin runs with full GPS + HR/cadence/power streams.
 - **Agent-native:** a Bearer-key REST API + OpenAPI schema lets ChatGPT read training and expert
   wisdom, discuss the next 1–12 weeks, and publish only the agreed plan. See
@@ -353,16 +353,19 @@ The importer uses Node's built-in SQLite support and uploads one activity per re
 bootstrap so a failed midway upload cannot wipe the recent production rows. Omitting `--no-replace`
 is only appropriate when you intentionally want the first batch to clear all existing training data.
 
-The repository includes `.github/workflows/garmin-sync.yml` to run hourly at minute 17 after the
-bootstrap. Normal hourly polls ask Garmin for the last 7 days of activity data (`ACTIVITIES_LIST` +
-`ACTIVITY` FIT files); the 06:17 UTC run reconciles the last 45 days. Both import with
-`--no-replace`, so they can upsert new/recent activities without wiping older history. Set repository
+Cloudflare triggers `.github/workflows/garmin-sync.yml` every 30 minutes at :07 and :37 UTC after the
+bootstrap, using the same GitHub dispatch credentials as manual sync. It skips dispatch while a sync
+is queued or running. Normal polls ask Garmin for the last 2 days of activity data (`ACTIVITIES_LIST` +
+`ACTIVITY` FIT files); a separate daily GitHub schedule at 06:17 UTC reconciles the last 45 days.
+Both import with `--no-replace`, so they can upsert new/recent activities without wiping older history. Set repository
 variable `GARMIN_INCREMENTAL_DAYS` to override both rolling windows, set
 `GARMIN_EXTRACT_START` and/or `GARMIN_EXTRACT_END` to override the exact range for a one-off run, and
 set `GARMIN_DATA_TYPES` to change the comma-separated `garmin-health-data` data types. The workflow
 restores/caches `~/.garminconnect`, `garmin_data.db`, and `garmin_files` so `garmin extract` can
-resume instead of repeatedly re-authenticating and redownloading recent data. After each successful
-run it removes superseded Garmin caches, keeping the newest resumable snapshot. Required GitHub secrets:
+reuse login tokens and local data between runs. The extractor still downloads activity files in the
+requested window. After each successful
+run it removes superseded Garmin caches, keeping the newest resumable snapshot. Rate-limit failures
+stop the run rather than retrying immediately; the next scheduled poll can try again. Required GitHub secrets:
 
 - `GARMIN_USERNAME`
 - `GARMIN_PASSWORD`
@@ -380,9 +383,8 @@ GitHub secret `LYDIARD_INGEST_KEY`. The generated Garmin DB/files are ignored by
 because they contain private health and route data. The GitHub Actions cache will still hold those
 artifacts for scheduled automation.
 
-The website's refresh button can also dispatch this workflow immediately. Configure a fine-grained
-GitHub token restricted to this repository with **Actions: read and write**, then store it only as a
-Worker secret:
+The Cloudflare timer and website's refresh button both need a fine-grained GitHub token restricted
+to this repository with **Actions: read and write**. Store it only as a Worker secret:
 
 ```bash
 npx wrangler secret put GITHUB_SYNC_TOKEN

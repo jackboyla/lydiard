@@ -9,6 +9,7 @@ import { authRoutes } from './routes/auth';
 import { ingestRoutes } from './routes/ingest';
 import { coachRoutes } from './routes/coach';
 import { refreshAdaptiveZones } from './maintenance';
+import { dispatchGarminWorkflow } from './garminDispatch';
 import { checkinPageRoutes, sendDailyCheckinIfDue, whatsappWebhookRoutes } from './checkins';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -40,9 +41,12 @@ app.onError((error, c) => {
 export default {
   fetch: app.fetch,
 
-  // Cloud cron is the backstop for date-based work. Garmin activity sync runs
-  // in GitHub Actions and also asks for this refresh after each final batch.
+  // Keep Garmin dispatch separate from checkins and daily coach maintenance.
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (controller.cron === '7,37 * * * *') {
+      ctx.waitUntil(dispatchGarminWorkflow(env, 'lydiard-cron'));
+      return;
+    }
     const tasks: Promise<unknown>[] = [sendDailyCheckinIfDue(env)];
     // Keep the prior once-daily maintenance cadence even though outreach needs
     // an hourly tick to follow the configured local hour through DST.

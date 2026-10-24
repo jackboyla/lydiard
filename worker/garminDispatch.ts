@@ -21,7 +21,10 @@ export class GarminDispatchUpstreamError extends Error {}
 
 const GITHUB_API = 'https://api.github.com';
 
-export async function dispatchGarminWorkflow(env: Env): Promise<GarminDispatchResult> {
+export async function dispatchGarminWorkflow(
+  env: Env,
+  source: 'lydiard-web' | 'lydiard-cron' = 'lydiard-web',
+): Promise<GarminDispatchResult> {
   const token = env.GITHUB_SYNC_TOKEN?.trim();
   const repository = env.GITHUB_SYNC_REPOSITORY?.trim();
   const workflow = env.GITHUB_SYNC_WORKFLOW?.trim() || 'garmin-sync.yml';
@@ -60,7 +63,7 @@ export async function dispatchGarminWorkflow(env: Env): Promise<GarminDispatchRe
   const dispatchResponse = await fetch(`${workflowPath}/dispatches`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ref, inputs: { source: 'lydiard-web' } }),
+    body: JSON.stringify({ ref, inputs: { source } }),
   });
   if (!dispatchResponse.ok) {
     const payload = (await readJson(dispatchResponse)) as WorkflowRunsResponse | null;
