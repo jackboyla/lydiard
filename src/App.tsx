@@ -46,7 +46,7 @@ import { CoachPanel, type PlanSection } from './components/CoachPanel';
 import { PLAN_TABS, PlanView } from './components/PlanView';
 import { PowerDurationChart } from './components/PowerDurationChart';
 import { HeartRateDurationChart } from './components/HeartRateDurationChart';
-import { RecentBestEfforts } from './components/RecentBestEfforts';
+import { BakkenZone, RecentBestEfforts } from './components/RecentBestEfforts';
 import { ProgressZoneBreakdown } from './components/ProgressZoneBreakdown';
 import { TrainingView, TrainingZoneSummary, type TrainingJumpApi } from './components/TrainingView';
 import { WeeklyTotalsChart } from './components/WeeklyTotalsChart';
@@ -108,10 +108,10 @@ type ViewMode = 'log' | 'progress' | 'plan';
 type LogMode = 'list' | 'map';
 type BestEffortScope = 'all' | 'season';
 type ProgressResolution = '1m' | '3m' | '6m' | '12m';
-type ProgressTab = 'overview' | 'fitness' | 'bests' | 'zones';
+type ProgressTab = 'load' | 'fitness' | 'bests' | 'zones';
 
 const PROGRESS_TABS: ReadonlyArray<SectionTab<ProgressTab>> = [
-  { key: 'overview', label: 'Overview' },
+  { key: 'load', label: 'Load' },
   { key: 'fitness', label: 'Fitness' },
   { key: 'bests', label: 'Bests' },
   { key: 'zones', label: 'Zones' },
@@ -212,7 +212,7 @@ export default function App() {
     blockOffset: 0,
   });
   const progressScrollTop = useRef(0);
-  const [progressTab, setProgressTab] = useState<ProgressTab>(() => tabFromLocation(PROGRESS_TABS, 'overview'));
+  const [progressTab, setProgressTab] = useState<ProgressTab>(() => tabFromLocation(PROGRESS_TABS, 'load'));
   const [planTab, setPlanTab] = useState<PlanSection>(() => tabFromLocation(PLAN_TABS, 'week'));
   const confirmPlanNavigation = useCallback(
     (next: ViewMode): boolean => {
@@ -1266,7 +1266,7 @@ function ProgressView({
         }}
       />
 
-      {tab === 'overview' && (
+      {tab === 'load' && (
         <>
           <section className="product-card progress-snapshot" aria-label="Current training snapshot">
             <header className={`progress-snapshot-read tone-${currentRead.tone}`}>
@@ -1462,6 +1462,7 @@ function ProgressView({
             reviewHistory={zoneReviewHistory}
             onOpenActivity={onOpenActivity}
           />
+          {recentEffortsRefreshKey !== undefined && <BakkenZone refreshKey={recentEffortsRefreshKey} onOpenActivity={onOpenActivity} />}
           <ProgressZoneBreakdown loadModel={scopedProgress.loadModel} />
         </section>
       )}

@@ -318,7 +318,8 @@ try {
   assert((await page.locator('.zone-calibration-status').innerText()).includes('next routine review'), 'Adaptive-zone status does not explain the review cadence.');
   assert(await page.locator('.progress-zone-ledger').isVisible(), 'Range-scoped zone ledger is missing from Progress.');
   assert(await page.locator('.progress-zone-row').count() === 5, 'Progress zone ledger does not expose all five zones.');
-  await progressTab('Overview').click();
+  await page.getByRole('heading', { name: 'Bakken Golden Zone', exact: true }).waitFor();
+  await progressTab('Load').click();
   const progressResolution = page.getByRole('group', { name: 'Progress block size' });
   assert(await progressResolution.getByRole('button').count() === 4, 'Progress block resolutions are incomplete.');
   assert(await progressResolution.getByRole('button', { name: '3m' }).getAttribute('class') === 'active', 'The default Progress block is not 3 months / 12 weeks.');
@@ -446,7 +447,7 @@ try {
     progressWeekToLog: true,
     progressWeekKeyboardActivation: true,
     persistentLogProgressState: true,
-    progressSections: 'overview + fitness + bests + zones',
+    progressSections: 'load + fitness + bests + zones',
     planSections: 'week + goal + more',
     scullionBuckets: 8,
     goalControls: true,

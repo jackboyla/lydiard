@@ -34,7 +34,6 @@ try {
     }
     if (process.env.LYDIARD_REQUIRE_PERFORMANCE_DATA === '1') {
       assert(await bests.locator('.recent-effort-card button').count() > 0, 'Expected measured best efforts');
-      assert(await bests.locator('.bakken-intervals article').count() === 4, 'Expected four Bakken interval ranges');
     }
     fs.mkdirSync('progress/screenshots', { recursive: true });
     await page.screenshot({ path: `progress/screenshots/performance-bests-${width}.png` });
@@ -62,11 +61,23 @@ try {
       await hr.getByRole('button', { name: 'All periods', exact: true }).click();
     }
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'Page overflows horizontally');
-    assert.deepEqual(errors, []);
-    assert.equal(effortRequests.recent, 1, 'Recent efforts should not reload when coach context arrives');
-    assert.equal(effortRequests.allTime, 1, 'All-time efforts should load once per Progress visit');
     await page.getByRole('heading', { name: 'Heart rate duration curve', exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: `progress/screenshots/performance-hr-${width}.png` });
+    await page.getByRole('tab', { name: 'Zones' }).click();
+    const bakken = page.locator('.bakken-zone');
+    await bakken.getByRole('heading', { name: 'Bakken Golden Zone', exact: true }).waitFor();
+    for (const days of [60, 30]) {
+      await bakken.getByRole('button', { name: `${days} days`, exact: true }).click();
+      assert.equal(await bakken.getByRole('button', { name: `${days} days`, exact: true }).getAttribute('aria-pressed'), 'true');
+    }
+    if (process.env.LYDIARD_REQUIRE_PERFORMANCE_DATA === '1') {
+      await bakken.locator('.bakken-intervals article').first().waitFor();
+      assert(await bakken.locator('.bakken-intervals article').count() === 4, 'Expected four Bakken interval ranges');
+    }
+    assert.deepEqual(errors, []);
+    // Bests and Zones each load the rolling efforts once when opened.
+    assert.equal(effortRequests.recent, 2, 'Recent efforts should not reload when coach context arrives');
+    assert.equal(effortRequests.allTime, 1, 'All-time efforts should load once per Progress visit');
     console.log(JSON.stringify({ base, apiBase, width, errors, effortRequests }));
     await page.unrouteAll({ behavior: 'wait' });
     await page.close();

@@ -12760,7 +12760,6 @@ select {
 .recent-effort-card button strong { font-size: 1.4rem; font-variant-numeric: tabular-nums; }
 .recent-effort-card button span, .recent-effort-card button small { color: #b8cfc0; overflow-wrap: anywhere; }
 .recent-effort-card p { font-size: .85rem; color: #b8cfc0; }
-.bakken-zone { padding-top: 22px; border-top: 1px solid #698464; }
 .bakken-zone h3 { color: #e6d58c; }
 .bakken-zone a { color: #e6d58c; }
 .bakken-source { color: #e6d58c; border: 0; background: transparent; text-decoration: underline; cursor: pointer; padding: 3px 0; }
