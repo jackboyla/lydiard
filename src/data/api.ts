@@ -7,7 +7,6 @@ import type {
   BestEffortDistance,
   ActivitySummary,
   DailyCheckin,
-  DailyCheckinDraft,
   GymSession,
   SyncStatus,
   TrainingPlanDay,
@@ -187,11 +186,6 @@ export async function getGymSessions(range?: DateRange): Promise<GymSession[]> {
 export async function getDailyCheckins(range?: DateRange): Promise<DailyCheckin[]> {
   const data = await getJson<{ checkins: DailyCheckin[] }>(`/api/checkins${rangeQuery(range)}`);
   return data.checkins;
-}
-
-export async function saveDailyCheckin(draft: DailyCheckinDraft): Promise<DailyCheckin> {
-  const data = await mutationJson<{ checkin: DailyCheckin }>('/api/checkins', 'POST', draft);
-  return data.checkin;
 }
 
 export function getPushConfig(endpoint?: string): Promise<{ enabled: boolean; publicKey: string | null; subscribed: boolean }> {

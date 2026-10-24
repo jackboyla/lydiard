@@ -39,10 +39,9 @@ import {
 import { localWeekId, millisecondsUntilNextLocalWeek } from '../data/calendar';
 import { activityPaceSecPerKm, toWeekIdUtc } from '../data/mapRoutes';
 import type { ActivityDetail, ActivitySummary, ActivityWeather, GymSession, TrainingPlanDay, WeeklyAnalysis } from '../types';
-import type { DailyCheckin, DailyCheckinDraft } from '../types';
+import type { DailyCheckin } from '../types';
 import { MetricInfo, MetricsGuide, type MetricKey } from './MetricInfo';
 import { MiniLapProfile } from './MiniLapProfile';
-import { DailyCheckinCard } from './DailyCheckinCard';
 
 const LazyActivityRouteMap = lazy(() => import('./ActivityRouteMap'));
 const LazyActivityRunCharts = lazy(() => import('./ActivityRunCharts').then((module) => ({ default: module.ActivityRunCharts })));
@@ -91,8 +90,6 @@ interface TrainingViewProps {
   onRequestFullHistory: () => Promise<void>;
   allHistoryLoaded?: boolean;
   dailyCheckins: DailyCheckin[];
-  checkinsLoading: boolean;
-  onSaveDailyCheckin: (draft: DailyCheckinDraft) => Promise<void>;
 }
 
 // A week in the log is either a scored run week (with any gym that week attached)
@@ -194,8 +191,6 @@ export function TrainingView({
   onRequestFullHistory,
   allHistoryLoaded = false,
   dailyCheckins,
-  checkinsLoading,
-  onSaveDailyCheckin,
 }: TrainingViewProps) {
   const [visibleWeekCount, setVisibleWeekCount] = useState(INITIAL_WEEK_COUNT);
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -620,7 +615,6 @@ export function TrainingView({
         )
       ) : (
         <>
-      <DailyCheckinCard checkins={dailyCheckins} loading={checkinsLoading} onSave={onSaveDailyCheckin} />
       <section className="training-log-shell" aria-label="Activity log">
         <div
           ref={weekListRef}

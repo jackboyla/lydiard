@@ -37,6 +37,7 @@ try {
   });
 
   await page.goto(`${BASE_URL}/?view=log`, { waitUntil: 'networkidle' });
+  await page.getByRole('button', { name: 'Open settings' }).click();
   const enable = page.getByRole('button', { name: 'Enable free phone reminder' });
   const blocked = page.getByRole('button', { name: 'Notifications blocked in browser settings' });
   if (await enable.isVisible()) {
@@ -46,7 +47,7 @@ try {
     const note = await page.locator('.push-reminder-control').innerText();
     if (!note.includes('Test reminder sent.')) throw new Error('Successful test reminder state is missing.');
   } else if (!(await blocked.isVisible())) {
-    throw new Error(`Reminder control is missing. Card: ${await page.locator('.daily-pulse').innerText()}`);
+    throw new Error(`Reminder control is missing. Menu: ${await page.locator('#topbar-controls').innerText()}`);
   }
   const note = await page.locator('.push-reminder-control').innerText();
   const parsed = parsePushSubscription({
@@ -91,6 +92,7 @@ try {
     return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ subscribed: backendSubscribed, delivered: false }) });
   });
   await recovery.goto(`${BASE_URL}/?view=log`, { waitUntil: 'networkidle' });
+  await recovery.getByRole('button', { name: 'Open settings' }).click();
   const recoverEnable = recovery.getByRole('button', { name: 'Enable free phone reminder' });
   await recoverEnable.waitFor();
   await recoverEnable.click();
@@ -100,16 +102,19 @@ try {
     throw new Error('A temporary save failure removed the browser subscription.');
   }
   await recovery.reload({ waitUntil: 'networkidle' });
+  await recovery.getByRole('button', { name: 'Open settings' }).click();
   await recoverEnable.waitFor();
   saveFails = false;
   await recoverEnable.click();
   await recovery.getByText('Daily phone reminder on', { exact: true }).waitFor();
   await recovery.getByText('Reminder saved, but the test could not be sent.', { exact: false }).waitFor();
   await recovery.reload({ waitUntil: 'networkidle' });
+  await recovery.getByRole('button', { name: 'Open settings' }).click();
   await recovery.getByText('Daily phone reminder on', { exact: true }).waitFor();
   backendSubscribed = false;
   endpointExpired = true;
   await recovery.reload({ waitUntil: 'networkidle' });
+  await recovery.getByRole('button', { name: 'Open settings' }).click();
   await recoverEnable.click();
   await recovery.getByText('This reminder subscription expired.', { exact: false }).waitFor();
   if (await recovery.evaluate(async () => (await (await navigator.serviceWorker.register('/sw.js')).pushManager.getSubscription()) !== null)) {

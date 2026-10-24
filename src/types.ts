@@ -136,16 +136,6 @@ export interface DailyCheckin {
   updatedAt: string;
 }
 
-export interface DailyCheckinDraft {
-  day: string;
-  energy: number;
-  legFreshness: number;
-  motivation: number;
-  painLevel: number;
-  sleepQuality: number;
-  note: string;
-}
-
 /**
  * One recorded lap distilled to just what the calendar mini lap-profile needs:
  * pace and distance. Kept tiny so the /api/activities feed can carry it for

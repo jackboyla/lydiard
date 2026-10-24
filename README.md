@@ -87,8 +87,8 @@ run in **both** the Worker and the browser.
   [docs/agent-api.md](docs/agent-api.md).
 - **Personalized:** all signals compare each week to the runner's own rolling baselines.
 - **Active daily pulse:** a free evening phone notification asks for leg freshness, energy, niggles,
-  motivation, sleep, and an optional note on run and rest days. The same short form sits at the top
-  of Log. It uses the browser's standard push service, with no second phone number or paid provider.
+  motivation, sleep, and an optional note on run and rest days. Answers appear on that day in Log.
+  It uses the browser's standard push service, with no second phone number or paid provider.
 - **Stateful Lydiard coach:** date-effective Stryd Critical Power, evidence-backed CS/CP and LT1/LT2
   bands, power-first load with separate HR cost, coherent future blocks, post-run feedback, and an
   audit trail live behind the simple recommendation and plan workflow.
@@ -165,7 +165,7 @@ each enabled device unless today's check-in already exists. Tapping it opens the
 form. The browser only shares an opaque push endpoint and encryption keys; it does not share a phone
 number.
 
-To enable it on Android or desktop, open Log, tap **Enable free phone reminder**, then allow
+To enable it on Android or desktop, open the settings menu (☰), tap **Enable free phone reminder**, then allow
 notifications. On iPhone or iPad, first open Lydiard in Safari, use **Share → Add to Home Screen**,
 open the new Home Screen app, then enable the reminder. Apple supports standards-based Web Push for
 Home Screen web apps on iOS 16.4 and later and does not require an Apple Developer Program account.

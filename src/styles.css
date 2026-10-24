@@ -12784,323 +12784,15 @@ select {
 .heart-rate-duration-card .power-duration-legend button { font: inherit; min-height: 44px; padding: 8px 10px; border: 1px solid #638574; border-radius: 8px; color: #dceadd; background: #173e30; cursor: pointer; }
 .heart-rate-duration-card .power-duration-legend button[aria-pressed="true"] { color: #86d3b0; background: #2b3521; border-color: #465538; }
 .heart-rate-duration-card .hr-zone-reference { margin: 0; color: #c2d2ca; font-size: .85rem; line-height: 1.55; }
-/* Daily subjective pulse -------------------------------------------------- */
-.daily-pulse {
-  width: min(1120px, calc(100% - 48px));
-  margin: 22px auto 0;
-  border: 2px solid #0d0f0e;
-  background: var(--surface-soft);
-  color: #e4e7e5;
-  box-shadow: 5px 5px 0 #0d0f0e;
-}
-
-.daily-pulse button { font: inherit; }
-
-.daily-pulse-flow {
-  overflow: hidden;
-  border-color: #0c261d;
-  border-radius: 20px;
-  background:
-    radial-gradient(circle at 92% 12%, rgba(173, 212, 187, 0.14), transparent 28%),
-    #123b2d;
-  color: #fbf7ee;
-  box-shadow: 6px 6px 0 #0d0f0e;
-}
-
-.daily-pulse-topline,
-.daily-pulse-brand,
-.daily-pulse-saved-lead,
-.daily-pulse-saved-tail {
-  display: flex;
-  align-items: center;
-}
-
-.daily-pulse-topline {
-  justify-content: space-between;
-  gap: 20px;
-  padding: 17px 20px 12px;
-}
-
-.daily-pulse-brand,
-.daily-pulse-saved-lead { gap: 11px; }
-
-.daily-pulse-mark {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: 50%;
-  color: #f3c97e;
-  background: rgba(7, 25, 18, 0.32);
-}
-
-.daily-pulse-brand p,
-.daily-pulse-saved-lead p,
-.daily-pulse-loading p {
-  margin: 0 0 2px;
-  color: #f0c476;
-  font-size: 0.66rem;
-  font-weight: 850;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.daily-pulse-brand strong,
-.daily-pulse-saved-lead strong,
-.daily-pulse-loading strong {
-  font-size: 0.84rem;
-  font-weight: 750;
-}
-
-.daily-pulse-step-count {
-  display: flex;
-  align-items: baseline;
-  color: rgba(251, 247, 238, 0.58);
-  font-size: 0.74rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.daily-pulse-step-count strong { color: #fbf7ee; font-size: 1.35rem; }
-
-.daily-pulse-progress {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 5px;
-  padding: 0 20px;
-}
-
-.daily-pulse-progress span {
-  display: block;
-  height: 3px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.17);
-}
-
-.daily-pulse-progress span.complete { background: #d45a3f; }
-.daily-pulse-progress span.current { background: #554427; }
-
-.daily-pulse-question {
-  display: grid;
-  grid-template-columns: minmax(230px, 0.72fr) minmax(420px, 1.28fr);
-  align-items: center;
-  gap: 28px;
-  min-height: 150px;
-  padding: 20px;
-  animation: pulse-question-in 180ms ease-out;
-}
-
-@keyframes pulse-question-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.daily-pulse-question > div:first-child > span {
-  display: block;
-  margin-bottom: 4px;
-  color: #f0c476;
-  font-size: 0.68rem;
-  font-weight: 850;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.daily-pulse-question h2 {
-  margin: 0;
-  color: #fbf7ee;
-  font-family: Georgia, serif;
-  font-size: clamp(1.55rem, 3vw, 2.25rem);
-  font-weight: 500;
-  line-height: 1.04;
-}
-
-.daily-pulse-question p {
-  margin: 8px 0 0;
-  color: rgba(251, 247, 238, 0.64);
-  font-size: 0.75rem;
-}
-
-.daily-pulse-choices {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.daily-pulse-choices.choices-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-
-.daily-pulse-choices button {
-  display: grid;
-  place-items: center;
-  min-width: 0;
-  min-height: 74px;
-  border: 1px solid #0d0f0e;
-  border-radius: 11px;
-  color: #86d3ba;
-  background: #282319;
-  box-shadow: 3px 3px 0 #081a14;
-  cursor: pointer;
-  transition: transform 110ms ease, box-shadow 110ms ease, color 110ms ease, background 110ms ease;
-}
-
-.daily-pulse-choices button:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 #081a14; }
-.daily-pulse-choices button:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 #081a14; }
-.daily-pulse-choices button.selected { color: #fff8ed; background: #bd3f2f; }
-.daily-pulse-choices button:focus-visible { outline: 3px solid #705c38; outline-offset: 3px; }
-.daily-pulse-choices button:disabled { cursor: wait; opacity: 0.72; }
-.daily-pulse-choices button span { font-family: Georgia, serif; font-size: 1.35rem; line-height: 1; }
-.daily-pulse-choices button strong {
-  overflow: hidden;
-  width: 100%;
-  margin-top: 5px;
-  font-size: 0.62rem;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.daily-pulse-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 45px;
-  padding: 7px 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.13);
-  background: rgba(7, 25, 18, 0.24);
-}
-
-.daily-pulse-footer button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 0;
-  background: transparent;
-  padding: 5px;
-  color: rgba(251, 247, 238, 0.78);
-  font-size: 0.68rem;
-  font-weight: 750;
-  cursor: pointer;
-}
-
-.daily-pulse-footer button:disabled { visibility: hidden; }
-.daily-pulse-footer > span { margin-left: auto; color: rgba(251, 247, 238, 0.55); font-size: 0.67rem; }
-.daily-pulse-footer .daily-pulse-cancel { color: #f0c476; }
-
-.daily-pulse-note {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-  padding: 11px 20px 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  color: #f0c476;
-  font-size: 0.68rem;
-  font-weight: 800;
-}
-
-.daily-pulse-note input {
-  min-width: 0;
-  min-height: 40px;
-  border: 1px solid rgba(255, 255, 255, 0.23);
-  border-radius: 9px;
-  background: rgba(4, 18, 13, 0.35);
-  padding: 8px 11px;
-  color: #fffaf0;
-  font: inherit;
-  font-size: 16px;
-  outline: none;
-}
-
-.daily-pulse-note input:focus { border-color: #725e3b; box-shadow: 0 0 0 2px rgba(240, 196, 118, 0.18); }
-.daily-pulse-note input::placeholder { color: rgba(255, 255, 255, 0.4); }
-.daily-pulse-error { margin: 0; padding: 8px 20px 12px; color: #ffd0c6; font-size: 0.72rem; }
-
-.daily-pulse-saved {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 24px;
-  padding: 14px 16px;
-  border-radius: 15px;
-}
-
-.daily-pulse-saved .daily-pulse-mark {
-  width: 34px;
-  height: 34px;
-  border-color: #173c30;
-  color: #fff;
-  background: #173c30;
-}
-
-.daily-pulse-saved-lead p { color: #b63c2e; }
-.daily-pulse-saved-lead strong { color: #8dc3b0; white-space: nowrap; }
-.daily-pulse-readings { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.daily-pulse-readings button {
-  min-width: 0;
-  border: 0;
-  border-left: 1px solid #57534a;
-  background: transparent;
-  padding: 2px 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.daily-pulse-readings button span { display: block; color: #746f66; font-size: 0.58rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
-.daily-pulse-readings button strong { display: block; overflow: hidden; margin-top: 1px; color: #8dc3b0; font-size: 0.78rem; text-overflow: ellipsis; white-space: nowrap; }
-.daily-pulse-saved-tail { gap: 10px; }
-.daily-pulse-trend { display: flex; gap: 4px; }
-.daily-pulse-trend span { width: 7px; height: 7px; border-radius: 50%; background: #aaa69d; }
-.daily-pulse-trend span.good { background: #34765e; }
-.daily-pulse-trend span.middle { background: #c89139; }
-.daily-pulse-trend span.low { background: #b63c2e; }
-.daily-pulse-edit {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 34px;
-  border: 1px solid #625f5a;
-  border-radius: 999px;
-  background: var(--surface-soft);
-  padding: 0 11px;
-  color: #86d3ba;
-  font-size: 0.68rem;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.daily-pulse-note-preview {
-  grid-column: 2 / -1;
-  overflow: hidden;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  color: #756d63;
-  font-size: 0.7rem;
-  font-style: italic;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.daily-pulse-loading {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 15px 17px;
-  border-radius: 15px;
-}
-
-.daily-pulse-loading .daily-pulse-mark { border-color: #173c30; color: #86d3ba; background: transparent; }
-.daily-pulse-loading p { color: #b63c2e; }
+/* Daily check-in reminder, in the settings menu ---------------------------- */
 
 .push-reminder-control,
 .push-reminder-install {
   display: flex;
   align-items: center;
   gap: 9px;
-  margin: -4px 0 16px;
-  color: #b0beb9;
+  margin: 0;
+  color: var(--muted);
   font-size: 0.78rem;
 }
 
@@ -13109,20 +12801,20 @@ select {
   align-items: center;
   gap: 7px;
   min-height: 36px;
-  border: 1px solid #5b5952;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: #241f0e;
+  background: var(--surface-soft);
   padding: 0 12px;
-  color: #92d7c3;
+  color: var(--text);
   font: inherit;
-  font-weight: 800;
+  font-weight: 700;
   cursor: pointer;
 }
 
 .push-reminder-control.is-on {
   flex-wrap: wrap;
-  color: #92d7c3;
-  font-weight: 800;
+  color: var(--green);
+  font-weight: 700;
 }
 
 .push-reminder-control.is-on > span {
@@ -13136,50 +12828,13 @@ select {
   border: 0;
   background: transparent;
   padding: 3px 5px;
-  color: #cebeb8;
+  color: var(--muted);
   text-decoration: underline;
 }
 
 .push-reminder-control small { flex-basis: 100%; }
 .push-reminder-install { align-items: flex-start; }
 .push-reminder-install svg { flex: 0 0 auto; margin-top: 1px; }
-
-.daily-pulse-saved > .push-reminder-control,
-.daily-pulse-saved > .push-reminder-install {
-  grid-column: 2 / -1;
-  margin: 0;
-}
-
-@media (max-width: 800px) {
-  .daily-pulse {
-    width: calc(100% - 24px);
-    margin-top: 12px;
-  }
-  .daily-pulse-flow { border-radius: 16px; box-shadow: 4px 4px 0 #0d0f0e; }
-  .daily-pulse-topline { padding: 13px 14px 9px; }
-  .daily-pulse-progress { padding: 0 14px; }
-  .daily-pulse-question { grid-template-columns: 1fr; gap: 16px; min-height: 230px; padding: 17px 14px 18px; }
-  .daily-pulse-question h2 { font-size: 1.75rem; }
-  .daily-pulse-question p { margin-top: 5px; }
-  .daily-pulse-choices { gap: 6px; }
-  .daily-pulse-choices button { min-height: 68px; border-radius: 9px; box-shadow: 2px 2px 0 #081a14; }
-  .daily-pulse-choices button:hover { transform: none; box-shadow: 2px 2px 0 #081a14; }
-  .daily-pulse-choices button span { font-size: 1.25rem; }
-  .daily-pulse-choices button strong { font-size: 0.56rem; }
-  .daily-pulse-footer { padding: 6px 12px; }
-  .daily-pulse-note { grid-template-columns: 1fr; gap: 5px; padding: 10px 14px 13px; }
-  .daily-pulse-saved { grid-template-columns: 1fr auto; gap: 12px; padding: 13px 14px; border-radius: 12px; box-shadow: 3px 3px 0 #0d0f0e; }
-  .daily-pulse-readings { grid-column: 1 / -1; grid-row: 2; }
-  .daily-pulse-readings button { padding: 3px 8px; }
-  .daily-pulse-readings button:first-child { border-left: 0; padding-left: 0; }
-  .daily-pulse-readings button span { font-size: 0.5rem; }
-  .daily-pulse-readings button strong { font-size: 0.68rem; }
-  .daily-pulse-saved-tail { grid-column: 2; grid-row: 1; }
-  .daily-pulse-trend { display: none; }
-  .daily-pulse-note-preview { grid-column: 1 / -1; grid-row: 3; }
-  .daily-pulse-saved > .push-reminder-control,
-  .daily-pulse-saved > .push-reminder-install { grid-column: 1 / -1; grid-row: 4; margin: 0; }
-}
 
 /* A daily pulse is part of the diary, but stays quieter and shorter than a run. */
 .calendar-daily-pulse {
@@ -13536,16 +13191,10 @@ select {
 .activity-run-read,
 .activity-mobile-overview .activity-run-read,
 .activity-weather-panel,
-.daily-pulse-flow,
 .coach-mission-card {
   border-color: var(--border-soft);
   background: var(--surface);
   box-shadow: none;
-}
-
-.daily-pulse-flow {
-  border-width: 1px;
-  border-radius: 16px;
 }
 
 /* An empty day note is an affordance, not content: keep it to one quiet line. */

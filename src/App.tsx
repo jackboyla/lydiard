@@ -51,6 +51,7 @@ import { ProgressZoneBreakdown } from './components/ProgressZoneBreakdown';
 import { TrainingView, TrainingZoneSummary, type TrainingJumpApi } from './components/TrainingView';
 import { WeeklyTotalsChart } from './components/WeeklyTotalsChart';
 import { RollingLoadChart } from './components/RollingLoadChart';
+import { PushReminderControl } from './components/PushReminderControl';
 import { SectionTabs, replaceTabInLocation, tabFromLocation, type SectionTab } from './components/SectionTabs';
 import {
   getActivities,
@@ -74,7 +75,6 @@ import {
   proposeCoachBlock,
   acceptCoachBlock,
   saveCoachFeedback,
-  saveDailyCheckin,
   evaluateCoachActivity,
   applyCoachDecision,
   rejectCoachDecision,
@@ -92,7 +92,6 @@ import type {
   BestEffortDistance,
   BestEffortEntry,
   DailyCheckin,
-  DailyCheckinDraft,
   GymSession,
   Severity,
   SyncStatus,
@@ -165,7 +164,6 @@ export default function App() {
   const [allActivitiesLoaded, setAllActivitiesLoaded] = useState(false);
   const [gymSessions, setGymSessions] = useState<GymSession[]>([]);
   const [dailyCheckins, setDailyCheckins] = useState<DailyCheckin[]>([]);
-  const [checkinsLoading, setCheckinsLoading] = useState(true);
   const [planDays, setPlanDays] = useState<TrainingPlanDay[]>([]);
   const [planLoading, setPlanLoading] = useState(true);
   const [planLoadError, setPlanLoadError] = useState('');
@@ -360,7 +358,6 @@ export default function App() {
     const request = ++coreLoadRequest.current;
     setLoadError('');
     try {
-      setCheckinsLoading(true);
       const [nextStatus, nextWeeks, nextActivities, nextGym, nextCheckins] = await Promise.all([
         getSyncStatus(),
         getWeeks(),
@@ -376,7 +373,6 @@ export default function App() {
       setActivities(nextActivities);
       setGymSessions(nextGym);
       setDailyCheckins(nextCheckins);
-      setCheckinsLoading(false);
       // Garmin data syncs via GitHub Actions; a stale "Strava is not connected"
       // error is irrelevant noise for a Garmin-sourced store, so don't surface it.
       const garminSourced =
@@ -398,7 +394,6 @@ export default function App() {
       } else {
         setLoadError(error instanceof Error ? error.message : 'Could not reach the training API.');
       }
-      setCheckinsLoading(false);
     }
   }, []);
 
@@ -455,13 +450,6 @@ export default function App() {
       }
     }
   }, []);
-
-  const handleSaveDailyCheckin = useCallback(async (draft: DailyCheckinDraft) => {
-    const saved = await saveDailyCheckin(draft);
-    setDailyCheckins((current) => [...current.filter((item) => item.day !== saved.day), saved]
-      .sort((a, b) => a.day.localeCompare(b.day)));
-    void loadCoachData();
-  }, [loadCoachData]);
 
   const handleSavePlanDay = useCallback(
     async (
@@ -886,6 +874,8 @@ export default function App() {
             </label>
           )}
 
+          <PushReminderControl />
+
           <button className="utility-menu-button" type="button" onClick={openRouteExplorer}>
             <MapIcon size={16} aria-hidden="true" /> Explore routes
           </button>
@@ -1069,8 +1059,6 @@ export default function App() {
           onRequestFullHistory={loadAllActivities}
           allHistoryLoaded={allActivitiesLoaded}
           dailyCheckins={dailyCheckins}
-          checkinsLoading={checkinsLoading}
-          onSaveDailyCheckin={handleSaveDailyCheckin}
         />
       )}
 
