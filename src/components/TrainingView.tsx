@@ -1129,7 +1129,6 @@ function CalendarDayColumn({
           <GymSessionPill key={session.id} session={session} />
         ))}
         {day.checkin && <CalendarDailyPulse checkin={day.checkin} />}
-        {!hasRun && !hasGym && !hasCheckin && !hasNote && <span className="week-rest-label">Rest</span>}
         <DayNoteEditor dayId={day.dayId} planDay={day.planDay} onSave={onSaveDayNote} />
       </div>
     </section>
@@ -1541,8 +1540,6 @@ function ActivityWeatherPanel({ activity }: { activity: ActivitySummary }) {
             <span>{formatTemperature(weather.temperatureC)} · feels like {formatTemperature(weather.feelsLikeC)}</span>
           </div>
           <dl className="activity-weather-metrics">
-            <WeatherMetric label="Temperature" value={formatTemperature(weather.temperatureC)} />
-            <WeatherMetric label="Feels like" value={formatTemperature(weather.feelsLikeC)} />
             <WeatherMetric
               label="Wind"
               value={`${formatWeatherNumber(weather.windSpeedKph)} km/h ${windCompass(weather.windDirectionDeg)}`}

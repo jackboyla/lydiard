@@ -2,7 +2,6 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   Activity,
   AlertCircle,
-  CalendarDays,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -14,8 +13,18 @@ import { formatPace } from '../analysis/fatigue';
 import { PlanSaveConflictError } from '../data/api';
 import { matchPlanActualDurations, type PlanDurationMatch } from '../data/planMatching';
 import type { ActivitySummary, GymSession, TrainingPlanDay } from '../types';
+import type { PlanSection } from './CoachPanel';
+import { SectionTabs, type SectionTab } from './SectionTabs';
+
+export const PLAN_TABS: ReadonlyArray<SectionTab<PlanSection>> = [
+  { key: 'week', label: 'This week' },
+  { key: 'goal', label: 'Goal & block' },
+  { key: 'more', label: 'More' },
+];
 
 interface PlanViewProps {
+  section: PlanSection;
+  onSectionChange: (next: PlanSection) => void;
   coachPanel?: ReactNode;
   planDays: TrainingPlanDay[];
   activities: ActivitySummary[];
@@ -38,6 +47,8 @@ interface DayDraft {
 }
 
 export function PlanView({
+  section,
+  onSectionChange,
   coachPanel,
   planDays,
   activities,
@@ -52,6 +63,18 @@ export function PlanView({
 }: PlanViewProps) {
   const [weekStart, setWeekStart] = useState(() => dayId(startOfWeek(new Date())));
   const [dirtyDates, setDirtyDates] = useState<Set<string>>(() => new Set());
+  const rootRef = useRef<HTMLElement | null>(null);
+  const tabs = (
+    <SectionTabs
+      tabs={PLAN_TABS}
+      active={section}
+      ariaLabel="Plan sections"
+      onChange={(next) => {
+        if (rootRef.current) rootRef.current.scrollTop = 0;
+        onSectionChange(next);
+      }}
+    />
+  );
 
   const planByDate = useMemo(() => new Map(planDays.map((day) => [day.date, day])), [planDays]);
   const activitiesByDate = useMemo(() => groupByLocalDate(activities), [activities]);
@@ -111,8 +134,8 @@ export function PlanView({
 
   if (loading || loadError) {
     return (
-      <main className="product-page plan-view plan-editor-view">
-        <PlanPageIntro />
+      <main ref={rootRef} className="product-page plan-view plan-editor-view">
+        {tabs}
         {coachPanel}
         <section className={`product-card plan-editor-status${loadError ? ' error' : ''}`} role={loadError ? 'alert' : 'status'}>
           {loadError ? (
@@ -141,13 +164,13 @@ export function PlanView({
   }
 
   return (
-    <main className="product-page plan-view plan-editor-view">
-      <PlanPageIntro />
+    <main ref={rootRef} className="product-page plan-view plan-editor-view">
+      {tabs}
       {coachPanel}
 
-      <details className="product-card plan-legacy-editor">
+      <details className="product-card plan-legacy-editor" hidden={section !== 'more'}>
         <summary>Imported plan and general day notes</summary>
-        <p className="plan-legacy-editor-intro">Your structured future plan is shown above. Open this only to review imported RUNMASTER text or edit a general day note.</p>
+        <p className="plan-legacy-editor-intro">Review imported RUNMASTER text or edit a general day note.</p>
       <section className="plan-editor-card" aria-label={`Training plan ${formatWeekRange(weekStart)}`}>
         <header className="plan-editor-toolbar">
           <div>
@@ -435,21 +458,6 @@ function PlanDayRow({
         )}
       </div>
     </article>
-  );
-}
-
-function PlanPageIntro() {
-  return (
-    <section className="product-page-head plan-editor-page-head">
-      <div>
-        <p className="eyebrow">
-          <CalendarDays size={15} aria-hidden="true" />
-          Plan
-        </p>
-        <h2>Your training plan</h2>
-        <p>Review the weeks ahead, accept a draft or GPT-authored plan, and adjust only what needs changing.</p>
-      </div>
-    </section>
   );
 }
 

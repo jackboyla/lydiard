@@ -5,8 +5,8 @@
   "start_url": "/?view=log",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f2eee4",
-  "theme_color": "#18392f",
+  "background_color": "#0e0e0d",
+  "theme_color": "#0e0e0d",
   "icons": [
     {
       "src": "/lydiard-mark-512.png",

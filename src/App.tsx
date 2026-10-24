@@ -42,8 +42,8 @@ import {
   type TrainingLoadModel,
   type WeekLoadSummary,
 } from './analysis/loadModel';
-import { CoachPanel } from './components/CoachPanel';
-import { PlanView } from './components/PlanView';
+import { CoachPanel, type PlanSection } from './components/CoachPanel';
+import { PLAN_TABS, PlanView } from './components/PlanView';
 import { PowerDurationChart } from './components/PowerDurationChart';
 import { HeartRateDurationChart } from './components/HeartRateDurationChart';
 import { RecentBestEfforts } from './components/RecentBestEfforts';
@@ -51,6 +51,7 @@ import { ProgressZoneBreakdown } from './components/ProgressZoneBreakdown';
 import { TrainingView, TrainingZoneSummary, type TrainingJumpApi } from './components/TrainingView';
 import { WeeklyTotalsChart } from './components/WeeklyTotalsChart';
 import { RollingLoadChart } from './components/RollingLoadChart';
+import { SectionTabs, replaceTabInLocation, tabFromLocation, type SectionTab } from './components/SectionTabs';
 import {
   getActivities,
   getActivity,
@@ -107,6 +108,14 @@ type ViewMode = 'log' | 'progress' | 'plan';
 type LogMode = 'list' | 'map';
 type BestEffortScope = 'all' | 'season';
 type ProgressResolution = '1m' | '3m' | '6m' | '12m';
+type ProgressTab = 'overview' | 'fitness' | 'bests' | 'zones';
+
+const PROGRESS_TABS: ReadonlyArray<SectionTab<ProgressTab>> = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'fitness', label: 'Fitness' },
+  { key: 'bests', label: 'Bests' },
+  { key: 'zones', label: 'Zones' },
+];
 
 interface ProgressViewState {
   loadMetric: 'time' | 'distance';
@@ -203,6 +212,8 @@ export default function App() {
     blockOffset: 0,
   });
   const progressScrollTop = useRef(0);
+  const [progressTab, setProgressTab] = useState<ProgressTab>(() => tabFromLocation(PROGRESS_TABS, 'overview'));
+  const [planTab, setPlanTab] = useState<PlanSection>(() => tabFromLocation(PLAN_TABS, 'week'));
   const confirmPlanNavigation = useCallback(
     (next: ViewMode): boolean => {
       if (next === view || view !== 'plan' || !planHasUnsavedChanges) {
@@ -222,8 +233,9 @@ export default function App() {
     }
     setView(next);
     setMenuOpen(false);
-    window.history.pushState(null, '', appUrl(next));
-  }, [confirmPlanNavigation]);
+    const tab = next === 'progress' ? progressTab : next === 'plan' ? planTab : undefined;
+    window.history.pushState(null, '', appUrl(next, tab ? { tab } : {}));
+  }, [confirmPlanNavigation, planTab, progressTab]);
   const [range, setRange] = useState<RangePreset>('12w');
   const [colorBy, setColorBy] = useState<ColorBy>('severity');
   const [metric, setMetric] = useState<TrendMetricKey>('stride');
@@ -595,6 +607,8 @@ export default function App() {
       }
       setView(next);
       setLogMode(logModeFromLocation());
+      if (next === 'progress') setProgressTab((current) => tabFromLocation(PROGRESS_TABS, current));
+      if (next === 'plan') setPlanTab((current) => tabFromLocation(PLAN_TABS, current));
       const activityId = new URLSearchParams(window.location.search).get('activity');
       const weekId = new URLSearchParams(window.location.search).get('week');
       if (activityId) {
@@ -762,7 +776,6 @@ export default function App() {
         <div className="brand">
           <img className="brand-logo" src="/lydiard-mark.svg" alt="" aria-hidden="true" />
           <div className="brand-copy">
-            <span className="eyebrow">Running companion</span>
             <h1>Lydiard</h1>
           </div>
         </div>
@@ -914,8 +927,14 @@ export default function App() {
 
       {view === 'plan' ? (
         <PlanView
+          section={planTab}
+          onSectionChange={(next) => {
+            setPlanTab(next);
+            replaceTabInLocation(next);
+          }}
           coachPanel={(
             <CoachPanel
+              section={planTab}
               context={coachContext}
               loading={coachLoading}
               error={coachError}
@@ -966,6 +985,11 @@ export default function App() {
           onOpenWeek={openWeekInLog}
           viewState={progressViewState}
           onViewStateChange={setProgressViewState}
+          tab={progressTab}
+          onTabChange={(next) => {
+            setProgressTab(next);
+            replaceTabInLocation(next);
+          }}
           scrollTopRef={progressScrollTop}
           physiology={coachContext?.physiology}
           zoneReviewHistory={coachContext?.zoneReviewHistory}
@@ -1126,6 +1150,8 @@ function ProgressView({
   onOpenWeek,
   viewState,
   onViewStateChange,
+  tab,
+  onTabChange,
   scrollTopRef,
   physiology,
   zoneReviewHistory,
@@ -1155,6 +1181,8 @@ function ProgressView({
   onOpenWeek: (weekId: string) => void;
   viewState: ProgressViewState;
   onViewStateChange: Dispatch<SetStateAction<ProgressViewState>>;
+  tab: ProgressTab;
+  onTabChange: (next: ProgressTab) => void;
   scrollTopRef: MutableRefObject<number>;
   physiology?: PhysiologyEstimate;
   zoneReviewHistory: CoachContextData['zoneReviewHistory'] | undefined;
@@ -1204,18 +1232,22 @@ function ProgressView({
 
   useLayoutEffect(() => {
     const root = rootRef.current;
-    if (!root || scrollTopRef.current <= 0) return;
+    if (!root) return;
+    const target = scrollTopRef.current;
     let frame = 0;
     let cancelled = false;
     const restore = () => {
       if (cancelled) return;
-      root.scrollTop = scrollTopRef.current;
+      root.scrollTop = target;
       frame += 1;
       if (frame < 18) requestAnimationFrame(restore);
     };
-    restore();
+    if (target > 0) restore();
+    // Save on the way out rather than on each scroll event: a scroll that is still
+    // queued when the view unmounts would never be recorded.
     return () => {
       cancelled = true;
+      scrollTopRef.current = root.scrollTop;
     };
   }, [scrollTopRef]);
 
@@ -1223,214 +1255,216 @@ function ProgressView({
     <main
       ref={rootRef}
       className="product-page progress-view"
-      onScroll={(event) => { scrollTopRef.current = event.currentTarget.scrollTop; }}
     >
-      <section className="product-page-head progress-page-head">
-        <p className="eyebrow"><TrendingUp size={15} aria-hidden="true" /> Progress</p>
-        <h2>How your training is moving</h2>
-        <p>Weekly progression, personal bests, and one consistent read of your current load.</p>
-      </section>
-
-      <section className="progress-summary-grid">
-        <article className={`product-card progress-read-card tone-${currentRead.tone}`}>
-          <span>Current training read</span>
-          <h3>{currentRead.status}</h3>
-          <p>{currentRead.summary}</p>
-        </article>
-        <article className="product-card progress-week-card">
-          <span>This week</span>
-          <h3>{latestWeek ? `${latestWeek.distanceKm.toFixed(1)} km` : 'No runs yet'}</h3>
-          <div>
-            <Stat label="Runs" value={latestWeek ? String(latestWeek.activityCount) : '-'} />
-            <Stat label="Time" value={latestWeek ? formatHours(latestWeek.durationHours) : '-'} />
-            <Stat label="Load" value={latestWeek ? latestWeek.load.toFixed(1) : '-'} />
-            <Stat label="Gym" value={String(latestWeekGymCount)} />
-            <Stat label="Intensity" value={latestWeek ? `${intensityMinutesForSessions(latestWeek.sessions, loadModel.thresholds.thresholdPaceSecPerKm)} min` : '-'} />
-          </div>
-        </article>
-        <article className="product-card progress-week-card">
-          <span>Last 7 days</span>
-          <p className="progress-date-range">{lastSevenDaysRange}, inclusive</p>
-          <h3>{lastSevenDays.activityCount > 0 ? `${lastSevenDays.distanceKm.toFixed(1)} km` : 'No runs yet'}</h3>
-          <div>
-            <Stat label="Runs" value={String(lastSevenDays.activityCount)} />
-            <Stat label="Time" value={formatHours(lastSevenDays.durationHours)} />
-            <Stat label="Load" value={lastSevenDays.load.toFixed(1)} />
-            <Stat label="Gym" value={String(lastSevenDaysGymCount)} />
-            <Stat label="Intensity" value={`${Math.round(lastSevenDays.intensityMinutes)} min`} />
-          </div>
-        </article>
-      </section>
-
-      <section className="product-card progress-load-panel weekly-totals-panel">
-        <div className="progress-block-toolbar">
-          <div className="segmented weekly-totals-metric" role="group" aria-label="Weekly progression metric">
-            <button type="button" className={loadMetric === 'distance' ? 'active' : ''} aria-pressed={loadMetric === 'distance'} onClick={() => onViewStateChange((current) => ({ ...current, loadMetric: 'distance' }))}>km</button>
-            <button type="button" className={loadMetric === 'time' ? 'active' : ''} aria-pressed={loadMetric === 'time'} onClick={() => onViewStateChange((current) => ({ ...current, loadMetric: 'time' }))}>Time</button>
-          </div>
-          <div className="segmented progress-resolution-control" role="group" aria-label="Progress block size">
-            {PROGRESS_RESOLUTIONS.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                className={progressResolution === option.key ? 'active' : ''}
-                aria-pressed={progressResolution === option.key}
-                onClick={() => {
-                  onViewStateChange((current) => ({
-                    ...current,
-                    resolution: option.key,
-                    blockOffset: 0,
-                    activeWeekId: null,
-                    armedWeekId: null,
-                  }));
-                }}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <div className="progress-block-pager" role="group" aria-label="Progress block navigation">
-            <button
-              type="button"
-              aria-label={`View previous ${resolution.months}-month block`}
-              title="Older weeks"
-              disabled={!canGoOlder}
-              onClick={() => {
-                onViewStateChange((current) => ({
-                  ...current,
-                  blockOffset: current.blockOffset + 1,
-                  activeWeekId: null,
-                  armedWeekId: null,
-                }));
-              }}
-            >
-              <ChevronLeft size={18} aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              aria-label={`View next ${resolution.months}-month block`}
-              title="Newer weeks"
-              disabled={!canGoNewer}
-              onClick={() => {
-                onViewStateChange((current) => ({
-                  ...current,
-                  blockOffset: Math.max(0, current.blockOffset - 1),
-                  activeWeekId: null,
-                  armedWeekId: null,
-                }));
-              }}
-            >
-              <ChevronRight size={18} aria-hidden="true" />
-            </button>
-          </div>
-        </div>
-        <WeeklyTotalsChart
-          weeks={blockWeeks}
-          metric={loadMetric}
-          activeWeekId={activeWeek?.weekId ?? null}
-          armedWeekId={armedWeekId}
-          onSelectWeek={(weekId) => onViewStateChange((current) => ({ ...current, activeWeekId: weekId }))}
-          onActivateWeek={(weekId, pointerActivated) => {
-            const touchConfirmation = pointerActivated
-              && navigator.maxTouchPoints > 0
-              && window.matchMedia('(max-width: 760px)').matches;
-            if (touchConfirmation && armedWeekId !== weekId) {
-              onViewStateChange((current) => ({ ...current, activeWeekId: weekId, armedWeekId: weekId }));
-              return;
-            }
-            onViewStateChange((current) => ({ ...current, activeWeekId: weekId, armedWeekId: null }));
-            onOpenWeek(weekId);
-          }}
-        />
-        <p className="weekly-totals-caption">
-          {progressBlockOffset === 0 ? 'Latest' : 'Earlier'} {blockWeeks.length} weeks · {formatProgressBlockRange(blockWeeks)} · {activeWeek && armedWeekId === activeWeek.weekId ? 'tap again to open that week in Log' : 'select a week to open it in Log'}
-        </p>
-      </section>
-
-      <section className="product-card rolling-load-panel" aria-labelledby="rolling-load-heading">
-        <header className="rolling-load-head">
-          <span id="rolling-load-heading">Rolling 7-day load</span>
-          <small>Same range as above · each day totals the week before it</small>
-        </header>
-        <RollingLoadChart
-          sessions={loadModel.sessions}
-          fromDay={blockWeeks[0]?.weekId ?? ''}
-          untilDay={blockWeeks.length > 0 ? addDaysToDayId(lastItem(blockWeeks)!.weekId, 6) : ''}
-        />
-      </section>
-
-      <PowerDurationChart
-        points={powerDuration}
-        criticalPowerWatts={physiology?.canonicalCriticalPower?.watts}
-        loading={powerDurationLoading}
-        error={powerDurationError}
-        onRetry={onReloadPowerDuration}
-        onOpenActivity={onOpenActivity}
+      <SectionTabs
+        tabs={PROGRESS_TABS}
+        active={tab}
+        ariaLabel="Progress sections"
+        onChange={(next) => {
+          if (rootRef.current) rootRef.current.scrollTop = 0;
+          onTabChange(next);
+        }}
       />
 
-      <HeartRateDurationChart
-        profile={heartRateDuration}
-        zoneReferenceBpm={physiology?.maxObservedHeartRate}
-        loading={powerDurationLoading}
-        error={powerDurationError}
-        onRetry={onReloadPowerDuration}
-        onOpenActivity={onOpenActivity}
-      />
-      {recentEffortsRefreshKey !== undefined && <RecentBestEfforts refreshKey={recentEffortsRefreshKey} onOpenActivity={onOpenActivity} />}
+      {tab === 'overview' && (
+        <>
+          <section className="product-card progress-snapshot" aria-label="Current training snapshot">
+            <header className={`progress-snapshot-read tone-${currentRead.tone}`}>
+              <strong>{currentRead.status}</strong>
+              <p>{currentRead.summary}</p>
+            </header>
+            <table className="progress-snapshot-table">
+              <thead>
+                <tr>
+                  <th scope="col"><span className="sr-only">Measure</span></th>
+                  <th scope="col">This week</th>
+                  <th scope="col">Last 7 days</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">Distance</th><td>{latestWeek ? `${latestWeek.distanceKm.toFixed(1)} km` : '-'}</td><td>{`${lastSevenDays.distanceKm.toFixed(1)} km`}</td></tr>
+                <tr><th scope="row">Runs</th><td>{latestWeek ? latestWeek.activityCount : '-'}</td><td>{lastSevenDays.activityCount}</td></tr>
+                <tr><th scope="row">Time</th><td>{latestWeek ? formatHours(latestWeek.durationHours) : '-'}</td><td>{formatHours(lastSevenDays.durationHours)}</td></tr>
+                <tr><th scope="row">Load</th><td>{latestWeek ? latestWeek.load.toFixed(0) : '-'}</td><td>{lastSevenDays.load.toFixed(0)}</td></tr>
+                <tr><th scope="row">Intensity</th><td>{latestWeek ? `${intensityMinutesForSessions(latestWeek.sessions, loadModel.thresholds.thresholdPaceSecPerKm)} min` : '-'}</td><td>{`${Math.round(lastSevenDays.intensityMinutes)} min`}</td></tr>
+                <tr><th scope="row">Gym</th><td>{latestWeekGymCount}</td><td>{lastSevenDaysGymCount}</td></tr>
+              </tbody>
+            </table>
+            <p className="progress-snapshot-note">Last 7 days: <span className="progress-date-range">{lastSevenDaysRange}, inclusive</span></p>
+          </section>
 
-      <section className="progress-zones-section" aria-labelledby="progress-zones-heading">
-        <div className="progress-section-heading">
-          <div><span>Training zones</span><h2 id="progress-zones-heading">Your current intensity guide</h2></div>
-        </div>
-        <TrainingZoneSummary
-          loadModel={loadModel}
-          physiology={physiology}
-          reviewHistory={zoneReviewHistory}
-          onOpenActivity={onOpenActivity}
-        />
-      </section>
+          <section className="product-card progress-load-panel weekly-totals-panel">
+            <div className="progress-block-toolbar">
+              <div className="segmented weekly-totals-metric" role="group" aria-label="Weekly progression metric">
+                <button type="button" className={loadMetric === 'distance' ? 'active' : ''} aria-pressed={loadMetric === 'distance'} onClick={() => onViewStateChange((current) => ({ ...current, loadMetric: 'distance' }))}>km</button>
+                <button type="button" className={loadMetric === 'time' ? 'active' : ''} aria-pressed={loadMetric === 'time'} onClick={() => onViewStateChange((current) => ({ ...current, loadMetric: 'time' }))}>Time</button>
+              </div>
+              <div className="segmented progress-resolution-control" role="group" aria-label="Progress block size">
+                {PROGRESS_RESOLUTIONS.map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    className={progressResolution === option.key ? 'active' : ''}
+                    aria-pressed={progressResolution === option.key}
+                    onClick={() => {
+                      onViewStateChange((current) => ({
+                        ...current,
+                        resolution: option.key,
+                        blockOffset: 0,
+                        activeWeekId: null,
+                        armedWeekId: null,
+                      }));
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <div className="progress-block-pager" role="group" aria-label="Progress block navigation">
+                <button
+                  type="button"
+                  aria-label={`View previous ${resolution.months}-month block`}
+                  title="Older weeks"
+                  disabled={!canGoOlder}
+                  onClick={() => {
+                    onViewStateChange((current) => ({
+                      ...current,
+                      blockOffset: current.blockOffset + 1,
+                      activeWeekId: null,
+                      armedWeekId: null,
+                    }));
+                  }}
+                >
+                  <ChevronLeft size={18} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  aria-label={`View next ${resolution.months}-month block`}
+                  title="Newer weeks"
+                  disabled={!canGoNewer}
+                  onClick={() => {
+                    onViewStateChange((current) => ({
+                      ...current,
+                      blockOffset: Math.max(0, current.blockOffset - 1),
+                      activeWeekId: null,
+                      armedWeekId: null,
+                    }));
+                  }}
+                >
+                  <ChevronRight size={18} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+            <WeeklyTotalsChart
+              weeks={blockWeeks}
+              metric={loadMetric}
+              activeWeekId={activeWeek?.weekId ?? null}
+              armedWeekId={armedWeekId}
+              onSelectWeek={(weekId) => onViewStateChange((current) => ({ ...current, activeWeekId: weekId }))}
+              onActivateWeek={(weekId, pointerActivated) => {
+                const touchConfirmation = pointerActivated
+                  && navigator.maxTouchPoints > 0
+                  && window.matchMedia('(max-width: 760px)').matches;
+                if (touchConfirmation && armedWeekId !== weekId) {
+                  onViewStateChange((current) => ({ ...current, activeWeekId: weekId, armedWeekId: weekId }));
+                  return;
+                }
+                onViewStateChange((current) => ({ ...current, activeWeekId: weekId, armedWeekId: null }));
+                onOpenWeek(weekId);
+              }}
+            />
+            <p className="weekly-totals-caption">
+              {progressBlockOffset === 0 ? 'Latest' : 'Earlier'} {blockWeeks.length} weeks · {formatProgressBlockRange(blockWeeks)} · {activeWeek && armedWeekId === activeWeek.weekId ? 'tap again to open that week in Log' : 'select a week to open it in Log'}
+            </p>
+          </section>
 
-      <section className="progress-analysis-section" aria-labelledby="progress-analysis-heading">
-        <div className="progress-section-heading">
-          <div>
-            <span>Trends</span>
-            <h2 id="progress-analysis-heading">Your training over time</h2>
-          </div>
-        </div>
-        <ProgressZoneBreakdown loadModel={scopedProgress.loadModel} />
-        <Suspense fallback={<div className="surface-loading">Loading charts…</div>}>
-          <LazyAdvancedAnalysis
-            loadModel={scopedProgress.loadModel}
-            analyses={scopedProgress.analyses}
-            metric={metric}
-            selectedIndex={scopedSelectedIndex}
-            onMetricChange={onMetricChange}
-            onWeekSelect={(index) => {
-              const absoluteIndex = index + scopedProgress.analysisOffset;
-              onWeekSelect(absoluteIndex);
-              const weekId = scopedProgress.analyses[index]?.week.weekStart;
-              if (weekId) onOpenWeek(weekId);
-            }}
+          <section className="product-card rolling-load-panel" aria-labelledby="rolling-load-heading">
+            <header className="rolling-load-head">
+              <span id="rolling-load-heading">Rolling 7-day load</span>
+              <small>Same range as above · each day totals the week before it</small>
+            </header>
+            <RollingLoadChart
+              sessions={loadModel.sessions}
+              fromDay={blockWeeks[0]?.weekId ?? ''}
+              untilDay={blockWeeks.length > 0 ? addDaysToDayId(lastItem(blockWeeks)!.weekId, 6) : ''}
+            />
+          </section>
+        </>
+      )}
+
+      {tab === 'fitness' && (
+        <>
+          <PowerDurationChart
+            points={powerDuration}
+            criticalPowerWatts={physiology?.canonicalCriticalPower?.watts}
+            loading={powerDurationLoading}
+            error={powerDurationError}
+            onRetry={onReloadPowerDuration}
+            onOpenActivity={onOpenActivity}
           />
-        </Suspense>
-      </section>
 
-      <section className="product-card performance-profile-panel progress-bests-panel">
-        <header>
-          <div><span>Personal bests</span><small>{bestEffortWindowLabel}</small></div>
-          <div className="mini-toggle" role="group" aria-label="Personal best scope">
-            <button type="button" className={bestEffortScope === 'all' ? 'active' : ''} onClick={() => onBestEffortScopeChange('all')}>All time</button>
-            <button type="button" className={bestEffortScope === 'season' ? 'active' : ''} onClick={() => onBestEffortScopeChange('season')}>Season</button>
-          </div>
-        </header>
-        <BestEffortsPanel
-          groups={bestEffortGroups}
-          loading={bestEffortsLoading}
-          error={bestEffortsError}
-          onOpenActivity={onOpenActivity}
-          onRejectBestEffort={onRejectBestEffort}
-        />
-      </section>
+          <HeartRateDurationChart
+            profile={heartRateDuration}
+            zoneReferenceBpm={physiology?.maxObservedHeartRate}
+            loading={powerDurationLoading}
+            error={powerDurationError}
+            onRetry={onReloadPowerDuration}
+            onOpenActivity={onOpenActivity}
+          />
+          <section className="progress-analysis-section" aria-label="Fitness trends">
+            <Suspense fallback={<div className="surface-loading">Loading charts…</div>}>
+              <LazyAdvancedAnalysis
+                loadModel={scopedProgress.loadModel}
+                analyses={scopedProgress.analyses}
+                metric={metric}
+                selectedIndex={scopedSelectedIndex}
+                onMetricChange={onMetricChange}
+                onWeekSelect={(index) => {
+                  const absoluteIndex = index + scopedProgress.analysisOffset;
+                  onWeekSelect(absoluteIndex);
+                  const weekId = scopedProgress.analyses[index]?.week.weekStart;
+                  if (weekId) onOpenWeek(weekId);
+                }}
+              />
+            </Suspense>
+          </section>
+        </>
+      )}
+
+      {tab === 'bests' && (
+        <>
+          {recentEffortsRefreshKey !== undefined && <RecentBestEfforts refreshKey={recentEffortsRefreshKey} onOpenActivity={onOpenActivity} />}
+
+          <section className="product-card performance-profile-panel progress-bests-panel">
+            <header>
+              <div><span>Personal bests</span><small>{bestEffortWindowLabel}</small></div>
+              <div className="mini-toggle" role="group" aria-label="Personal best scope">
+                <button type="button" className={bestEffortScope === 'all' ? 'active' : ''} onClick={() => onBestEffortScopeChange('all')}>All time</button>
+                <button type="button" className={bestEffortScope === 'season' ? 'active' : ''} onClick={() => onBestEffortScopeChange('season')}>Season</button>
+              </div>
+            </header>
+            <BestEffortsPanel
+              groups={bestEffortGroups}
+              loading={bestEffortsLoading}
+              error={bestEffortsError}
+              onOpenActivity={onOpenActivity}
+              onRejectBestEffort={onRejectBestEffort}
+            />
+          </section>
+        </>
+      )}
+
+      {tab === 'zones' && (
+        <section className="progress-zones-section" aria-label="Training zones">
+          <TrainingZoneSummary
+            loadModel={loadModel}
+            physiology={physiology}
+            reviewHistory={zoneReviewHistory}
+            onOpenActivity={onOpenActivity}
+          />
+          <ProgressZoneBreakdown loadModel={scopedProgress.loadModel} />
+        </section>
+      )}
     </main>
   );
 }
@@ -2445,7 +2479,6 @@ function PasswordGate({ error, onSubmit }: { error: string; onSubmit: (value: st
         <div className="password-brand">
           <img className="brand-logo" src="/lydiard-mark.svg" alt="" aria-hidden="true" />
           <div className="brand-copy">
-            <span className="eyebrow">Running companion</span>
             <h1>Lydiard</h1>
           </div>
         </div>

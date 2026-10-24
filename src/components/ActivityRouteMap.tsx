@@ -14,17 +14,17 @@ const DETAIL_MAP_STYLE: maplibregl.StyleSpecification = {
     carto: {
       type: 'raster',
       tiles: [
-        'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-        'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-        'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-        'https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
       ],
       tileSize: 256,
       attribution: '© OpenStreetMap contributors © CARTO',
     },
   },
   layers: [
-    { id: 'background', type: 'background', paint: { 'background-color': '#e9e8e4' } },
+    { id: 'background', type: 'background', paint: { 'background-color': '#1b1b19' } },
     { id: 'carto', type: 'raster', source: 'carto', paint: { 'raster-opacity': 0.84 } },
   ],
 };
@@ -68,14 +68,14 @@ export default function ActivityRouteMap({ activity }: ActivityRouteMapProps) {
         type: 'line',
         source: 'activity-route',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#ffffff', 'line-width': 8, 'line-opacity': 0.86 },
+        paint: { 'line-color': '#0e0e0d', 'line-width': 8, 'line-opacity': 0.7 },
       });
       map.addLayer({
         id: 'activity-route-line',
         type: 'line',
         source: 'activity-route',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#285c45', 'line-width': 4.5, 'line-opacity': 0.98 },
+        paint: { 'line-color': '#e0533f', 'line-width': 4.5, 'line-opacity': 0.98 },
       });
       map.addSource('activity-route-points', {
         type: 'geojson',
@@ -93,8 +93,8 @@ export default function ActivityRouteMap({ activity }: ActivityRouteMapProps) {
         source: 'activity-route-points',
         paint: {
           'circle-radius': 6,
-          'circle-color': ['match', ['get', 'kind'], 'finish', '#a6631b', '#285c45'],
-          'circle-stroke-color': '#ffffff',
+          'circle-color': ['match', ['get', 'kind'], 'finish', '#e3ad55', '#5cc391'],
+          'circle-stroke-color': '#0e0e0d',
           'circle-stroke-width': 2.5,
         },
       });

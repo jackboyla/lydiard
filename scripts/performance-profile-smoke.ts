@@ -24,8 +24,7 @@ try {
       const response = await route.fetch({ url: new URL(url.pathname + url.search, apiBase).toString() });
       await route.fulfill({ response });
     });
-    await page.goto(`${base}/?view=progress`, { waitUntil: 'networkidle' });
-    await page.getByRole('heading', { name: 'Heart rate duration curve', exact: true }).waitFor();
+    await page.goto(`${base}/?view=progress&tab=bests`, { waitUntil: 'networkidle' });
     await page.getByRole('heading', { name: 'Recent best efforts', exact: true }).waitFor();
     const bests = page.locator('.recent-best-efforts');
     await bests.locator('.recent-effort-card').first().waitFor();
@@ -33,13 +32,19 @@ try {
       await bests.getByRole('button', { name: `${days} days`, exact: true }).click();
       assert.equal(await bests.getByRole('button', { name: `${days} days`, exact: true }).getAttribute('aria-pressed'), 'true');
     }
+    if (process.env.LYDIARD_REQUIRE_PERFORMANCE_DATA === '1') {
+      assert(await bests.locator('.recent-effort-card button').count() > 0, 'Expected measured best efforts');
+      assert(await bests.locator('.bakken-intervals article').count() === 4, 'Expected four Bakken interval ranges');
+    }
+    fs.mkdirSync('progress/screenshots', { recursive: true });
+    await page.screenshot({ path: `progress/screenshots/performance-bests-${width}.png` });
+    await page.getByRole('tab', { name: 'Fitness' }).click();
+    await page.getByRole('heading', { name: 'Heart rate duration curve', exact: true }).waitFor();
     const hr = page.locator('.heart-rate-duration-card');
     const hrPoints = hr.locator('.power-duration-point');
     if (process.env.LYDIARD_REQUIRE_PERFORMANCE_DATA === '1') {
       await hrPoints.first().waitFor({ state: 'attached', timeout: 60_000 });
       assert(await hrPoints.count() > 0, 'Expected measured HR curve');
-      assert(await bests.locator('.recent-effort-card button').count() > 0, 'Expected measured best efforts');
-      assert(await bests.locator('.bakken-intervals article').count() === 4, 'Expected four Bakken interval ranges');
     }
     if (process.env.LYDIARD_EXPECT_HR_PEAK) {
       const expectedPeak = `${process.env.LYDIARD_EXPECT_HR_PEAK} bpm`;
@@ -60,11 +65,8 @@ try {
     assert.deepEqual(errors, []);
     assert.equal(effortRequests.recent, 1, 'Recent efforts should not reload when coach context arrives');
     assert.equal(effortRequests.allTime, 1, 'All-time efforts should load once per Progress visit');
-    fs.mkdirSync('progress/screenshots', { recursive: true });
     await page.getByRole('heading', { name: 'Heart rate duration curve', exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: `progress/screenshots/performance-hr-${width}.png` });
-    await page.getByRole('heading', { name: 'Recent best efforts', exact: true }).scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `progress/screenshots/performance-bests-${width}.png` });
     console.log(JSON.stringify({ base, apiBase, width, errors, effortRequests }));
     await page.unrouteAll({ behavior: 'wait' });
     await page.close();

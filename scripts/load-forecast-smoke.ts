@@ -16,7 +16,7 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 async function inspect(page: Page, viewport: 'desktop' | 'mobile') {
-  await page.goto(`${BASE_URL}/?view=plan`, { waitUntil: 'networkidle' });
+  await page.goto(`${BASE_URL}/?view=plan&tab=goal`, { waitUntil: 'networkidle' });
   const forecast = page.locator('.coach-load-forecast');
   await forecast.waitFor({ state: 'visible', timeout: 30_000 });
   const summaryCount = await forecast.locator('.coach-forecast-summary article').count();

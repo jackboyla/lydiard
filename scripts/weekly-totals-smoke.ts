@@ -114,7 +114,7 @@ try {
     const order = await page.evaluate(() => [...document.querySelectorAll('.progress-view > *')].map((node) => node.className));
     const volumeAt = order.findIndex((name) => name.includes('weekly-totals-panel'));
     assert(
-      volumeAt === order.findIndex((name) => name.includes('progress-summary-grid')) + 1
+      volumeAt === order.findIndex((name) => name.includes('progress-snapshot')) + 1
         && order[volumeAt + 1]?.includes('rolling-load-panel'),
       `${label}: unexpected Progress order ${order.join(' | ')}.`,
     );

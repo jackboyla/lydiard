@@ -46,7 +46,6 @@ export function HeartRateDurationChart({ profile, zoneReferenceBpm, loading, err
           <strong>{peak ? `${peak.bpm} bpm` : '—'}</strong>
         </div>
       </header>
-      {zoneReferenceBpm && <p className="hr-zone-reference">Longer-term observed HR used for zones: <strong>{zoneReferenceBpm} bpm</strong>. This uses supported peak readings over the physiology lookback, normally 365 days. A lower recent peak does not mean your true maximum has fallen.</p>}
       {loading && !profile ? <div className="power-duration-state" role="status">Reading heart rate streams…</div>
         : error && !profile ? <div className="power-duration-state power-duration-error" role="alert"><p>{error}</p><button type="button" onClick={onRetry}>Try again</button></div>
           : profile?.points.length ? <>
@@ -66,8 +65,13 @@ export function HeartRateDurationChart({ profile, zoneReferenceBpm, loading, err
             <div className="power-duration-legend" aria-label="Heart rate duration periods">{[30, 60, 90].map((period) => <span key={period}><i className={`freshness-${freshness(period as HeartRatePeriod)}`} />Last {period} days</span>)}</div>
             <div className="power-duration-detail" aria-live="polite">{selected ? <><div><small>Last {selected.periodDays} days · {selected.activityDate.slice(0, 10)}</small><strong>{duration(selected.durationSec)} at {selected.bpm} bpm</strong><span>{selected.activityName} · {Math.floor(selected.startSec / 60)}:{String(Math.floor(selected.startSec % 60)).padStart(2, '0')} into run</span></div><button type="button" onClick={() => onOpenActivity(selected.activityId)}><Activity size={15} aria-hidden="true" /> View run</button></> : <p>Select a point to inspect its run.</p>}</div>
             <div className="power-duration-state">
-              {peak ? <><strong>{peak.bpm} bpm · highest supported sample · {peak.confidence === 'repeated' ? 'supported by multiple runs' : 'one run; needs repeat evidence'}</strong><p>{profile?.explanation}</p>{peak.supportingRuns.map((run) => <button key={run.activityId} type="button" onClick={() => onOpenActivity(run.activityId)}>{run.activityDate.slice(0, 10)} · {run.bpm} bpm · View run</button>)}</> : <p>No HR sample has enough nearby readings to support a recent maximum.</p>}
-              <p>{profile?.excludedSamples ?? 0} invalid or brief high readings excluded. {profile?.rawMaxBpm ? `Highest raw sample: ${profile.rawMaxBpm} bpm (unverified).` : ''}</p>
+              {peak ? <><strong>{peak.bpm} bpm · highest supported sample · {peak.confidence === 'repeated' ? 'supported by multiple runs' : 'one run; needs repeat evidence'}</strong>{peak.supportingRuns.map((run) => <button key={run.activityId} type="button" onClick={() => onOpenActivity(run.activityId)}>{run.activityDate.slice(0, 10)} · {run.bpm} bpm · View run</button>)}</> : <p>No HR sample has enough nearby readings to support a recent maximum.</p>}
+              <details className="power-duration-method">
+                <summary>How this is measured</summary>
+                {zoneReferenceBpm && <p className="hr-zone-reference">Longer-term observed HR used for zones: <strong>{zoneReferenceBpm} bpm</strong>. This uses supported peak readings over the physiology lookback, normally 365 days. A lower recent peak does not mean your true maximum has fallen.</p>}
+                {peak && <p>{profile?.explanation}</p>}
+                <p>{profile?.excludedSamples ?? 0} invalid or brief high readings excluded. {profile?.rawMaxBpm ? `Highest raw sample: ${profile.rawMaxBpm} bpm (unverified).` : ''}</p>
+              </details>
             </div>
           </> : <div className="power-duration-state"><strong>No heart rate curve yet</strong><p>Runs need a supported HR sample or at least 5 seconds of valid readings in the last 90 days.</p></div>}
     </section>

@@ -275,7 +275,10 @@ try {
   await page.locator('.mobile-bottom-nav button').filter({ hasText: 'Progress' }).click();
   await page.waitForSelector('.progress-view');
   assert(new URL(page.url()).searchParams.get('view') === 'progress', 'Progress URL state was not updated.');
-  const progressRead = (await page.locator('.progress-read-card h3').textContent())?.trim();
+  const progressRead = (await page.locator('.progress-snapshot-read strong').textContent())?.trim();
+  const progressTab = (name: string) => page.getByRole('tablist', { name: 'Progress sections' }).getByRole('tab', { name });
+  await progressTab('Bests').click();
+  assert(new URL(page.url()).searchParams.get('tab') === 'bests', 'Progress section was not recorded in the URL.');
   await page.waitForFunction(() => document.querySelectorAll('.best-effort-group').length >= 11, undefined, { timeout: 20_000 });
   bestEffortGroupCount = await page.locator('.best-effort-group').count();
   const bestEffortLabels = await page.locator('.best-effort-group > header > span').allTextContents();
@@ -303,13 +306,19 @@ try {
   const restoredRefresh = page.waitForResponse((response) => response.url().includes('/api/best-efforts') && response.status() === 200);
   await page.getByRole('button', { name: 'All time' }).click();
   await restoredRefresh;
+  await progressTab('Fitness').click();
   await page.waitForSelector('.aerobic-efficiency-card');
   await page.waitForSelector('.heart-rate-pace-card');
+  assert(await page.locator('.analysis-chart-stack').isVisible(), 'Fitness charts are missing from Progress.');
+  assert(await page.locator('.heart-rate-pace-card .recharts-area-area').count() >= 2, 'Continuous heart-rate range bands are missing.');
+  assert(await page.locator('.heart-rate-pace-card .heart-rate-pace-points.recharts-symbols').count() > 0, 'Exact-pace run observations are missing.');
+  await progressTab('Zones').click();
   assert(await page.locator('.training-zone-panel').isVisible(), 'Training zones are missing from Progress.');
   assert(await page.locator('.zone-calibration-status').isVisible(), 'Adaptive-zone review status is missing from Progress.');
   assert((await page.locator('.zone-calibration-status').innerText()).includes('next routine review'), 'Adaptive-zone status does not explain the review cadence.');
   assert(await page.locator('.progress-zone-ledger').isVisible(), 'Range-scoped zone ledger is missing from Progress.');
   assert(await page.locator('.progress-zone-row').count() === 5, 'Progress zone ledger does not expose all five zones.');
+  await progressTab('Overview').click();
   const progressResolution = page.getByRole('group', { name: 'Progress block size' });
   assert(await progressResolution.getByRole('button').count() === 4, 'Progress block resolutions are incomplete.');
   assert(await progressResolution.getByRole('button', { name: '3m' }).getAttribute('class') === 'active', 'The default Progress block is not 3 months / 12 weeks.');
@@ -333,9 +342,6 @@ try {
   assert(twelveMonthWeeks >= sixMonthWeeks && twelveMonthWeeks <= 52, 'The 12-month resolution does not include the available weeks within its range.');
   await progressResolution.getByRole('button', { name: '3m' }).click();
   assert(await page.locator('.weekly-totals-hit').count() === 12, 'The 3-month resolution did not restore 12 weekly points.');
-  assert(await page.locator('.analysis-chart-stack').isVisible(), 'Progress charts are not always visible.');
-  assert(await page.locator('.heart-rate-pace-card .recharts-area-area').count() >= 2, 'Continuous heart-rate range bands are missing.');
-  assert(await page.locator('.heart-rate-pace-card .heart-rate-pace-points.recharts-symbols').count() > 0, 'Exact-pace run observations are missing.');
   await page.getByRole('button', { name: 'View previous 3-month block' }).click();
   await page.waitForFunction((range) => document.querySelector('.weekly-totals-caption')?.textContent?.trim() !== range, initialProgressRange);
   const preservedProgressRange = (await page.locator('.weekly-totals-caption').textContent())?.trim();
@@ -370,13 +376,19 @@ try {
   await page.waitForSelector('.progress-view');
 
   await page.locator('.mobile-bottom-nav button').filter({ hasText: 'Plan' }).click();
-  await page.waitForSelector('.coach-block-planner', { timeout: 10_000 });
+  await page.waitForSelector('.coach-mission-card', { timeout: 10_000 });
   assert(new URL(page.url()).searchParams.get('view') === 'plan', 'Plan URL state was not updated.');
   const planRead = (await page.locator('.coach-mission-card').textContent())?.trim() ?? '';
   assert(planRead.includes(progressRead ?? ''), `Progress status is missing from the Plan mission: ${progressRead} vs ${planRead}`);
-  assert(await page.locator('.coach-goal-form').isVisible(), 'Goal distance/time controls are missing from Plan.');
   assert(await page.locator('.coach-bucket').count() === 8, 'The Scullion systems read does not expose all eight training buckets.');
+  const planTab = (name: string) => page.getByRole('tablist', { name: 'Plan sections' }).getByRole('tab', { name });
+  await planTab('Goal & block').click();
+  assert(!(await page.locator('.coach-goal-form').isVisible()), 'Goal controls should stay folded until asked for.');
+  await page.getByText('Change goal').click();
+  assert(await page.locator('.coach-goal-form').isVisible(), 'Goal distance/time controls are missing from Plan.');
   assert(await page.locator('.coach-block-planner').isVisible(), 'Future-plan action is missing.');
+  await planTab('More').click();
+  assert(await page.locator('.coach-responses').isVisible(), 'Post-run feedback is missing from Plan.');
   assert(!(await page.locator('.coach-advanced-settings').evaluate((node) => (node as HTMLDetailsElement).open)), 'Advanced coach settings should start closed.');
   assert(!(await page.locator('.plan-legacy-editor').evaluate((node) => (node as HTMLDetailsElement).open)), 'Legacy plan editor should start closed.');
 
@@ -434,6 +446,8 @@ try {
     progressWeekToLog: true,
     progressWeekKeyboardActivation: true,
     persistentLogProgressState: true,
+    progressSections: 'overview + fitness + bests + zones',
+    planSections: 'week + goal + more',
     scullionBuckets: 8,
     goalControls: true,
     browserBack: true,

@@ -35,7 +35,11 @@ import type {
 import type { GymSession } from '../types';
 import { RecoveryCard } from './RecoveryCard';
 
+export type PlanSection = 'week' | 'goal' | 'more';
+
 export interface CoachPanelProps {
+  /** Which Plan section is visible; the others stay mounted so drafts survive a tab switch. */
+  section: PlanSection;
   context: CoachContextData | null;
   loading: boolean;
   error: string;
@@ -149,135 +153,131 @@ export function CoachPanel(props: CoachPanelProps) {
 
   return (
     <section className="coach-shell coach-shell-simple" aria-label="Training plan and coach">
-      <GoalHeader
-        read={scullion}
-        distance={goalDistance}
-        time={goalTime}
-        date={goalDate}
-        working={working === 'goal'}
-        error={goalError}
-        phase={context.profile.currentPhase}
-        onDistance={setGoalDistance}
-        onTime={setGoalTime}
-        onDate={setGoalDate}
-        onSubmit={submitGoal}
-      />
-
-      <section className="coach-mission-grid" aria-label="Goal-based training read">
-        <div className="coach-mission-column">
-      <header className={`coach-hero coach-mission-card coach-read-${props.currentRead.tone}`}>
-        <div>
-          <p className="eyebrow"><Sparkles size={15} aria-hidden="true" /> This week's mission</p>
-          <span className="coach-mission-confidence">{scullion.missionConfidence} confidence</span>
-          <h2>{scullion.mission}</h2>
-          <p>{props.currentRead.status} · {props.currentRead.summary}</p>
-        </div>
-        <div className="coach-hero-actions">
-          <button type="button" onClick={() => void props.onReload(context.currentWeek.weekStart)} disabled={Boolean(working)}>
-            <RefreshCw size={15} aria-hidden="true" /> Refresh
-          </button>
-        </div>
-      </header>
-
-          <NextKeySession session={nextKeySession} />
-        </div>
-        <div className="coach-read-column">
-          <WeekProgress read={scullion} context={context} />
-          <SystemBuckets read={scullion} />
-        </div>
-      </section>
-
-      <RecoveryCard recovery={context.recovery} />
-
       {(props.error || actionError) && <p className="coach-action-error" role="alert">{actionError || props.error}</p>}
 
-      <section className="product-card coach-block-planner">
-        <header>
-          <div><span>Future plan</span><h3>Build the next 1–3 weeks</h3></div>
-          <small>Review the draft before accepting it.</small>
-        </header>
-        <div className="coach-block-controls">
-          <label><span>First Monday</span><input type="date" value={startWeek} onChange={(e) => setStartWeek(e.target.value)} /></label>
-          <label><span>Horizon</span><select value={horizon} onChange={(e) => setHorizon(Number(e.target.value) as 1 | 2 | 3)}>
-            <option value={1}>1 week</option><option value={2}>2 weeks</option><option value={3}>3 weeks</option>
-          </select></label>
-          <button
-            type="button"
-            className="primary-button"
-            disabled={Boolean(working) || !isMonday(startWeek)}
-            onClick={() => void act('propose', () => props.onProposeBlock(startWeek, horizon))}
-          ><CalendarRange size={16} /> Propose block</button>
-          {proposal && (
+      <div className="coach-section" hidden={props.section !== 'week'}>
+        {pendingAdaptations.length > 0 && (
+          <section className="coach-adaptations" aria-label="Pending plan adaptations">
+            <header><AlertTriangle size={18} /><div><span>Decision required</span><h3>Pending future-session patches</h3></div></header>
+            {pendingAdaptations.map((decision) => (
+              <DecisionCard
+                key={decision.id}
+                decision={decision}
+                busy={Boolean(working)}
+                onApply={() => void act(`apply-${decision.id}`, () => props.onApplyDecision(decision.id, context.profile.version))}
+                onReject={() => void act(`reject-${decision.id}`, () => props.onRejectDecision(decision.id))}
+              />
+            ))}
+          </section>
+        )}
+        <section className="coach-mission-grid" aria-label="Goal-based training read">
+          <div className="coach-mission-column">
+            <header className={`coach-hero coach-mission-card coach-read-${props.currentRead.tone}`}>
+              <div>
+                <p className="eyebrow"><Sparkles size={15} aria-hidden="true" /> This week's mission</p>
+                <span className="coach-mission-confidence">{scullion.missionConfidence} confidence</span>
+                <h2>{scullion.mission}</h2>
+                <p>{props.currentRead.status} · {props.currentRead.summary}</p>
+              </div>
+              <div className="coach-hero-actions">
+                <button type="button" onClick={() => void props.onReload(context.currentWeek.weekStart)} disabled={Boolean(working)}>
+                  <RefreshCw size={15} aria-hidden="true" /> Refresh
+                </button>
+              </div>
+            </header>
+            <NextKeySession session={nextKeySession} />
+          </div>
+          <div className="coach-read-column">
+            <WeekProgress read={scullion} context={context} />
+            <SystemBuckets read={scullion} />
+          </div>
+        </section>
+        <RecoveryCard recovery={context.recovery} />
+        <UpcomingPlan sessions={context.upcomingPlan.sessions} context={context} onUpdateSession={props.onUpdateSession} />
+      </div>
+
+      <div className="coach-section" hidden={props.section !== 'goal'}>
+        <GoalHeader
+          read={scullion}
+          distance={goalDistance}
+          time={goalTime}
+          date={goalDate}
+          working={working === 'goal'}
+          error={goalError}
+          phase={context.profile.currentPhase}
+          onDistance={setGoalDistance}
+          onTime={setGoalTime}
+          onDate={setGoalDate}
+          onSubmit={submitGoal}
+        />
+        <section className="product-card coach-block-planner">
+          <header>
+            <div><span>Future plan</span><h3>Build the next 1–3 weeks</h3></div>
+            <small>Review the draft before accepting it.</small>
+          </header>
+          <div className="coach-block-controls">
+            <label><span>First Monday</span><input type="date" value={startWeek} onChange={(e) => setStartWeek(e.target.value)} /></label>
+            <label><span>Horizon</span><select value={horizon} onChange={(e) => setHorizon(Number(e.target.value) as 1 | 2 | 3)}>
+              <option value={1}>1 week</option><option value={2}>2 weeks</option><option value={3}>3 weeks</option>
+            </select></label>
             <button
               type="button"
-              className="coach-accept-button"
-              disabled={Boolean(working)}
-              onClick={() => void act('accept', () => props.onAcceptBlock(proposal.id, context.profile.version))}
-            ><Check size={16} /> Accept proposal</button>
-          )}
-        </div>
-        <p className="coach-block-rule">Later weeks stay provisional. A post-run change only adjusts the future sessions it affects.</p>
-      </section>
-
-      <LoadForecast context={context} />
-
-      <UpcomingPlan sessions={context.upcomingPlan.sessions} context={context} onUpdateSession={props.onUpdateSession} />
-
-      {pendingAdaptations.length > 0 && (
-        <section className="coach-adaptations" aria-label="Pending plan adaptations">
-          <header><AlertTriangle size={18} /><div><span>Decision required</span><h3>Pending future-session patches</h3></div></header>
-          {pendingAdaptations.map((decision) => (
-            <DecisionCard
-              key={decision.id}
-              decision={decision}
-              busy={Boolean(working)}
-              onApply={() => void act(`apply-${decision.id}`, () => props.onApplyDecision(decision.id, context.profile.version))}
-              onReject={() => void act(`reject-${decision.id}`, () => props.onRejectDecision(decision.id))}
-            />
-          ))}
+              className="primary-button"
+              disabled={Boolean(working) || !isMonday(startWeek)}
+              onClick={() => void act('propose', () => props.onProposeBlock(startWeek, horizon))}
+            ><CalendarRange size={16} /> Propose block</button>
+            {proposal && (
+              <button
+                type="button"
+                className="coach-accept-button"
+                disabled={Boolean(working)}
+                onClick={() => void act('accept', () => props.onAcceptBlock(proposal.id, context.profile.version))}
+              ><Check size={16} /> Accept proposal</button>
+            )}
+          </div>
+          <p className="coach-block-rule">Later weeks stay provisional. A post-run change only adjusts the future sessions it affects.</p>
         </section>
-      )}
+        <LoadForecast context={context} />
+      </div>
 
-      <details className="product-card coach-post-run-disclosure">
-        <summary>Post-run feedback and plan adjustments</summary>
+      <div className="coach-section" hidden={props.section !== 'more'}>
         <RecentResponsePanel {...props} working={working} act={act} />
-      </details>
-
-      <details className="product-card coach-advanced-settings">
-        <summary>Advanced coaching settings and evidence</summary>
-        <div className="coach-roadmap" aria-label="Goal roadmap">
-          <RoadmapStep index="1" title="Durable healthy training" detail="Continuity, knees/Achilles, strength, and absorbed aerobic density." active />
-          <ArrowRight size={18} aria-hidden="true" />
-          <RoadmapStep index="2" title={`Sub-${context.goals.firstMilestone.target} 5K`} detail="First performance milestone · 3:00/km." />
-          <ArrowRight size={18} aria-hidden="true" />
-          <RoadmapStep index="3" title="~31:00 10K" detail="Bridge the threshold-duration gap." />
-          <ArrowRight size={18} aria-hidden="true" />
-          <RoadmapStep index="4" title={`Sub-${context.goals.laterMilestone.target} 10K`} detail="Later, materially harder milestone." />
-        </div>
-        <div className="coach-overview-grid">
-          <article className="product-card coach-phase-card">
-            <header><span>Current phase</span><small>Version {context.profile.version}</small></header>
-            <label><span>Lydiard phase</span><select value={context.profile.currentPhase} disabled={Boolean(working)} onChange={(event) => void act('phase', () => props.onUpdatePhase(event.target.value as CoachPhase, context.profile.version))}>{PHASES.map((phase) => <option key={phase.value} value={phase.value}>{phase.label}</option>)}</select></label>
-            <p>{phaseDescription(context.profile.currentPhase)}</p>
-          </article>
-          <article className="product-card coach-load-card">
-            <header><span>Background load</span><small>Power-first where dated CP exists</small></header>
-            <div className="coach-stat-row"><CoachStat label="7-day" value={context.backgroundLoad.sevenDayStress.toFixed(1)} /><CoachStat label="42-day" value={context.backgroundLoad.fortyTwoDayStress.toFixed(1)} /><CoachStat label="Balance" value={signed(context.backgroundLoad.stressBalance)} /></div>
-            <p>{context.backgroundLoad.explanation}</p>
-          </article>
-          <article className="product-card coach-cp-card">
-            <header><span>Critical Power</span><small>Date-effective history</small></header>
-            {canonicalCp ? <div className="coach-cp-current"><strong>{Math.round(canonicalCp.watts)} W</strong><span>{confidenceLabel(canonicalCp.confidence)} · {canonicalCp.source.replaceAll('_', ' ')}</span><small>Effective {formatDate(canonicalCp.effectiveFrom)}</small></div> : <p className="coach-missing">No canonical dated CP is stored.</p>}
-            <form className="coach-cp-form" onSubmit={(event) => { event.preventDefault(); const watts = Number(cpWatts); if (!Number.isFinite(watts) || watts <= 0) return; void act('cp', async () => { await props.onAddCriticalPower({ criticalPowerWatts: watts, effectiveFrom: `${cpEffective}T00:00:00.000Z`, source: 'stryd_manual', device: 'Stryd', confidence: 0.9 }); setCpWatts(''); }); }}>
-              <label><span>Current CP (W)</span><input inputMode="numeric" value={cpWatts} onChange={(e) => setCpWatts(e.target.value)} placeholder="e.g. 320" /></label>
-              <label><span>Effective from</span><input type="date" value={cpEffective} onChange={(e) => setCpEffective(e.target.value)} /></label>
-              <button type="submit" disabled={working === 'cp' || !cpWatts}><Save size={14} /> Save CP</button>
-            </form>
-          </article>
-        </div>
-        <PhysiologyPanel context={context} />
-        {context.limitations.length > 0 && <div className="coach-limitations"><strong>Limitations</strong><ul>{context.limitations.map((item) => <li key={item}>{item}</li>)}</ul></div>}
-      </details>
+        <details className="product-card coach-advanced-settings">
+          <summary>Advanced coaching settings and evidence</summary>
+          <div className="coach-roadmap" aria-label="Goal roadmap">
+            <RoadmapStep index="1" title="Durable healthy training" detail="Continuity, knees/Achilles, strength, and absorbed aerobic density." active />
+            <ArrowRight size={18} aria-hidden="true" />
+            <RoadmapStep index="2" title={`Sub-${context.goals.firstMilestone.target} 5K`} detail="First performance milestone · 3:00/km." />
+            <ArrowRight size={18} aria-hidden="true" />
+            <RoadmapStep index="3" title="~31:00 10K" detail="Bridge the threshold-duration gap." />
+            <ArrowRight size={18} aria-hidden="true" />
+            <RoadmapStep index="4" title={`Sub-${context.goals.laterMilestone.target} 10K`} detail="Later, materially harder milestone." />
+          </div>
+          <div className="coach-overview-grid">
+            <article className="product-card coach-phase-card">
+              <header><span>Current phase</span><small>Version {context.profile.version}</small></header>
+              <label><span>Lydiard phase</span><select value={context.profile.currentPhase} disabled={Boolean(working)} onChange={(event) => void act('phase', () => props.onUpdatePhase(event.target.value as CoachPhase, context.profile.version))}>{PHASES.map((phase) => <option key={phase.value} value={phase.value}>{phase.label}</option>)}</select></label>
+              <p>{phaseDescription(context.profile.currentPhase)}</p>
+            </article>
+            <article className="product-card coach-load-card">
+              <header><span>Background load</span><small>Power-first where dated CP exists</small></header>
+              <div className="coach-stat-row"><CoachStat label="7-day" value={context.backgroundLoad.sevenDayStress.toFixed(1)} /><CoachStat label="42-day" value={context.backgroundLoad.fortyTwoDayStress.toFixed(1)} /><CoachStat label="Balance" value={signed(context.backgroundLoad.stressBalance)} /></div>
+              <p>{context.backgroundLoad.explanation}</p>
+            </article>
+            <article className="product-card coach-cp-card">
+              <header><span>Critical Power</span><small>Date-effective history</small></header>
+              {canonicalCp ? <div className="coach-cp-current"><strong>{Math.round(canonicalCp.watts)} W</strong><span>{confidenceLabel(canonicalCp.confidence)} · {canonicalCp.source.replaceAll('_', ' ')}</span><small>Effective {formatDate(canonicalCp.effectiveFrom)}</small></div> : <p className="coach-missing">No canonical dated CP is stored.</p>}
+              <form className="coach-cp-form" onSubmit={(event) => { event.preventDefault(); const watts = Number(cpWatts); if (!Number.isFinite(watts) || watts <= 0) return; void act('cp', async () => { await props.onAddCriticalPower({ criticalPowerWatts: watts, effectiveFrom: `${cpEffective}T00:00:00.000Z`, source: 'stryd_manual', device: 'Stryd', confidence: 0.9 }); setCpWatts(''); }); }}>
+                <label><span>Current CP (W)</span><input inputMode="numeric" value={cpWatts} onChange={(e) => setCpWatts(e.target.value)} placeholder="e.g. 320" /></label>
+                <label><span>Effective from</span><input type="date" value={cpEffective} onChange={(e) => setCpEffective(e.target.value)} /></label>
+                <button type="submit" disabled={working === 'cp' || !cpWatts}><Save size={14} /> Save CP</button>
+              </form>
+            </article>
+          </div>
+          <PhysiologyPanel context={context} />
+          {context.limitations.length > 0 && <div className="coach-limitations"><strong>Limitations</strong><ul>{context.limitations.map((item) => <li key={item}>{item}</li>)}</ul></div>}
+        </details>
+      </div>
     </section>
   );
 }
@@ -336,11 +336,9 @@ function GoalHeader({
           <small>Evidence-informed block read</small>
         </div>
       </div>
+      <details className="coach-goal-edit">
+        <summary><Target size={16} aria-hidden="true" /> Change goal</summary>
       <form className="coach-goal-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
-        <div>
-          <Target size={17} aria-hidden="true" />
-          <span>Set the target</span>
-        </div>
         <label><span>Distance (km)</span><input type="number" inputMode="decimal" min="1" max="100" step="0.0001" list="goal-distances" value={distance} disabled={working} onChange={(event) => onDistance(event.target.value)} /></label>
         <datalist id="goal-distances"><option value="5" /><option value="10" /><option value="21.0975" /><option value="42.195" /></datalist>
         <label><span>Goal time</span><input inputMode="numeric" value={time} disabled={working} placeholder="1:25:00" aria-describedby="goal-time-help" onChange={(event) => onTime(event.target.value)} /><small id="goal-time-help">MM:SS or H:MM:SS</small></label>
@@ -348,6 +346,7 @@ function GoalHeader({
         <button type="submit" className="primary-button" disabled={working}><Flag size={15} aria-hidden="true" /> {working ? 'Saving…' : 'Save goal'}</button>
         {error && <p role="alert">{error}</p>}
       </form>
+      </details>
       {read.currentEquivalentCaveat && <p className="coach-goal-caveat"><Gauge size={14} aria-hidden="true" /> {read.currentEquivalentCaveat}</p>}
     </section>
   );
@@ -437,7 +436,7 @@ function UpcomingPlan({
   onUpdateSession: CoachPanelProps['onUpdateSession'];
 }) {
   const weeks = useMemo(() => groupSessionsByWeek(sessions), [sessions]);
-  if (sessions.length === 0) return <section className="product-card coach-empty-plan"><CalendarRange size={22} /><div><strong>No future block yet</strong><p>Generate a draft above. Nothing changes until you accept it.</p></div></section>;
+  if (sessions.length === 0) return <section className="product-card coach-empty-plan"><CalendarRange size={22} /><div><strong>No future block yet</strong><p>Propose one under Goal &amp; block. Nothing changes until you accept it.</p></div></section>;
   return (
     <section className="coach-future-weeks coach-day-by-day" aria-label="Upcoming structured training plan">
       {[...weeks.entries()].map(([weekStart, weekSessions], index) => {
