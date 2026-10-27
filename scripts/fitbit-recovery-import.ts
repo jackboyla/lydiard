@@ -51,14 +51,16 @@ if (!ingestKey && !dryRun && !printRaw) {
 }
 
 // data type id (kebab-case for the endpoint) → snake_case name used in filters.
-type Category = 'session' | 'sample' | 'daily';
+type Category = 'session' | 'daily';
 interface TypeSpec {
   id: string; // endpoint path segment (kebab-case)
   category: Category;
 }
 const TYPES: Record<string, TypeSpec> = {
   sleep: { id: 'sleep', category: 'session' },
-  hrv: { id: 'heart-rate-variability', category: 'sample' },
+  // The daily summary is the per-night average Google Health shows. Raw samples
+  // split a night across two calendar dates, so they are not used.
+  hrv: { id: 'daily-heart-rate-variability', category: 'daily' },
   restingHr: { id: 'daily-resting-heart-rate', category: 'daily' },
   respiratoryRate: { id: 'daily-respiratory-rate', category: 'daily' },
   spo2: { id: 'daily-oxygen-saturation', category: 'daily' },
@@ -108,7 +110,10 @@ async function main(): Promise<void> {
   };
 
   mapSleep(raw.sleep, ensure);
-  mapHrv(raw.hrv, ensure);
+  mapDaily(raw.hrv, 'dailyHeartRateVariability', ensure, (v, r) => {
+    const hrv = num(v.averageHeartRateVariabilityMilliseconds);
+    if (hrv !== undefined) r.hrvRmssdMs = round(hrv, 1);
+  });
   mapDaily(raw.restingHr, 'dailyRestingHeartRate', ensure, (v, r) => (r.restingHrBpm = num(v.beatsPerMinute)));
   mapDaily(raw.respiratoryRate, 'dailyRespiratoryRate', ensure, (v, r) => {
     r.respiratoryRate = num(v.breathsPerMinute) ?? num(v.breathsPerMinuteAvg);
@@ -137,6 +142,10 @@ async function main(): Promise<void> {
 
   if (dryRun) {
     console.log(JSON.stringify({ dryRun: true, from, to, records: records.length, sample: records.slice(-3) }, null, 2));
+    // One line per night, for checking the mapping against the Google Health app.
+    for (const r of records) {
+      console.log(`${r.day}  sleep ${r.sleepDurationMin ?? '-'} min  hrv ${r.hrvRmssdMs ?? '-'} ms  rhr ${r.restingHrBpm ?? '-'} bpm`);
+    }
     return;
   }
 
@@ -190,17 +199,13 @@ async function fetchDataPoints(token: string, spec: TypeSpec, start: string, end
 // attributed to its wake day.
 //   daily summary : <snake>.date                        (ISO-8601 date)
 //   session/sleep : <snake>.interval.civil_end_time     (ISO-8601 date)
-//   sample        : <snake>.sample_time.physical_time   (RFC-3339)
 function buildFilter(spec: TypeSpec, start: string, end: string): string {
   const endExclusive = isoDay(new Date(Date.parse(`${end}T00:00:00Z`) + DAY_MS));
   const p = spec.id.replace(/-/g, '_');
   if (spec.category === 'daily') {
     return `${p}.date >= "${start}" AND ${p}.date < "${endExclusive}"`;
   }
-  if (spec.category === 'session') {
-    return `${p}.interval.civil_end_time >= "${start}" AND ${p}.interval.civil_end_time < "${endExclusive}"`;
-  }
-  return `${p}.sample_time.physical_time >= "${start}T00:00:00Z" AND ${p}.sample_time.physical_time < "${endExclusive}T00:00:00Z"`;
+  return `${p}.interval.civil_end_time >= "${start}" AND ${p}.interval.civil_end_time < "${endExclusive}"`;
 }
 
 async function getJson(url: string, token: string, label: string): Promise<GHListResponse> {
@@ -324,25 +329,6 @@ function addStage(acc: { deep: number; rem: number; light: number; awake: number
   else if (t.includes('AWAKE') || t.includes('WAKE')) acc.awake += minutes;
 }
 
-function mapHrv(points: GHDataPoint[], ensure: (day: string) => RecoveryObservation): void {
-  // heart-rate-variability is a sample type; average the nightly RMSSD samples
-  // per local day into one overnight value.
-  const byDay = new Map<string, number[]>();
-  for (const dp of points) {
-    const value = obj(dp.heartRateVariability);
-    if (!value) continue;
-    const rmssd = num(value.rootMeanSquareOfSuccessiveDifferencesMilliseconds);
-    const when = sampleDay(value.sampleTime);
-    if (rmssd === undefined || !when) continue;
-    const list = byDay.get(when) ?? [];
-    list.push(rmssd);
-    byDay.set(when, list);
-  }
-  for (const [day, values] of byDay) {
-    ensure(day).hrvRmssdMs = round(values.reduce((t, v) => t + v, 0) / values.length, 1);
-  }
-}
-
 function mapDaily(
   points: GHDataPoint[],
   field: string,
@@ -393,20 +379,6 @@ function googleDate(value: unknown): string | undefined {
   const day = num(d.day);
   if (y === undefined || m === undefined || day === undefined) return undefined;
   return `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-}
-
-function sampleDay(sampleTime: unknown): string | undefined {
-  const st = obj(sampleTime);
-  if (st) {
-    // Prefer the local civil date ({ civilTime: { date: {year,month,day} } }).
-    const civil = obj(st.civilTime);
-    const civilDate = civil ? googleDate(civil.date) : undefined;
-    if (civilDate) return civilDate;
-    const physical = ts(st.physicalTime);
-    if (physical !== undefined) return isoDay(new Date(physical));
-  }
-  const direct = ts(sampleTime);
-  return direct === undefined ? undefined : isoDay(new Date(direct));
 }
 
 function ts(value: unknown): number | undefined {

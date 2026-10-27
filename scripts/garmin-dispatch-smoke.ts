@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { dispatchGarminWorkflow, GarminDispatchUpstreamError } from '../worker/garminDispatch';
+import { dispatchFitbitWorkflow, dispatchGarminWorkflow, GarminDispatchUpstreamError } from '../worker/garminDispatch';
 import type { Env } from '../worker/env';
 
 const env = {
@@ -36,7 +36,15 @@ try {
   runs = [{ id: 1, status: 'completed' }];
   dispatchStatus = 403;
   await assert.rejects(dispatchGarminWorkflow(env, 'lydiard-cron'), GarminDispatchUpstreamError);
-  console.log('Garmin dispatch smoke passed (sources, active-run dedupe, upstream failure).');
+
+  // The hourly cron queues the Fitbit import only where a workflow is configured.
+  dispatchStatus = 204;
+  calls.length = 0;
+  assert.equal(await dispatchFitbitWorkflow(env), null);
+  assert.equal(calls.length, 0, 'an unconfigured deployment must not call GitHub');
+  assert.deepEqual(await dispatchFitbitWorkflow({ ...env, FITBIT_SYNC_WORKFLOW: 'fitbit-recovery-sync.yml' }), { alreadyRunning: false });
+  assert.match(calls[1].url, /\/workflows\/fitbit-recovery-sync\.yml\/dispatches$/);
+  console.log('Garmin dispatch smoke passed (sources, active-run dedupe, upstream failure, Fitbit cron).');
 } finally {
   globalThis.fetch = originalFetch;
 }

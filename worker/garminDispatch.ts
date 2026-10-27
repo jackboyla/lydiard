@@ -25,17 +25,30 @@ export async function dispatchGarminWorkflow(
   env: Env,
   source: 'lydiard-web' | 'lydiard-cron' = 'lydiard-web',
 ): Promise<GarminDispatchResult> {
-  const token = env.GITHUB_SYNC_TOKEN?.trim();
-  const repository = env.GITHUB_SYNC_REPOSITORY?.trim();
-  const workflow = env.GITHUB_SYNC_WORKFLOW?.trim() || 'garmin-sync.yml';
-  const ref = env.GITHUB_SYNC_REF?.trim() || 'main';
-
   if (!env.SITE_PASSWORD) {
     throw new GarminDispatchConfigurationError('Manual Garmin sync requires SITE_PASSWORD to be configured.');
   }
+  return dispatchWorkflow(env, env.GITHUB_SYNC_WORKFLOW?.trim() || 'garmin-sync.yml', source, 'Garmin');
+}
+
+/**
+ * Queues the Fitbit recovery import from the Worker's hourly cron. GitHub's own
+ * schedule runs hours late, which left last night's sleep missing until the
+ * afternoon. Deployments without FITBIT_SYNC_WORKFLOW skip it.
+ */
+export async function dispatchFitbitWorkflow(env: Env): Promise<GarminDispatchResult | null> {
+  const workflow = env.FITBIT_SYNC_WORKFLOW?.trim();
+  return workflow ? dispatchWorkflow(env, workflow, 'lydiard-cron', 'Fitbit') : null;
+}
+
+async function dispatchWorkflow(env: Env, workflow: string, source: string, label: string): Promise<GarminDispatchResult> {
+  const token = env.GITHUB_SYNC_TOKEN?.trim();
+  const repository = env.GITHUB_SYNC_REPOSITORY?.trim();
+  const ref = env.GITHUB_SYNC_REF?.trim() || 'main';
+
   if (!token || !repository || !/^[^/]+\/[^/]+$/.test(repository)) {
     throw new GarminDispatchConfigurationError(
-      'Manual Garmin sync is not configured. Set GITHUB_SYNC_TOKEN and GITHUB_SYNC_REPOSITORY.',
+      `Manual ${label} sync is not configured. Set GITHUB_SYNC_TOKEN and GITHUB_SYNC_REPOSITORY.`,
     );
   }
 
@@ -50,7 +63,7 @@ export async function dispatchGarminWorkflow(
   const runsResponse = await fetch(`${workflowPath}/runs?per_page=10`, { headers });
   const runsPayload = (await readJson(runsResponse)) as WorkflowRunsResponse | null;
   if (!runsResponse.ok) {
-    throw new GarminDispatchUpstreamError(githubError('check Garmin workflow status', runsResponse, runsPayload));
+    throw new GarminDispatchUpstreamError(githubError(`check ${label} workflow status`, runsResponse, runsPayload));
   }
 
   const activeRun = (runsPayload?.workflow_runs ?? []).find(
@@ -67,7 +80,7 @@ export async function dispatchGarminWorkflow(
   });
   if (!dispatchResponse.ok) {
     const payload = (await readJson(dispatchResponse)) as WorkflowRunsResponse | null;
-    throw new GarminDispatchUpstreamError(githubError('queue Garmin sync', dispatchResponse, payload));
+    throw new GarminDispatchUpstreamError(githubError(`queue ${label} sync`, dispatchResponse, payload));
   }
 
   return { alreadyRunning: false };

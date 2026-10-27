@@ -9,7 +9,7 @@ import { authRoutes } from './routes/auth';
 import { ingestRoutes } from './routes/ingest';
 import { coachRoutes } from './routes/coach';
 import { refreshAdaptiveZones } from './maintenance';
-import { dispatchGarminWorkflow } from './garminDispatch';
+import { dispatchFitbitWorkflow, dispatchGarminWorkflow } from './garminDispatch';
 import { checkinPageRoutes, sendDailyCheckinIfDue, whatsappWebhookRoutes } from './checkins';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -47,7 +47,10 @@ export default {
       ctx.waitUntil(dispatchGarminWorkflow(env, 'lydiard-cron'));
       return;
     }
-    const tasks: Promise<unknown>[] = [sendDailyCheckinIfDue(env)];
+    const tasks: Promise<unknown>[] = [
+      sendDailyCheckinIfDue(env),
+      dispatchFitbitWorkflow(env).catch((error) => console.error('Fitbit sync dispatch failed', error)),
+    ];
     // Keep the prior once-daily maintenance cadence even though outreach needs
     // an hourly tick to follow the configured local hour through DST.
     if (new Date(controller.scheduledTime).getUTCHours() === 0) {

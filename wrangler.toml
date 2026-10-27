@@ -42,6 +42,7 @@ STREAMS_PER_RUN = "40"         # legacy Strava stream fetches per manual sync
 GITHUB_SYNC_REPOSITORY = "jackboyla/lydiard"
 GITHUB_SYNC_WORKFLOW = "garmin-sync.yml"
 GITHUB_SYNC_REF = "main"
+FITBIT_SYNC_WORKFLOW = "fitbit-recovery-sync.yml"  # queued hourly at :23; remove to skip
 CHECKIN_TIME_ZONE = "Europe/London"
 CHECKIN_HOUR = "19"
 WHATSAPP_TEMPLATE_NAME = "daily_training_checkin"

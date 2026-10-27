@@ -22,6 +22,7 @@ export interface Env {
   GITHUB_SYNC_REPOSITORY?: string; // owner/repository
   GITHUB_SYNC_WORKFLOW?: string; // workflow file name or numeric id
   GITHUB_SYNC_REF?: string; // branch/tag containing the workflow
+  FITBIT_SYNC_WORKFLOW?: string; // Fitbit recovery workflow queued each hour; unset to skip
 
   // Active daily subjective check-in (Meta WhatsApp Cloud API).
   WHATSAPP_ACCESS_TOKEN?: string; // secret

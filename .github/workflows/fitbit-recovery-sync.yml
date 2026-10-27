@@ -20,9 +20,13 @@ on:
         description: Trigger source shown in the Actions run list
         required: false
         default: manual
+      from:
+        description: First day to re-import (YYYY-MM-DD); empty keeps the trailing 35 days
+        required: false
+        default: ""
+  # The Worker queues this hourly (FITBIT_SYNC_WORKFLOW) because GitHub runs
+  # schedules hours late. These twice-daily schedules remain as a backstop.
   schedule:
-    # Twice daily. Fitbit finalizes overnight sleep/HRV a few hours after wake,
-    # so a morning and evening pull keeps the latest night current.
     - cron: "37 8 * * *"
     - cron: "37 20 * * *"
 
@@ -45,10 +49,11 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Import Fitbit recovery into Lydiard
-        run: npm run fitbit:import
+        run: npm run fitbit:import -- ${FITBIT_FROM:+--from "$FITBIT_FROM"}
         env:
           GOOGLE_HEALTH_CLIENT_ID: ${{ secrets.GOOGLE_HEALTH_CLIENT_ID }}
           GOOGLE_HEALTH_CLIENT_SECRET: ${{ secrets.GOOGLE_HEALTH_CLIENT_SECRET }}
           GOOGLE_HEALTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_HEALTH_REFRESH_TOKEN }}
           LYDIARD_INGEST_KEY: ${{ secrets.LYDIARD_INGEST_KEY }}
           LYDIARD_BASE_URL: ${{ vars.LYDIARD_BASE_URL }}
+          FITBIT_FROM: ${{ inputs.from }}
