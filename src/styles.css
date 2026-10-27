@@ -13333,3 +13333,256 @@ select {
     background: transparent;
   }
 }
+
+/* ---------- Overnight recovery trends ---------- */
+
+/* Sleep and HRV open the Log: last night first, the week behind it one drag away. */
+.recovery-trends {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.recovery-chart {
+  --recovery-colour: var(--steady);
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px 16px 10px;
+}
+
+.recovery-chart-hrv {
+  --recovery-colour: var(--green);
+}
+
+.recovery-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.recovery-chart-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--recovery-colour);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.recovery-chart-periods {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.recovery-chart-periods button {
+  min-width: 34px;
+  min-height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--subtle);
+  background: transparent;
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.recovery-chart-periods button[aria-pressed='true'] {
+  color: var(--text-strong);
+  background: var(--surface-control);
+}
+
+.recovery-chart-readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+}
+
+.recovery-chart-readout small {
+  flex-basis: 100%;
+  color: var(--subtle);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.recovery-chart-readout strong {
+  color: var(--text-strong);
+  font-size: 1.7rem;
+  font-weight: 760;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.recovery-chart-delta {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.recovery-chart-delta.tone-up { color: var(--green); }
+.recovery-chart-delta.tone-down { color: var(--warning); }
+
+.recovery-chart-shell {
+  min-width: 0;
+}
+
+.recovery-chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  outline: none;
+  /* Chrome reads touch-action from the svg box, not its shapes: sideways drags scrub, vertical ones scroll. */
+  touch-action: pan-y;
+}
+
+.recovery-chart-grid line {
+  stroke: var(--border-soft);
+  stroke-width: 1;
+}
+
+.recovery-chart-grid text,
+.recovery-chart-tick {
+  fill: var(--subtle);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.recovery-chart-tick {
+  text-anchor: middle;
+}
+
+.recovery-chart-tick.is-today {
+  fill: var(--text-strong);
+  font-weight: 800;
+}
+
+.recovery-chart-bar {
+  fill: var(--recovery-colour);
+  fill-opacity: 0.45;
+}
+
+.recovery-chart-bar.is-today,
+.recovery-chart-bar.is-selected {
+  fill-opacity: 1;
+}
+
+.recovery-chart-line {
+  fill: none;
+  stroke: var(--recovery-colour);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.recovery-chart-dot {
+  fill: var(--surface);
+  stroke: var(--recovery-colour);
+  stroke-width: 2;
+}
+
+.recovery-chart-dot.is-today,
+.recovery-chart-dot.is-selected {
+  fill: var(--recovery-colour);
+}
+
+.recovery-chart-average {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+.recovery-chart-rule {
+  stroke: var(--text);
+  stroke-opacity: 0.35;
+  stroke-width: 1;
+}
+
+.recovery-chart-surface {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.recovery-chart-svg:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 4px;
+}
+
+.recovery-chart-key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--subtle);
+  font-size: 0.66rem;
+}
+
+.recovery-chart-key i {
+  width: 16px;
+  border-top: 1.5px dashed var(--muted);
+}
+
+/* The same two numbers beside a run, for the night before it. */
+.run-recovery {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.run-recovery > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.run-recovery span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--subtle);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.run-recovery strong {
+  color: var(--text-strong);
+  font-size: 1.02rem;
+}
+
+.run-recovery small {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+@media (max-width: 760px) {
+  .recovery-trends {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .recovery-chart {
+    padding: 12px 14px 8px;
+  }
+
+  .recovery-chart-readout strong {
+    font-size: 1.45rem;
+  }
+}

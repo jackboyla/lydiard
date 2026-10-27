@@ -89,6 +89,9 @@ run in **both** the Worker and the browser.
 - **Active daily pulse:** a free evening phone notification asks for leg freshness, energy, niggles,
   motivation, sleep, and an optional note on run and rest days. Answers appear on that day in Log.
   It uses the browser's standard push service, with no second phone number or paid provider.
+- **Sleep and HRV:** synced Fitbit nights open the Log as two charts over 7, 30 or 90 days. Drag
+  across either to read a night against the 7 nights before it; each run shows the same two numbers
+  for the night before it.
 - **Stateful Lydiard coach:** date-effective Stryd Critical Power, evidence-backed CS/CP and LT1/LT2
   bands, power-first load with separate HR cost, coherent future blocks, post-run feedback, and an
   audit trail live behind the simple recommendation and plan workflow.
@@ -238,7 +241,7 @@ npm run typecheck:worker
 npm run coach:smoke    # deterministic physiology/load/plan/adaptation invariants
 npm run product:smoke  # Log/notes/PBs/Plan mobile journey against the local Worker
 npm run mobile-note:smoke  # mobile Log note sizing/focus check against the local Worker
-npm run weekly-totals:smoke  # Progress weekly-totals chart: thumb-scrub, readout, open-in-Log, overflow
+npm run weekly-totals:smoke  # Progress weekly-totals and Log sleep/HRV charts: thumb-scrub, readout, open-in-Log, overflow
 npm run lap-profile:smoke     # lap zones, split drill-down, and Log/Progress intensity-minute calculation
 npm run push-reminder:smoke   # phone reminder control against a running local Worker
 # Verify the deployed site against production data (LYDIARD_SITE_KEY = the site password):

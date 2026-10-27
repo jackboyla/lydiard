@@ -8,6 +8,7 @@ import type {
   ActivitySummary,
   DailyCheckin,
   GymSession,
+  RecoveryNight,
   SyncStatus,
   TrainingPlanDay,
   WeeklyAnalysis,
@@ -186,6 +187,11 @@ export async function getGymSessions(range?: DateRange): Promise<GymSession[]> {
 export async function getDailyCheckins(range?: DateRange): Promise<DailyCheckin[]> {
   const data = await getJson<{ checkins: DailyCheckin[] }>(`/api/checkins${rangeQuery(range)}`);
   return data.checkins;
+}
+
+export async function getRecoveryNights(range?: DateRange): Promise<RecoveryNight[]> {
+  const data = await getJson<{ nights: RecoveryNight[] }>(`/api/recovery${rangeQuery(range)}`);
+  return data.nights;
 }
 
 export function getPushConfig(endpoint?: string): Promise<{ enabled: boolean; publicKey: string | null; subscribed: boolean }> {

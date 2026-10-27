@@ -30,7 +30,7 @@ interface Shot {
 }
 
 const SHOTS: Shot[] = [
-  { name: 'log', url: '/?view=log', waitFor: '.training-week-block-wrap', settleMs: 1200, scrollTo: '.training-week-block-wrap' },
+  { name: 'log', url: '/?view=log', waitFor: '.training-week-block-wrap', settleMs: 1200 },
   // fix-44 is the newest seeded run: it carries streams and a note.
   { name: 'activity', url: '/?view=log&activity=fix-44', waitFor: '.activity-detail-page', settleMs: 3000 },
   { name: 'progress', url: '/?view=progress', waitFor: '.weekly-totals-hit', settleMs: 1500, scrollTo: '.weekly-totals-surface' },

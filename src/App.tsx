@@ -59,6 +59,7 @@ import {
   getBestEfforts,
   getCoachContext,
   getDailyCheckins,
+  getRecoveryNights,
   getGymSessions,
   getPlanDays,
   getSiteKey,
@@ -92,6 +93,7 @@ import type {
   BestEffortDistance,
   BestEffortEntry,
   DailyCheckin,
+  RecoveryNight,
   GymSession,
   Severity,
   SyncStatus,
@@ -164,6 +166,7 @@ export default function App() {
   const [allActivitiesLoaded, setAllActivitiesLoaded] = useState(false);
   const [gymSessions, setGymSessions] = useState<GymSession[]>([]);
   const [dailyCheckins, setDailyCheckins] = useState<DailyCheckin[]>([]);
+  const [recoveryNights, setRecoveryNights] = useState<RecoveryNight[]>([]);
   const [planDays, setPlanDays] = useState<TrainingPlanDay[]>([]);
   const [planLoading, setPlanLoading] = useState(true);
   const [planLoadError, setPlanLoadError] = useState('');
@@ -358,12 +361,13 @@ export default function App() {
     const request = ++coreLoadRequest.current;
     setLoadError('');
     try {
-      const [nextStatus, nextWeeks, nextActivities, nextGym, nextCheckins] = await Promise.all([
+      const [nextStatus, nextWeeks, nextActivities, nextGym, nextCheckins, nextRecovery] = await Promise.all([
         getSyncStatus(),
         getWeeks(),
         getActivities({ from: recentHistoryFrom() }),
         getGymSessions().catch(() => [] as GymSession[]),
         getDailyCheckins(),
+        getRecoveryNights({ from: recentHistoryFrom().slice(0, 10) }).catch(() => [] as RecoveryNight[]),
       ]);
       if (request !== coreLoadRequest.current) {
         return;
@@ -373,6 +377,7 @@ export default function App() {
       setActivities(nextActivities);
       setGymSessions(nextGym);
       setDailyCheckins(nextCheckins);
+      setRecoveryNights(nextRecovery);
       // Garmin data syncs via GitHub Actions; a stale "Strava is not connected"
       // error is irrelevant noise for a Garmin-sourced store, so don't surface it.
       const garminSourced =
@@ -1059,6 +1064,7 @@ export default function App() {
           onRequestFullHistory={loadAllActivities}
           allHistoryLoaded={allActivitiesLoaded}
           dailyCheckins={dailyCheckins}
+          recoveryNights={recoveryNights}
         />
       )}
 

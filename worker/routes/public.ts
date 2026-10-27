@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { D1Database } from '@cloudflare/workers-types';
-import type { ActivityDetail, BestEffortDistance, BestEffortEntry, SyncStatus, WeeklyAnalysis } from '../../src/types';
+import type { ActivityDetail, BestEffortDistance, BestEffortEntry, RecoveryNight, SyncStatus, WeeklyAnalysis } from '../../src/types';
 import { analyzeWeeks } from '../../src/analysis/fatigue';
 import { BEST_EFFORT_TARGETS } from '../../src/analysis/bestEfforts';
 import { inferGoldenZone, recentEffortRange, RECENT_EFFORT_WINDOWS } from '../../src/analysis/bakken';
@@ -13,6 +13,7 @@ import {
   getCounts,
   getDateRange,
   getDailyCheckins,
+  getDailyRecoveries,
   getGymSessions,
   getStreams,
   getSyncState,
@@ -104,6 +105,17 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
       to: normalizeTo(c.req.query('to')),
     });
     return c.json({ checkins });
+  });
+
+  app.get('/recovery', async (c) => {
+    const recoveries = await getDailyRecoveries(c.env.lydiard, {
+      from: normalizeFrom(c.req.query('from')),
+      to: normalizeTo(c.req.query('to')),
+    });
+    const nights: RecoveryNight[] = recoveries
+      .filter((night) => night.sleepDurationMin !== undefined || night.hrvRmssdMs !== undefined)
+      .map((night) => ({ day: night.day, sleepMin: night.sleepDurationMin, hrvMs: night.hrvRmssdMs }));
+    return c.json({ nights });
   });
 
   app.post('/checkins', async (c) => {

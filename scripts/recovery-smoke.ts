@@ -3,6 +3,7 @@
 // but persistence must), the systemic illness override, and the readiness
 // cross-check. Run: npm run recovery:smoke
 import { analyzeRecovery, summarizeRecovery } from '../src/analysis/recovery';
+import { averageBefore, formatVersusAverage } from '../src/analysis/recoveryTrend';
 import type { RecoveryObservation } from '../src/types';
 
 const START = '2026-06-01';
@@ -89,6 +90,19 @@ assert(disagree.readinessCrossCheck === 'disagree', `suppressed vs high readines
 // Empty input degrades gracefully.
 const empty = summarizeRecovery(analyzeRecovery([]));
 assert(empty.state === null && empty.asOf === null, 'empty series should summarize to a null state');
+
+// The Log charts and run page compare a night with the seven before it, never itself.
+const trendNights = new Map([
+  ['2026-06-01', { day: '2026-06-01', sleepMin: 400, hrvMs: 50 }],
+  ['2026-06-02', { day: '2026-06-02', sleepMin: 420 }],
+  ['2026-06-03', { day: '2026-06-03', sleepMin: 440, hrvMs: 60 }],
+  ['2026-06-08', { day: '2026-06-08', sleepMin: 300, hrvMs: 99 }],
+]);
+assert(averageBefore(trendNights, '2026-06-08', 'sleep') === 420, 'sleep average should cover the 7 nights before, excluding the night itself');
+assert(averageBefore(trendNights, '2026-06-08', 'hrv') === undefined, 'two HRV nights are too few for an average');
+assert(averageBefore(trendNights, '2026-06-10', 'sleep') === undefined, 'nights older than 7 days fall out of the average');
+assert(formatVersusAverage(390, 420, 'sleep') === '−30 min vs 7-night avg', 'sleep difference reads in minutes');
+assert(formatVersusAverage(55, 50, 'hrv') === '+10% vs 7-night avg', 'HRV difference reads in percent');
 
 console.log(
   JSON.stringify(

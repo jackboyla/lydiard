@@ -133,7 +133,7 @@ const now = new Date(ANCHOR).toISOString();
 const pulseDay = new Date(ANCHOR - DAY).toISOString().slice(0, 10);
 const lines: string[] = [];
 lines.push(
-  'DELETE FROM activity_streams; DELETE FROM activity_feedback; DELETE FROM daily_checkins; DELETE FROM activities; DELETE FROM weekly_features; DELETE FROM athlete;',
+  'DELETE FROM activity_streams; DELETE FROM activity_feedback; DELETE FROM daily_checkins; DELETE FROM daily_recovery; DELETE FROM activities; DELETE FROM weekly_features; DELETE FROM athlete;',
 );
 lines.push(
   `INSERT INTO athlete (id, firstname, lastname, username, refresh_token, access_token, expires_at, scope, updated_at) ` +
@@ -143,6 +143,19 @@ lines.push(
   `INSERT INTO daily_checkins (day, energy, leg_freshness, motivation, pain_level, sleep_quality, note, source, created_at, updated_at) VALUES (` +
     `${q(pulseDay)}, 4, 4, 3, 0, 5, ${q('Legs settled after an easy morning.')}, 'platform', ${q(now)}, ${q(now)});`,
 );
+
+// ~100 nights of Fitbit sleep and HRV up to the anchor day, with an occasional
+// missed night so the charts show their gaps.
+for (let daysAgo = 99; daysAgo >= 0; daysAgo -= 1) {
+  if (daysAgo % 23 === 11) continue;
+  const day = new Date(ANCHOR - daysAgo * DAY).toISOString().slice(0, 10);
+  const sleepMin = Math.round(425 + 38 * Math.sin(daysAgo / 2.3) + (daysAgo % 5) * 7);
+  const hrvMs = Math.round((54 + 7 * Math.sin(daysAgo / 3.1) - (daysAgo % 4) * 1.5) * 10) / 10;
+  lines.push(
+    `INSERT INTO daily_recovery (day, source, sleep_duration_min, hrv_rmssd_ms, created_at, updated_at) VALUES (` +
+      `${q(day)}, 'fitbit', ${sleepMin}, ${hrvMs}, ${q(now)}, ${q(now)});`,
+  );
+}
 
 for (const { summary } of fixtures) {
   lines.push(

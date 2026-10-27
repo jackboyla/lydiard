@@ -39,7 +39,8 @@ import {
 import { localWeekId, millisecondsUntilNextLocalWeek } from '../data/calendar';
 import { activityPaceSecPerKm, toWeekIdUtc } from '../data/mapRoutes';
 import type { ActivityDetail, ActivitySummary, ActivityWeather, GymSession, TrainingPlanDay, WeeklyAnalysis } from '../types';
-import type { DailyCheckin } from '../types';
+import type { DailyCheckin, RecoveryNight } from '../types';
+import { RecoveryTrends, RunRecovery, useRecoveryByDay } from './RecoveryTrends';
 import { MetricInfo, MetricsGuide, type MetricKey } from './MetricInfo';
 import { MiniLapProfile } from './MiniLapProfile';
 
@@ -90,6 +91,7 @@ interface TrainingViewProps {
   onRequestFullHistory: () => Promise<void>;
   allHistoryLoaded?: boolean;
   dailyCheckins: DailyCheckin[];
+  recoveryNights: RecoveryNight[];
 }
 
 // A week in the log is either a scored run week (with any gym that week attached)
@@ -191,6 +193,7 @@ export function TrainingView({
   onRequestFullHistory,
   allHistoryLoaded = false,
   dailyCheckins,
+  recoveryNights,
 }: TrainingViewProps) {
   const [visibleWeekCount, setVisibleWeekCount] = useState(INITIAL_WEEK_COUNT);
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -221,6 +224,7 @@ export function TrainingView({
     [physiology, loadModel.thresholds],
   );
   const planByDate = useMemo(() => new Map(planDays.map((day) => [day.date, day])), [planDays]);
+  const recoveryByDay = useRecoveryByDay(recoveryNights);
   const checkinByDate = useMemo(() => new Map(dailyCheckins.map((checkin) => [checkin.day, checkin])), [dailyCheckins]);
   const analysisByWeek = useMemo(
     () => new Map(analyses.map((analysis) => [analysis.week.weekStart, analysis])),
@@ -602,6 +606,7 @@ export function TrainingView({
             zones={trainingZoneModel.zones}
             thresholdPaceSecPerKm={loadModel.thresholds.thresholdPaceSecPerKm}
             planDay={previewPlanDay}
+            recoveryByDay={recoveryByDay}
             onBack={closeActivityPage}
             onSaveNote={savePreviewNote}
           />
@@ -615,6 +620,7 @@ export function TrainingView({
         )
       ) : (
         <>
+      <RecoveryTrends byDay={recoveryByDay} />
       <section className="training-log-shell" aria-label="Activity log">
         <div
           ref={weekListRef}
@@ -1340,6 +1346,7 @@ function ActivityDetailPage({
   zones,
   thresholdPaceSecPerKm,
   planDay,
+  recoveryByDay,
   onBack,
   onSaveNote,
 }: {
@@ -1349,6 +1356,7 @@ function ActivityDetailPage({
   zones: TrainingZone[];
   thresholdPaceSecPerKm: number;
   planDay?: TrainingPlanDay;
+  recoveryByDay: ReadonlyMap<string, RecoveryNight>;
   onBack: () => void;
   onSaveNote: (activityId: string, note: string) => Promise<string>;
 }) {
@@ -1402,6 +1410,7 @@ function ActivityDetailPage({
             <div className="activity-mobile-overview" aria-label="Run overview">
               <RunRead classification={runKind} session={session} />
               <PrimaryRunMetrics activity={activity} session={session} />
+              <RunRecovery byDay={recoveryByDay} day={session.day} />
             </div>
             <ActivityNoteEditor activityId={activity.id} note={activity.activityNote ?? ''} onSave={onSaveNote} />
             <ActivityWeatherPanel activity={activity} />
@@ -1467,6 +1476,7 @@ function ActivityDetailPage({
             )}
             <RunRead classification={runKind} session={session} />
             <PrimaryRunMetrics activity={activity} session={session} />
+            <RunRecovery byDay={recoveryByDay} day={session.day} />
             {planDay?.notes && planDay.notes.length > 0 && (
               <section className="preview-plan-note" aria-label="Day note">
                 <header>

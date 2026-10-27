@@ -148,11 +148,30 @@ try {
     view = new URL(page.url()).searchParams.get('view');
     assert(view === 'log', `${label}: tapping a week opened ${view} instead of Log.`);
 
+    // The Log's sleep and HRV charts scrub the same way, when the deployment has Fitbit nights.
+    const recoveryCharts = page.locator('.recovery-chart');
+    let recoveryBars = 0;
+    if (await recoveryCharts.count() > 0) {
+      assert(await recoveryCharts.count() === 2, `${label}: expected sleep and HRV charts at the top of Log.`);
+      const sleep = recoveryCharts.first();
+      await sleep.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(300);
+      const sleepReadout = () => sleep.locator('.recovery-chart-readout').innerText();
+      const latestNight = await sleepReadout();
+      const sleepBox = (await sleep.locator('.recovery-chart-surface').boundingBox())!;
+      await page.mouse.move(sleepBox.x + sleepBox.width * 0.08, sleepBox.y + sleepBox.height / 2);
+      await page.waitForTimeout(250);
+      assert(await sleepReadout() !== latestNight, `${label}: moving over the sleep chart left the readout on ${latestNight}.`);
+      await sleep.getByRole('button', { name: '30D' }).click();
+      recoveryBars = await sleep.locator('.recovery-chart-bar').count();
+      assert(recoveryBars > 7 && recoveryBars <= 30, `${label}: the 30-day sleep chart drew ${recoveryBars} nights.`);
+    }
+
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     assert(overflow <= 0, `${label}: the page overflows horizontally by ${overflow}px.`);
 
     assert(pageErrors.length === 0, `${label}: page errors — ${pageErrors.slice(0, 3).join(' | ')}`);
-    console.log(`${label}: ${weekCount} weeks · slide swept ${sweep.size} · ${stats.join(' / ')}`);
+    console.log(`${label}: ${weekCount} weeks · slide swept ${sweep.size} · ${stats.join(' / ')} · ${recoveryBars} sleep nights in 30D`);
     await page.close();
   }
 } finally {

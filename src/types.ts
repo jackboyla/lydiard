@@ -91,6 +91,13 @@ export type RecoveryState =
  * (src/analysis/recovery.ts), not stored. `readiness` is kept only as a
  * cross-check and is deliberately never fed back into the derived state.
  */
+/** One night's sleep and HRV, filed under the local date the runner woke up. */
+export interface RecoveryNight {
+  day: string;
+  sleepMin?: number;
+  hrvMs?: number;
+}
+
 export interface RecoveryObservation {
   day: string; // YYYY-MM-DD, runner-local calendar date
   source: string; // 'garmin' | 'fitbit' | 'google_health' | ...
