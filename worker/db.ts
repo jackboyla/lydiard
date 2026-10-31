@@ -4,6 +4,7 @@ import type {
   ActivityStreams,
   ActivitySummary,
   GymSession,
+  StrengthSet,
   LapProfilePoint,
   RecoveryObservation,
   TrainingPlanDay,
@@ -2383,22 +2384,7 @@ export async function deleteActivityCoachMetrics(
   }
 }
 
-export interface StrengthSet {
-  id: string;
-  gymSessionId: string;
-  exercise: string;
-  setNumber?: number;
-  weightKg?: number;
-  reps?: number;
-  distanceM?: number;
-  durationSec?: number;
-  rir?: number;
-  rawText: string;
-  note: string;
-  source: string;
-  createdAt: string;
-  updatedAt: string;
-}
+export type { StrengthSet } from '../src/types';
 
 export type StrengthSetInput = Omit<StrengthSet, 'createdAt' | 'updatedAt'>;
 
@@ -2828,4 +2814,31 @@ function parseJson<T>(value: string | null): T | undefined {
   } catch {
     return undefined;
   }
+}
+
+export async function getGymSetState(db: D1Database, sessionId: string) {
+  const [session, sets] = await db.batch([
+    db.prepare('SELECT strength_version FROM gym_sessions WHERE id=?1').bind(sessionId),
+    db.prepare('SELECT * FROM strength_sets WHERE gym_session_id=?1 ORDER BY set_number, created_at, id').bind(sessionId),
+  ]);
+  const row = session.results[0] as { strength_version: string } | undefined;
+  return row ? { version: row.strength_version, sets: (sets.results as unknown as StrengthSetRow[]).map(rowToStrengthSet) } : null;
+}
+
+export async function replaceGymSets(db: D1Database, sessionId: string, sets: StrengthSetInput[], expectedVersion: string): Promise<boolean> {
+  const version = crypto.randomUUID();
+  const now = new Date().toISOString();
+  // A unique token gates every write in this transaction, including an empty save.
+  const results = await db.batch([
+    db.prepare('UPDATE gym_sessions SET strength_version=?1 WHERE id=?2 AND strength_version=?3').bind(version, sessionId, expectedVersion),
+    db.prepare('DELETE FROM strength_sets WHERE gym_session_id=?1 AND EXISTS (SELECT 1 FROM gym_sessions WHERE id=?1 AND strength_version=?2)').bind(sessionId, version),
+    ...sets.map((set) => db.prepare(`INSERT INTO strength_sets
+      (id,gym_session_id,exercise,set_number,weight_kg,reps,distance_m,duration_s,rir,raw_text,note,source,created_at,updated_at)
+      SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?13
+      WHERE EXISTS (SELECT 1 FROM gym_sessions WHERE id=?2 AND strength_version=?14)`)
+      .bind(crypto.randomUUID(), sessionId, set.exercise, set.setNumber ?? null, set.weightKg ?? null,
+        set.reps ?? null, set.distanceM ?? null, set.durationSec ?? null, set.rir ?? null,
+        set.rawText, set.note, set.source, now, version)),
+  ]);
+  return results[0].meta.changes === 1;
 }

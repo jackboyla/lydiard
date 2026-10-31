@@ -15,6 +15,10 @@ import {
   getDailyCheckins,
   getDailyRecoveries,
   getGymSessions,
+  getStrengthSets,
+  getGymSetState,
+  replaceGymSets,
+  type StrengthSetInput,
   getStreams,
   getSyncState,
   getTrainingPlanDay,
@@ -317,6 +321,60 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
       to: normalizeTo(c.req.query('to')),
     });
     return c.json({ sessions });
+  });
+
+  app.get('/strength', async (c) => c.json({ sets: await getStrengthSets(c.env.lydiard) }));
+
+  app.get('/gym/:id/sets', async (c) => {
+    const state = await getGymSetState(c.env.lydiard, c.req.param('id'));
+    return state ? c.json(state) : c.json({ error: 'Gym session not found.' }, 404);
+  });
+
+  app.post('/gym/:id/sets', async (c) => {
+    let body: { sets?: unknown; expectedVersion?: unknown } | null;
+    try { body = await c.req.json(); } catch { return c.json({ error: 'Request body must be JSON.' }, 400); }
+    if (!body || typeof body.expectedVersion !== 'string' || !Array.isArray(body.sets) || body.sets.length > 300) {
+      return c.json({ error: 'Provide sets (at most 300) and expectedVersion.' }, 400);
+    }
+    const sets: StrengthSetInput[] = [];
+    for (const value of body.sets) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return c.json({ error: 'Invalid exercise set.' }, 400);
+      const set = value as Record<string, unknown>;
+      if (typeof set.exercise !== 'string' || !set.exercise.trim() || set.exercise.length > 120) {
+        return c.json({ error: 'Exercise must contain 1–120 characters.' }, 400);
+      }
+      for (const key of ['setNumber', 'reps', 'weightKg', 'distanceM', 'durationSec', 'rir']) {
+        const v = set[key];
+        if (v != null && (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 1000000 ||
+          (['setNumber', 'reps', 'durationSec'].includes(key) && !Number.isInteger(v)) || (key === 'setNumber' && v === 0))) {
+          return c.json({ error: `Invalid ${key}.` }, 400);
+        }
+      }
+      for (const key of ['rawText', 'note', 'source']) {
+        if (set[key] != null && (typeof set[key] !== 'string' || (set[key] as string).length > 20000)) {
+          return c.json({ error: `Invalid ${key}.` }, 400);
+        }
+      }
+      sets.push({
+        id: '', gymSessionId: c.req.param('id'), exercise: set.exercise.trim().replace(/\s+/g, ' '),
+        setNumber: set.setNumber as number | undefined, reps: set.reps as number | undefined,
+        weightKg: set.weightKg as number | undefined, distanceM: set.distanceM as number | undefined,
+        durationSec: set.durationSec as number | undefined, rir: set.rir as number | undefined,
+        rawText: (set.rawText as string) ?? '', note: (set.note as string) ?? '', source: (set.source as string) ?? 'manual',
+      });
+    }
+    const state = await getGymSetState(c.env.lydiard, c.req.param('id'));
+    if (!state) return c.json({ error: 'Gym session not found.' }, 404);
+    // Keep one spelling for quick selection and exercise history.
+    const known = new Map((await getStrengthSets(c.env.lydiard)).map((set) => [set.exercise.toLocaleLowerCase(), set.exercise]));
+    for (const set of sets) {
+      const key = set.exercise.toLocaleLowerCase();
+      set.exercise = known.get(key) ?? set.exercise;
+      known.set(key, set.exercise);
+    }
+    const saved = await replaceGymSets(c.env.lydiard, c.req.param('id'), sets, body.expectedVersion);
+    if (!saved) return c.json({ error: 'This gym session changed elsewhere. Close and reopen it before saving.' }, 409);
+    return c.json(await getGymSetState(c.env.lydiard, c.req.param('id')));
   });
 
   app.get('/plan', async (c) => {

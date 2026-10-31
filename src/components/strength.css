@@ -1,0 +1,71 @@
+.gym-dialog { width: min(640px, calc(100vw - 24px)); max-height: min(90dvh, 960px); padding: 0; border: 1px solid var(--border); border-radius: 20px; color: var(--text); background: var(--surface); box-shadow: 0 28px 100px #0007; overflow-y: auto; }
+.gym-dialog::backdrop { background: #00150ed9; backdrop-filter: blur(5px); }
+.gym-dialog-header { display: flex; align-items: center; gap: 14px; padding: 24px; border-bottom: 1px solid var(--border-soft); }
+.gym-dialog-header > div:nth-child(2) { flex: 1; min-width: 0; }
+.gym-dialog-header h2 { margin: 4px 0; font-size: 21px; overflow-wrap: anywhere; }
+.gym-dialog-header p { margin: 0; color: var(--muted); font-size: 12px; }
+.gym-dialog-icon { display: grid; place-items: center; width: 46px; height: 46px; background: var(--green-soft); color: var(--green); border-radius: 14px; flex-shrink: 0; }
+.strength-eyebrow { font-size: 10px; letter-spacing: .13em; font-weight: 800; color: var(--green); }
+.gym-dialog-body { padding: 24px; }
+.gym-editor-intro h3 { font-size: 18px; margin: 0 0 6px; }
+.gym-editor-intro p, .strength-heading p { font-size: 12px; color: var(--muted); margin: 0 0 20px; line-height: 1.6; }
+.gym-editor-fields { min-width: 0; border: 0; padding: 0; margin: 0; }
+.gym-exercise-card { border: 1px solid var(--border-soft); padding: 16px; border-radius: 14px; margin-bottom: 12px; background: var(--surface-muted); }
+.gym-exercise-top { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; font-size: 12px; font-weight: 700; }
+.gym-exercise-top .strength-icon-button { margin-left: auto; }
+.gym-exercise-number { color: var(--green); font-variant-numeric: tabular-nums; font-size: 11px; }
+.gym-exercise-card input, .strength-search { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font: inherit; font-size: 16px; color: var(--text); min-width: 0; }
+.gym-exercise-card input:focus, .strength-search:focus { outline: 2px solid var(--green); outline-offset: 2px; }
+.gym-exercise-card input::placeholder, .strength-search::placeholder { color: var(--subtle); }
+.gym-set-fields { display: grid; grid-template-columns: .8fr .8fr 1fr; gap: 10px; margin-top: 14px; }
+.gym-set-fields label { font-size: 11px; color: var(--muted); font-weight: 700; }
+.gym-set-fields label small { float: right; color: var(--subtle); font-size: inherit; }
+.gym-set-fields input { margin-top: 7px; font-variant-numeric: tabular-nums; font-weight: 650; }
+.gym-original-note { font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.strength-icon-button { display: grid; place-items: center; padding: 8px; min-width: 36px; min-height: 36px; color: var(--muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; }
+.strength-icon-button:hover { background: var(--surface-control); color: var(--text); }
+.gym-history-link, .strength-back { display: inline-flex; gap: 6px; align-items: center; background: transparent; color: var(--green); border: 0; padding: 10px 0 0; font: inherit; font-size: 12px; cursor: pointer; }
+.gym-add-exercise { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 14px; border: 1px dashed var(--border); border-radius: 11px; color: var(--green); background: var(--green-soft); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.gym-quick-select { margin-top: 20px; }
+.gym-quick-select > span { font-size: 10px; font-weight: 750; color: var(--subtle); text-transform: uppercase; letter-spacing: .08em; }
+.gym-quick-select > div { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
+.gym-quick-select button { display: inline-flex; gap: 7px; align-items: center; min-height: 36px; padding: 8px 11px; border-radius: 20px; color: var(--text); border: 1px solid var(--border-soft); background: var(--surface-control); font: inherit; font-size: 11px; cursor: pointer; }
+.gym-dialog-footer { position: sticky; bottom: 0; display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface-raised); backdrop-filter: blur(12px); }
+.gym-dialog-footer > span { color: var(--muted); font-size: 11px; }
+.gym-save { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 10px; background: var(--green); color: #073020; padding: 13px 18px; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.gym-save:disabled { opacity: .45; cursor: default; }
+.strength-empty { text-align: center; padding: 36px 16px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.strength-empty > svg { color: var(--green); }
+.strength-empty small { font-size: 12px; }
+.strength-empty button { padding: 10px 18px; background: var(--surface-control); color: var(--text); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.strength-error { color: var(--danger); font-size: 12px; line-height: 1.6; }
+.strength-progress, .strength-history { max-width: 880px; margin: 0 auto; }
+.strength-heading { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 20px; }
+.strength-heading h2 { margin: 6px 0; font-size: 25px; letter-spacing: -.04em; overflow-wrap: anywhere; }
+.strength-heading > svg { color: var(--green); flex-shrink: 0; }
+.strength-heading p { margin-bottom: 0; }
+.strength-search { margin-bottom: 16px; }
+.strength-exercise-list { display: grid; gap: 10px; }
+.strength-exercise-list > button { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left; padding: 20px; color: var(--text); background: var(--surface); border: 1px solid var(--border-soft); border-radius: 13px; font: inherit; cursor: pointer; }
+.strength-exercise-list > button:hover { border-color: var(--green); background: var(--surface-soft); }
+.strength-exercise-list strong { font-size: 15px; display: block; overflow-wrap: anywhere; }
+.strength-exercise-list small { display: block; color: var(--muted); font-size: 11px; margin-top: 7px; line-height: 1.6; }
+.strength-exercise-list svg { flex-shrink: 0; color: var(--green); }
+.strength-back { padding: 0 0 20px; }
+.strength-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; border-block: 1px solid var(--border-soft); padding: 20px 0; margin-bottom: 20px; }
+.strength-stats strong { display: block; font-size: clamp(17px, 4vw, 26px); color: var(--green); letter-spacing: -.04em; }
+.strength-stats span { display: block; color: var(--muted); font-size: 10px; margin-top: 4px; }
+.strength-chart { background: var(--surface-muted); border: 1px solid var(--border-soft); border-radius: 12px; padding: 14px 8px 4px; margin-bottom: 24px; }
+.strength-chart > p { margin: 0 10px 10px; font-size: 11px; color: var(--muted); }
+.strength-timeline article { display: grid; grid-template-columns: minmax(110px, .6fr) 1fr; border-top: 1px solid var(--border-soft); padding: 18px 0; gap: 20px; }
+.strength-history-date { font-size: 12px; font-weight: 700; }
+.strength-history-date span { display: block; font-size: 10px; font-weight: 400; color: var(--subtle); margin-top: 7px; }
+.strength-timeline p { font-size: 12px; margin: 0 0 8px; color: var(--muted); }
+.strength-timeline p strong { color: var(--text); }
+.strength-timeline small { display: block; font-size: 11px; color: var(--subtle); line-height: 1.6; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .gym-dialog { max-height: 94dvh; width: calc(100vw - 16px); border-radius: 18px; } .gym-dialog-header { padding: 18px 16px; gap: 10px; } .gym-dialog-icon { width: 38px; height: 38px; border-radius: 11px; } .gym-dialog-header h2 { font-size: 17px; } .gym-dialog-body { padding: 20px 16px; } .gym-dialog-footer { padding: 14px 16px max(14px, env(safe-area-inset-bottom)); } .gym-exercise-card { padding: 13px; } .gym-set-fields { gap: 8px; } .gym-set-fields input { padding: 11px 8px; } .gym-dialog-footer > span { font-size: 10px; } .strength-heading h2 { font-size: 23px; } .strength-timeline article { grid-template-columns: 105px 1fr; gap: 12px; } }
+.strength-chart-metric { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+.strength-chart-metric select { border: 1px solid var(--border); border-radius: 8px; padding: 10px; font: inherit; color: var(--text); background: var(--surface-control); }
+
+button.calendar-gym-pill { width: 100%; text-align: left; font: inherit; cursor: pointer; border: 1px solid transparent; }
+button.calendar-gym-pill:hover, button.calendar-gym-pill:focus-visible { border-color: var(--green); outline-color: var(--green); }

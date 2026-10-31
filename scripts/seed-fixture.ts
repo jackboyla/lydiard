@@ -133,7 +133,7 @@ const now = new Date(ANCHOR).toISOString();
 const pulseDay = new Date(ANCHOR - DAY).toISOString().slice(0, 10);
 const lines: string[] = [];
 lines.push(
-  'DELETE FROM activity_streams; DELETE FROM activity_feedback; DELETE FROM daily_checkins; DELETE FROM daily_recovery; DELETE FROM activities; DELETE FROM weekly_features; DELETE FROM athlete;',
+  'DELETE FROM strength_sets; DELETE FROM gym_sessions; DELETE FROM activity_streams; DELETE FROM activity_feedback; DELETE FROM daily_checkins; DELETE FROM daily_recovery; DELETE FROM activities; DELETE FROM weekly_features; DELETE FROM athlete;',
 );
 lines.push(
   `INSERT INTO athlete (id, firstname, lastname, username, refresh_token, access_token, expires_at, scope, updated_at) ` +
@@ -143,6 +143,19 @@ lines.push(
   `INSERT INTO daily_checkins (day, energy, leg_freshness, motivation, pain_level, sleep_quality, note, source, created_at, updated_at) VALUES (` +
     `${q(pulseDay)}, 4, 4, 3, 0, 5, ${q('Legs settled after an easy morning.')}, 'platform', ${q(now)}, ${q(now)});`,
 );
+
+for (const daysAgo of [1, 8]) {
+  const date = new Date(ANCHOR - daysAgo * DAY).toISOString();
+  const id = `fix-gym-${daysAgo}`;
+  lines.push(`INSERT INTO gym_sessions (id,name,sport_type,start_date,start_date_local,duration_s,created_at,updated_at)
+    VALUES (${q(id)},'Strength','strength_training',${q(date)},${q(date)},2400,${q(now)},${q(now)});`);
+  for (const setNumber of [1, 2]) {
+    lines.push(`INSERT INTO strength_sets (id,gym_session_id,exercise,set_number,reps,weight_kg,created_at,updated_at)
+      VALUES (${q(`${id}-${setNumber}`)},${q(id)},'Calf raise',${setNumber},${daysAgo === 1 ? 8 : 6},${daysAgo === 1 ? 90 : 80},${q(now)},${q(now)});`);
+  }
+  lines.push(`INSERT INTO strength_sets (id,gym_session_id,exercise,weight_kg,raw_text,note,source,created_at,updated_at)
+    VALUES (${q(`${id}-unknown`)},${q(id)},'Step-up',25,'Step ups 25kg','Set count not recorded.','backfill',${q(now)},${q(now)});`);
+}
 
 // ~100 nights of Fitbit sleep and HRV up to the anchor day, with an occasional
 // missed night so the charts show their gaps.

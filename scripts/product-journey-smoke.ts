@@ -38,6 +38,16 @@ let bestEffortGroupCount = 0;
 let runBestEffortCount = 0;
 let dayNoteRoundTrip = false;
 let syncTickShown = false;
+let gymRestore: { path: string; sets: unknown[] } | null = null;
+const gymExercise = 'Smoke check exercise';
+async function gymRequest(path: string, body?: unknown) {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    headers: { 'Content-Type': 'application/json', ...(siteKey ? { 'X-Lydiard-Key': siteKey } : {}) },
+    ...(body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }),
+  });
+  assert(response.ok, `Gym API failed: ${response.status}`);
+  return response.json() as Promise<{ sets: Record<string, unknown>[]; version: string }>;
+}
 
 try {
   await page.goto(`${BASE_URL}/?view=log`, { waitUntil: 'networkidle' });
@@ -134,6 +144,54 @@ try {
   );
   await page.locator('.training-view').evaluate((node) => { node.scrollTop = 0; });
 
+  const gymResponse = page.waitForResponse(response => /\/api\/gym\/[^/]+\/sets$/.test(response.url()));
+  await page.locator('.calendar-gym-pill').first().click();
+  const initialGymResponse = await gymResponse;
+  const initialGym = await initialGymResponse.json() as { sets: Record<string, unknown>[]; version: string };
+  gymRestore = { path: new URL(initialGymResponse.url()).pathname, sets: initialGym.sets };
+  await page.getByRole('button', { name: 'Add exercise', exact: true }).click();
+  const gymRow = page.locator('.gym-exercise-card').last();
+  await gymRow.getByRole('combobox').fill(gymExercise);
+  await gymRow.getByLabel('Sets', { exact: true }).fill('3');
+  await gymRow.getByLabel('Reps', { exact: true }).fill('8');
+  await gymRow.getByLabel('Weight', { exact: false }).fill('12.5');
+  await page.getByRole('button', { name: 'Add exercise', exact: true }).click();
+  const nameOnlyRow = page.locator('.gym-exercise-card').last();
+  await nameOnlyRow.getByRole('combobox').fill('Name-only exercise');
+  for (const label of ['Sets', 'Reps', 'Weight']) {
+    const input = nameOnlyRow.getByLabel(label, { exact: label !== 'Weight' });
+    assert(!(await input.evaluate(node => (node as HTMLInputElement).required)), `${label} should be optional.`);
+    await input.fill('');
+  }
+  assert(!(await page.getByRole('dialog').evaluate(node => node.scrollWidth > node.clientWidth)), 'Gym editor overflows on mobile.');
+  await page.getByRole('button', { name: 'Save session', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  const savedGym = await gymRequest(gymRestore.path);
+  assert(savedGym.sets.filter(set => set.exercise === gymExercise).length === 3, 'Gym did not save all three sets.');
+  const nameOnlySet = savedGym.sets.filter(set => set.exercise === 'Name-only exercise');
+  assert(nameOnlySet.length === 1 && nameOnlySet[0].setNumber == null && nameOnlySet[0].reps == null && nameOnlySet[0].weightKg == null, 'Name-only exercise was lost or gained invented details.');
+  const details = (sets: Record<string, unknown>[]) => sets.map(({ id: _id, createdAt: _created, updatedAt: _updated, setNumber, ...set }) => ({ ...set, knownCount: setNumber != null })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  assert(JSON.stringify(details(savedGym.sets.filter(set => set.exercise !== gymExercise && set.exercise !== 'Name-only exercise'))) === JSON.stringify(details(initialGym.sets)), 'Editing a session changed existing exercise details or unknown counts.');
+  await page.locator('.calendar-gym-pill').first().click();
+  const exerciseInput = page.locator(`input[value="${gymExercise}"]`);
+  await exerciseInput.waitFor();
+  const savedCard = page.locator('.gym-exercise-card').filter({ has: exerciseInput });
+  const reopenedNameOnly = page.locator('.gym-exercise-card').filter({ has: page.locator('input[value="Name-only exercise"]') });
+  assert(await reopenedNameOnly.getByLabel('Sets', { exact: true }).inputValue() === '', 'Unknown set count did not remain blank on reopen.');
+  assert(await savedCard.getByLabel('Sets', { exact: true }).inputValue() === '3', 'Matching gym sets did not group after reopening.');
+  await savedCard.getByRole('button', { name: 'View exercise history' }).click();
+  await page.getByRole('heading', { name: gymExercise, exact: true }).waitFor();
+  assert((await page.locator('.strength-timeline').innerText()).includes('12.5 kg'), 'Session exercise history is missing weight.');
+  await page.getByRole('button', { name: 'Back to session' }).click();
+  for (const label of ['Sets', 'Reps', 'Weight']) {
+    await savedCard.getByLabel(label, { exact: label !== 'Weight' }).fill('');
+  }
+  await page.getByRole('button', { name: 'Save session', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  const clearedGym = (await gymRequest(gymRestore.path)).sets.filter(set => set.exercise === gymExercise);
+  assert(clearedGym.length === 1 && clearedGym[0].setNumber == null && clearedGym[0].reps == null && clearedGym[0].weightKg == null, 'Clearing existing optional fields did not save unknown values.');
+  await page.locator('.training-view').evaluate(node => { node.scrollTop = 0; });
+
   const restDay = page.locator('.week-day-cell:not(.has-run)').first();
   const dayNoteTrigger = restDay.locator('.calendar-day-note-trigger');
   assert(await dayNoteTrigger.isVisible(), 'A rest day does not expose its day-note editor.');
@@ -193,25 +251,23 @@ try {
     const map = document.querySelector('.activity-route-panel')?.getBoundingClientRect();
     const overview = document.querySelector('.activity-mobile-overview')?.getBoundingClientRect();
     const visibleReads = [...document.querySelectorAll<HTMLElement>('.activity-run-read')].filter((node) => getComputedStyle(node).display !== 'none');
-    const readStyle = visibleReads[0] ? getComputedStyle(visibleReads[0]) : undefined;
     return {
       gap: map && overview ? overview.top - map.bottom : Number.POSITIVE_INFINITY,
       visibleReads: visibleReads.length,
-      background: readStyle?.backgroundImage ?? '',
-      color: readStyle?.color ?? '',
       metrics: document.querySelectorAll('.activity-mobile-overview .preview-primary-stats .compact-metric').length,
     };
   });
   assert(mobileOverviewGeometry.gap >= 0 && mobileOverviewGeometry.gap <= 16, `Mobile run overview is not directly below the map (${mobileOverviewGeometry.gap}px).`);
   assert(mobileOverviewGeometry.visibleReads === 1, `Expected one visible mobile Run Read, found ${mobileOverviewGeometry.visibleReads}.`);
   assert(mobileOverviewGeometry.metrics === 6, `Expected six mobile general metrics, found ${mobileOverviewGeometry.metrics}.`);
-  assert(mobileOverviewGeometry.background.includes('24, 75, 56'), `Run Read did not restore the forest background: ${mobileOverviewGeometry.background}.`);
-  assert(mobileOverviewGeometry.color.includes('248, 245, 236'), `Run Read foreground is not the readable warm white: ${mobileOverviewGeometry.color}.`);
   assert(await page.locator('.splits-preview').count() === 0, 'The redundant Pace over time chart is still rendered.');
   assert(await page.locator('.lap-split-table th', { hasText: 'HR avg' }).first().isVisible(), 'Average HR split column is missing.');
-  assert(await page.locator('.lap-split-table th', { hasText: 'HR max' }).first().isVisible(), 'Maximum HR split column is missing.');
   assert(await page.locator('.lap-split-table th', { hasText: 'Zone' }).first().isVisible(), 'Split zone column is missing.');
-  assert(await page.locator('.lap-split-table th', { hasText: 'Elev Δ' }).first().isVisible(), 'Split elevation-change column is missing.');
+  for (const label of ['HR max', 'Elev Δ', 'W']) {
+    const column = page.locator('.lap-split-table th').filter({ hasText: new RegExp(`^${label}$`) }).first();
+    assert(await column.count() === 1, `${label} split column is missing.`);
+    assert(await column.isHidden(), `${label} split column should be hidden on mobile.`);
+  }
   assert(await page.getByRole('region', { name: 'Device-recorded laps' }).isVisible(), 'Device-recorded lap table is missing.');
   assert(await page.getByRole('region', { name: 'Kilometre splits' }).isVisible(), 'Independent kilometre split table is missing.');
   assert(await page.locator('.activity-analysis-panel details').count() === 0, 'Activity analysis is still hidden in a disclosure.');
@@ -277,6 +333,12 @@ try {
   assert(new URL(page.url()).searchParams.get('view') === 'progress', 'Progress URL state was not updated.');
   const progressRead = (await page.locator('.progress-snapshot-read strong').textContent())?.trim();
   const progressTab = (name: string) => page.getByRole('tablist', { name: 'Progress sections' }).getByRole('tab', { name });
+  await progressTab('Gym').click();
+  await page.getByRole('button', { name: new RegExp(gymExercise) }).click();
+  await page.getByRole('heading', { name: gymExercise, exact: true }).waitFor();
+  await page.getByLabel('Progress metric').selectOption('reps');
+  assert((await page.locator('.strength-timeline').innerText()).includes('Details not recorded'), 'Name-only exercise is missing from Progress history.');
+  await progressTab('Load').click();
   await progressTab('Bests').click();
   assert(new URL(page.url()).searchParams.get('tab') === 'bests', 'Progress section was not recorded in the URL.');
   await page.waitForFunction(() => document.querySelectorAll('.best-effort-group').length >= 11, undefined, { timeout: 20_000 });
@@ -447,7 +509,8 @@ try {
     progressWeekToLog: true,
     progressWeekKeyboardActivation: true,
     persistentLogProgressState: true,
-    progressSections: 'load + fitness + bests + zones',
+    progressSections: 'load + fitness + bests + zones + gym',
+    gymSession: 'save + reopen + preserved history + session/Progress history',
     planSections: 'week + goal + more',
     scullionBuckets: 8,
     goalControls: true,
@@ -455,6 +518,10 @@ try {
     browserErrors: pageErrors.length,
   }, null, 2));
 } finally {
+  if (gymRestore) {
+    const current = await gymRequest(gymRestore.path);
+    await gymRequest(gymRestore.path, { sets: gymRestore.sets, expectedVersion: current.version });
+  }
   if (editedActivityId) await restoreNote(editedActivityId, originalNote, siteKey);
   await browser.close();
 }

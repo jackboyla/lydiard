@@ -8,6 +8,7 @@ import type {
   ActivitySummary,
   DailyCheckin,
   GymSession,
+  StrengthSet,
   RecoveryNight,
   SyncStatus,
   TrainingPlanDay,
@@ -417,4 +418,16 @@ export async function disconnectStrava(): Promise<void> {
 
 export function fetchRecentBestEfforts(): Promise<import('../analysis/bakken').RecentEffortsResponse> {
   return getJson('/api/best-efforts/recent');
+}
+
+export async function getStrengthSets(): Promise<StrengthSet[]> {
+  return (await getJson<{ sets: StrengthSet[] }>('/api/strength')).sets;
+}
+
+export function getGymSets(id: string): Promise<{ sets: StrengthSet[]; version: string }> {
+  return getJson(`/api/gym/${encodeURIComponent(id)}/sets`);
+}
+
+export function saveGymSets(id: string, sets: StrengthSet[], expectedVersion: string): Promise<{ sets: StrengthSet[]; version: string }> {
+  return mutationJson(`/api/gym/${encodeURIComponent(id)}/sets`, 'POST', { sets, expectedVersion });
 }

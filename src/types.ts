@@ -300,3 +300,20 @@ export interface SyncStatus {
   source?: string;
   dateRange: { first: string | null; last: string | null };
 }
+
+export interface StrengthSet {
+  id: string;
+  gymSessionId: string;
+  exercise: string;
+  setNumber?: number;
+  weightKg?: number;
+  reps?: number;
+  distanceM?: number;
+  durationSec?: number;
+  rir?: number;
+  rawText: string;
+  note: string;
+  source: string;
+  createdAt: string;
+  updatedAt: string;
+}

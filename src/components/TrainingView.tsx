@@ -1,3 +1,4 @@
+import { GymSessionEditor } from './GymSessionEditor';
 import { lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Activity,
@@ -1324,8 +1325,10 @@ function DayNoteEditor({
 }
 
 function GymSessionPill({ session }: { session: GymSession }) {
+  const [editing, setEditing] = useState(false);
   return (
-    <div className="calendar-gym-pill" title={gymTitle(session)}>
+    <>
+      <button type="button" className="calendar-gym-pill" title={gymTitle(session)} onClick={() => setEditing(true)} aria-label={`Edit gym session ${formatGymDay(session.startDateLocal || session.startDate)}`}>
       <span>
         <Dumbbell size={13} aria-hidden="true" />
         <strong>Gym</strong>
@@ -1335,7 +1338,9 @@ function GymSessionPill({ session }: { session: GymSession }) {
         {session.durationSec > 0 ? ` / ${Math.round(session.durationSec / 60)}m` : ''}
         {session.averageHeartRate ? ` / ${Math.round(session.averageHeartRate)} bpm` : ''}
       </small>
-    </div>
+      </button>
+      {editing && <GymSessionEditor session={session} onClose={() => setEditing(false)} />}
+    </>
   );
 }
 

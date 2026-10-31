@@ -1,3 +1,4 @@
+import { StrengthProgress } from './components/StrengthProgress';
 import {
   lazy,
   Suspense,
@@ -109,13 +110,14 @@ type ViewMode = 'log' | 'progress' | 'plan';
 type LogMode = 'list' | 'map';
 type BestEffortScope = 'all' | 'season';
 type ProgressResolution = '1m' | '3m' | '6m' | '12m';
-type ProgressTab = 'load' | 'fitness' | 'bests' | 'zones';
+type ProgressTab = 'load' | 'fitness' | 'bests' | 'zones' | 'gym';
 
 const PROGRESS_TABS: ReadonlyArray<SectionTab<ProgressTab>> = [
   { key: 'load', label: 'Load' },
   { key: 'fitness', label: 'Fitness' },
   { key: 'bests', label: 'Bests' },
   { key: 'zones', label: 'Zones' },
+  { key: 'gym', label: 'Gym' },
 ];
 
 interface ProgressViewState {
@@ -1259,6 +1261,8 @@ function ProgressView({
           onTabChange(next);
         }}
       />
+
+      {tab === 'gym' && <StrengthProgress gymSessions={gymSessions} />}
 
       {tab === 'load' && (
         <>
