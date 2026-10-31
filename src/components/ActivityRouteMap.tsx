@@ -11,21 +11,23 @@ interface ActivityRouteMapProps {
 const DETAIL_MAP_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {
-    carto: {
+    satellite: {
       type: 'raster',
-      tiles: [
-        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      ],
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
       tileSize: 256,
-      attribution: '© OpenStreetMap contributors © CARTO',
+      maxzoom: 18,
+      attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
     },
   },
   layers: [
     { id: 'background', type: 'background', paint: { 'background-color': '#1b1b19' } },
-    { id: 'carto', type: 'raster', source: 'carto', paint: { 'raster-opacity': 0.84 } },
+    {
+      id: 'satellite',
+      type: 'raster',
+      source: 'satellite',
+      // Lifts the imagery's dark shadows; slightly muted so the red route stands out.
+      paint: { 'raster-brightness-min': 0.12, 'raster-saturation': -0.1 },
+    },
   ],
 };
 
