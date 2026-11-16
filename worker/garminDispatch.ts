@@ -3,6 +3,7 @@ import type { Env } from './env';
 interface WorkflowRun {
   id: number;
   status: string;
+  created_at?: string;
   html_url?: string;
 }
 
@@ -20,6 +21,7 @@ export class GarminDispatchConfigurationError extends Error {}
 export class GarminDispatchUpstreamError extends Error {}
 
 const GITHUB_API = 'https://api.github.com';
+const QUEUE_START_TIMEOUT_MS = 15 * 60 * 1000;
 
 export async function dispatchGarminWorkflow(
   env: Env,
@@ -66,11 +68,24 @@ async function dispatchWorkflow(env: Env, workflow: string, source: string, labe
     throw new GarminDispatchUpstreamError(githubError(`check ${label} workflow status`, runsResponse, runsPayload));
   }
 
-  const activeRun = (runsPayload?.workflow_runs ?? []).find(
-    (run) => run.status === 'queued' || run.status === 'in_progress' || run.status === 'waiting' || run.status === 'pending',
-  );
-  if (activeRun) {
-    return { alreadyRunning: true, runUrl: activeRun.html_url };
+  for (const run of runsPayload?.workflow_runs ?? []) {
+    if (!['queued', 'in_progress', 'waiting', 'pending'].includes(run.status)) continue;
+
+    const createdAt = Date.parse(run.created_at ?? '');
+    if (run.status === 'queued' && Date.now() - createdAt >= QUEUE_START_TIMEOUT_MS) {
+      // GitHub can leave a run queued without ever creating jobs. Such runs
+      // must not block every later poll; workflow concurrency still serializes jobs.
+      const jobsResponse = await fetch(`${GITHUB_API}/repos/${repository}/actions/runs/${run.id}/jobs?per_page=1`, { headers });
+      const jobs = await readJson(jobsResponse) as { total_count?: number; message?: string } | null;
+      if (!jobsResponse.ok) {
+        throw new GarminDispatchUpstreamError(githubError(`check ${label} workflow jobs`, jobsResponse, jobs));
+      }
+      if (jobs?.total_count === 0) {
+        console.warn(`${label} sync: ignoring queued run ${run.id} with no jobs after 15 minutes.`);
+        continue;
+      }
+    }
+    return { alreadyRunning: true, runUrl: run.html_url };
   }
 
   const dispatchResponse = await fetch(`${workflowPath}/dispatches`, {

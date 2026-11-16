@@ -358,7 +358,8 @@ is only appropriate when you intentionally want the first batch to clear all exi
 
 Cloudflare triggers `.github/workflows/garmin-sync.yml` every 30 minutes at :07 and :37 UTC after the
 bootstrap, using the same GitHub dispatch credentials as manual sync. It skips dispatch while a sync
-is queued or running. Normal polls ask Garmin for the last 2 days of activity data (`ACTIVITIES_LIST` +
+is queued or running. A queued run older than 15 minutes with no jobs does not block a new
+dispatch; GitHub workflow concurrency still serializes imports. Normal polls ask Garmin for the last 2 days of activity data (`ACTIVITIES_LIST` +
 `ACTIVITY` FIT files); a separate daily GitHub schedule at 06:17 UTC reconciles the last 45 days.
 Both import with `--no-replace`, so they can upsert new/recent activities without wiping older history. Set repository
 variable `GARMIN_INCREMENTAL_DAYS` to override both rolling windows, set
