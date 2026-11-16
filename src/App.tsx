@@ -17,7 +17,7 @@ import {
 import {
   ArrowDownToLine,
   CalendarDays,
-  Check,
+  Clock,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -199,6 +199,7 @@ export default function App() {
   const [loadError, setLoadError] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncQueued, setSyncQueued] = useState(false);
+  const syncBaseline = useRef<string | null>(null);
   const [needsPassword, setNeedsPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
 
@@ -704,21 +705,37 @@ export default function App() {
     setLoadError('');
     try {
       if (isGarminSource) {
-        await triggerGarminSync();
-        window.setTimeout(() => void loadData(), 90_000);
-        window.setTimeout(() => void loadData(), 300_000);
+        const result = await triggerGarminSync();
+        setBanner(`${result.message} Waiting for the import to finish; this page will refresh automatically.`);
       } else {
         await triggerSync();
         window.setTimeout(() => void loadData(), 5000);
       }
+      syncBaseline.current = status?.lastSyncAt ?? null;
       setSyncQueued(true);
-      window.setTimeout(() => setSyncQueued(false), 8000);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'Sync failed.');
     } finally {
       setIsSyncing(false);
     }
-  }, [isGarminSource, loadData]);
+  }, [isGarminSource, loadData, status?.lastSyncAt]);
+
+  useEffect(() => {
+    if (!syncQueued) return;
+    const interval = window.setInterval(() => void loadData(), 30_000);
+    const timeout = window.setTimeout(() => {
+      setSyncQueued(false);
+      setBanner('The sync is taking longer than expected. Try Sync again to check or queue another import.');
+    }, 15 * 60_000);
+    return () => { window.clearInterval(interval); window.clearTimeout(timeout); };
+  }, [syncQueued, loadData]);
+
+  useEffect(() => {
+    if (syncQueued && status?.lastSyncAt && status.lastSyncAt !== syncBaseline.current) {
+      setSyncQueued(false);
+      setBanner('Training data refreshed.');
+    }
+  }, [syncQueued, status?.lastSyncAt]);
 
   const handleDisconnectStrava = useCallback(async () => {
     const confirmed = window.confirm(
@@ -790,10 +807,10 @@ export default function App() {
           onClick={handleSyncNow}
         >
           {syncQueued
-            ? <Check size={17} aria-hidden="true" />
+            ? <Clock size={17} aria-hidden="true" />
             : <RefreshCw size={17} aria-hidden="true" className={isSyncing ? 'spin' : ''} />}
           <span className="sr-only" role="status">
-            {isSyncing ? 'Syncing' : syncQueued ? 'Sync queued — new activities appear within a few minutes' : ''}
+            {isSyncing ? 'Syncing' : syncQueued ? 'Sync queued — waiting for the import to finish' : ''}
           </span>
         </button>
 
