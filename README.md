@@ -351,7 +351,8 @@ npm run garmin:import-db -- --no-replace
 ```
 
 The importer uses Node's built-in SQLite support and uploads one activity per request
-(`--batch-size` overrides this). It asks the Worker to recompute weekly features only on the final batch. For an already-live site, use
+(`--batch-size` overrides this). After the uploads it derives weekly features from the full stored
+history in Node and posts them back, because that work exceeds the free Worker CPU limit. For an already-live site, use
 `--no-replace` for the historical
 bootstrap so a failed midway upload cannot wipe the recent production rows. Omitting `--no-replace`
 is only appropriate when you intentionally want the first batch to clear all existing training data.

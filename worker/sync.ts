@@ -1,6 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import type { ActivitySummary } from '../src/types';
-import { buildImportedTrainingFromActivities } from '../src/data/deriveWeekly';
+import { deriveStoredWeeklyFeatures } from '../src/data/deriveWeekly';
 import type { Env } from './env';
 import { fetchYears, streamsPerRun } from './env';
 import {
@@ -107,21 +107,11 @@ export async function runSync(env: Env, db: D1Database, options: { force?: boole
 }
 
 export async function recomputeWeeklyFeatures(db: D1Database): Promise<number> {
-  const activities = await getActivitiesForWeeklyFeatures(db);
-  const hasGarmin = activities.some((activity) => activity.id.startsWith('garmin-'));
-  const source = hasGarmin ? 'garmin' : 'strava';
-  try {
-    const training = buildImportedTrainingFromActivities(
-      activities,
-      source,
-      hasGarmin ? 'garmin-health-data SQLite' : 'Strava API',
-    );
-    await replaceWeeklyFeatures(db, training.weeks);
-    return training.weeks.length;
-  } catch {
-    // Not enough running weeks yet (needs >= 4). Leave existing features in place.
-    return 0;
-  }
+  const weeks = deriveStoredWeeklyFeatures(await getActivitiesForWeeklyFeatures(db));
+  // Leave existing features in place until there are enough running weeks.
+  if (!weeks) return 0;
+  await replaceWeeklyFeatures(db, weeks);
+  return weeks.length;
 }
 
 function isRunLike(activity: StoredActivity): boolean {

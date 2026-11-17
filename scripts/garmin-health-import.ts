@@ -1,6 +1,7 @@
 import polyline from '@mapbox/polyline';
 import { normalizeStreams, simplifyLatLng } from '../worker/streams';
 import type { ActivityLap, ActivityStreams, ActivitySummary } from '../src/types';
+import { deriveStoredWeeklyFeatures, type ImportedActivity } from '../src/data/deriveWeekly';
 import { sqliteJson } from './lib/sqlite';
 
 interface GarminActivityRow {
@@ -160,7 +161,7 @@ const stats = {
   batches: 0,
   upserted: 0,
   streamsSaved: 0,
-  finalWeekCount: undefined as number | null | undefined,
+  weekCount: undefined as number | null | undefined,
 };
 
 let batch: IngestActivity[] = [];
@@ -181,18 +182,17 @@ for (const [index, row] of candidates.entries()) {
   const isFinalActivity = index === candidates.length - 1;
   if (!dryRun && (batch.length >= batchSize || isFinalActivity)) {
     const batchNumber = stats.batches + 1;
-    const response = await postBatch(batch, {
-      batchNumber,
-      replace: replace && !sentAnyBatch,
-      recomputeWeeks: isFinalActivity,
-    });
+    const response = await postBatch(batch, { batchNumber, replace: replace && !sentAnyBatch });
     stats.batches = batchNumber;
     stats.upserted += response.upserted;
     stats.streamsSaved += response.streamsSaved;
-    stats.finalWeekCount = response.weekCount;
     sentAnyBatch = true;
     batch = [];
   }
+}
+
+if (sentAnyBatch) {
+  stats.weekCount = await refreshWeeklyFeatures();
 }
 
 if (dryRun) {
@@ -240,7 +240,7 @@ if (dryRun) {
         withStreams: stats.withStreams,
         upserted: stats.upserted,
         streamsSaved: stats.streamsSaved,
-        weekCount: stats.finalWeekCount,
+        weekCount: stats.weekCount,
         first: stats.first,
         last: stats.last,
       },
@@ -254,34 +254,67 @@ interface BatchResponse {
   ok: boolean;
   upserted: number;
   streamsSaved: number;
-  weekCount: number | null;
+}
+
+interface WeeklyInputPage {
+  activities: Array<Omit<ImportedActivity, 'date'> & { date: string }>;
+  next: { afterDate: string; afterId: string } | null;
 }
 
 async function postBatch(
   activities: IngestActivity[],
-  opts: { batchNumber: number; replace: boolean; recomputeWeeks: boolean },
+  opts: { batchNumber: number; replace: boolean },
 ): Promise<BatchResponse> {
-  const body = JSON.stringify({
+  const parsed = await ingestRequest<BatchResponse>(`batch ${opts.batchNumber}`, '/api/ingest/activities', {
     source: 'garmin-health-data',
     replace: opts.replace,
-    recomputeWeeks: opts.recomputeWeeks,
     activities,
   });
+  console.log(`uploaded batch ${opts.batchNumber}: ${parsed.upserted} activities, ${parsed.streamsSaved} streams`);
+  return parsed;
+}
+
+// Deriving weeks from the full history exceeds the free Worker CPU limit, so
+// the importer does it here and the Worker only stores the result.
+async function refreshWeeklyFeatures(): Promise<number | null> {
+  const inputs: ImportedActivity[] = [];
+  let query = '';
+  for (let page = 1; ; page += 1) {
+    const response = await ingestRequest<WeeklyInputPage>(
+      `weekly inputs page ${page}`,
+      `/api/ingest/weekly-feature-inputs${query}`,
+    );
+    inputs.push(...response.activities.map((row) => ({ ...row, date: new Date(row.date) })));
+    if (!response.next) break;
+    query = `?${new URLSearchParams(response.next)}`;
+  }
+  const weeks = deriveStoredWeeklyFeatures(inputs);
+  const result = await ingestRequest<{ weekCount: number | null }>('weekly features', '/api/ingest/weekly-features', {
+    source: 'garmin-health-data',
+    weeks,
+  });
+  console.log(`refreshed weekly features from ${inputs.length} activities: ${result.weekCount ?? 'kept stored'} weeks`);
+  return result.weekCount;
+}
+
+/** GET when body is omitted, otherwise POST JSON; retries auth races, rate limits, and server errors. */
+async function ingestRequest<T>(label: string, path: string, body?: unknown): Promise<T> {
+  const init: RequestInit = {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: {
+      Authorization: `Bearer ${ingestKey}`,
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  };
   const maxAttempts = 5;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     let response: Response;
     try {
-      response = await fetch(`${baseUrl}/api/ingest/activities`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${ingestKey}`,
-          'Content-Type': 'application/json',
-        },
-        body,
-      });
+      response = await fetch(`${baseUrl}${path}`, init);
     } catch (error) {
       if (attempt === maxAttempts) {
-        throw new Error(`Ingest batch ${opts.batchNumber} request failed after ${attempt} attempts: ${String(error)}`);
+        throw new Error(`Ingest ${label} request failed after ${attempt} attempts: ${String(error)}`);
       }
       await sleep(backoffMs(attempt));
       continue;
@@ -289,20 +322,16 @@ async function postBatch(
 
     const text = await response.text();
     if (response.ok) {
-      const parsed = JSON.parse(text) as BatchResponse;
-      console.log(
-        `uploaded batch ${opts.batchNumber}: ${parsed.upserted} activities, ${parsed.streamsSaved} streams, recomputeWeeks=${opts.recomputeWeeks}`,
-      );
-      return parsed;
+      return JSON.parse(text) as T;
     }
     if ((response.status === 401 || response.status === 429 || response.status >= 500) && attempt < maxAttempts) {
-      console.warn(`Ingest batch ${opts.batchNumber} attempt ${attempt} failed: ${response.status} ${text}`);
+      console.warn(`Ingest ${label} attempt ${attempt} failed: ${response.status} ${text}`);
       await sleep(backoffMs(attempt));
       continue;
     }
-    throw new Error(`Ingest batch ${opts.batchNumber} failed: ${response.status} ${text}`);
+    throw new Error(`Ingest ${label} failed: ${response.status} ${text}`);
   }
-  throw new Error(`Ingest batch ${opts.batchNumber} failed unexpectedly.`);
+  throw new Error(`Ingest ${label} failed unexpectedly.`);
 }
 
 function recordActivityStats(activity: IngestActivity): void {

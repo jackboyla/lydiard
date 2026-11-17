@@ -334,16 +334,38 @@ export async function getActivities(
   }));
 }
 
+// Weekly derivation needs neither routes nor lap profiles from the diary feed.
+const WEEKLY_FEATURE_COLUMNS = `
+  id, name, sport_type AS type, start_date AS date,
+  distance_km AS distanceKm, moving_time_s AS movingTimeSec, elapsed_time_s AS elapsedTimeSec,
+  average_heartrate AS averageHeartRate, average_cadence_spm AS averageCadenceSpm,
+  elevation_gain_m AS elevationGainM, relative_effort AS relativeEffort, decoupling_pct AS decouplingPct`;
+
+export type WeeklyFeatureInputRow = Omit<ImportedActivity, 'date'> & { date: string };
+
 export async function getActivitiesForWeeklyFeatures(db: D1Database): Promise<ImportedActivity[]> {
-  // Weekly derivation needs neither routes nor lap profiles from the diary feed.
-  const result = await db.prepare(`
-    SELECT id, name, sport_type AS type, start_date AS date,
-      distance_km AS distanceKm, moving_time_s AS movingTimeSec, elapsed_time_s AS elapsedTimeSec,
-      average_heartrate AS averageHeartRate, average_cadence_spm AS averageCadenceSpm,
-      elevation_gain_m AS elevationGainM, relative_effort AS relativeEffort, decoupling_pct AS decouplingPct
-    FROM activities ORDER BY start_date ASC
-  `).all<Omit<ImportedActivity, 'date'> & { date: string }>();
+  const result = await db
+    .prepare(`SELECT ${WEEKLY_FEATURE_COLUMNS} FROM activities ORDER BY start_date ASC`)
+    .all<WeeklyFeatureInputRow>();
   return (result.results ?? []).map((row) => ({ ...row, date: new Date(row.date) }));
+}
+
+/** One page of weekly-feature inputs after a (start_date, id) cursor, for recomputation outside the Worker. */
+export async function getWeeklyFeatureInputPage(
+  db: D1Database,
+  after: { date: string; id: string } | null,
+  limit: number,
+): Promise<WeeklyFeatureInputRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT ${WEEKLY_FEATURE_COLUMNS} FROM activities
+       WHERE (start_date, id) > (?1, ?2)
+       ORDER BY start_date ASC, id ASC
+       LIMIT ?3`,
+    )
+    .bind(after?.date ?? '', after?.id ?? '', limit)
+    .all<WeeklyFeatureInputRow>();
+  return result.results ?? [];
 }
 
 export async function getActivity(db: D1Database, id: string): Promise<StoredActivity | null> {

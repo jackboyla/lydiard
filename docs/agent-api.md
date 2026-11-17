@@ -116,11 +116,15 @@ External sync jobs can post normalized activities to `POST /api/ingest/activitie
 `Authorization: Bearer <INGEST_API_KEY>`. The Garmin workflow uses this route after
 `garmin-health-data` downloads/processes Garmin Connect data into `garmin_data.db`. The route can
 replace existing training rows for a full local bootstrap, or upsert without replacement for
-scheduled incremental updates. It stores streams, recomputes weekly features, and updates sync
-status. The Garmin importer sends one activity per request to stay within the free Worker CPU limit.
-Use `npm run garmin:import-db -- --no-replace` for incremental or historical imports; intermediate
-requests skip weekly recomputation and the final request refreshes the derived weekly features.
-Larger `--batch-size` values require enough Worker CPU budget.
+scheduled incremental updates, and stores streams. The Garmin importer sends one activity per
+request to stay within the free Worker CPU limit; larger `--batch-size` values need more CPU budget.
+Use `npm run garmin:import-db -- --no-replace` for incremental or historical imports.
+
+Deriving weekly features from the full history also exceeds that limit, so importers do it
+themselves: page through `GET /api/ingest/weekly-feature-inputs` (follow `next` as
+`afterDate`/`afterId` query parameters), run `deriveStoredWeeklyFeatures`, then post
+`{ "source": "...", "weeks": [...] }` to `POST /api/ingest/weekly-features`. That request replaces
+the stored weeks (`"weeks": null` keeps them), updates sync status, and queues the coach review.
 
 ## Security notes
 

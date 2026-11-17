@@ -82,6 +82,24 @@ export function buildImportedTrainingFromActivities(
   };
 }
 
+/**
+ * Weekly features for the full stored activity history, or null while there are
+ * too few running weeks to derive them. Runs in Node during Garmin imports and
+ * in the Worker for Strava syncs, so both label weeks the same way.
+ */
+export function deriveStoredWeeklyFeatures(activities: ImportedActivity[]): WeeklyRunBlock[] | null {
+  const hasGarmin = activities.some((activity) => activity.id.startsWith('garmin-'));
+  try {
+    return buildImportedTrainingFromActivities(
+      activities,
+      hasGarmin ? 'garmin' : 'strava',
+      hasGarmin ? 'garmin-health-data SQLite' : 'Strava API',
+    ).weeks;
+  } catch {
+    return null;
+  }
+}
+
 function activitiesToWeeklyBlocks(
   activities: ImportedActivity[],
   source: DataSource,

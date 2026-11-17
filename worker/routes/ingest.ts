@@ -1,8 +1,10 @@
 import { Hono } from 'hono';
-import type { ActivityLap, ActivityStreams, ActivitySummary, GymSession, RecoveryObservation } from '../../src/types';
+import type { ActivityLap, ActivityStreams, ActivitySummary, GymSession, RecoveryObservation, WeeklyRunBlock } from '../../src/types';
 import type { Env } from '../env';
 import {
   getActivitiesByLocalDateRange,
+  getDateRange,
+  getWeeklyFeatureInputPage,
   getTrainingPlanDays,
   importTrainingPlanDays,
   replaceTrainingData,
@@ -10,6 +12,7 @@ import {
   saveStreams,
   updateSyncState,
   replaceGymSessions,
+  replaceWeeklyFeatures,
   saveActivityLaps,
   upsertDailyRecoveries,
   upsertGymSessions,
@@ -17,7 +20,6 @@ import {
 } from '../db';
 import { matchPlanActualDurations } from '../../src/data/planMatching';
 import { computeDecoupling } from '../streams';
-import { recomputeWeeklyFeatures } from '../sync';
 import { refreshAdaptiveZones } from '../maintenance';
 
 interface IngestActivity {
@@ -28,9 +30,16 @@ interface IngestActivity {
 interface IngestPayload {
   source?: string;
   replace?: boolean;
-  recomputeWeeks?: boolean;
   activities?: IngestActivity[];
 }
+
+interface WeeklyFeaturesPayload {
+  source?: string;
+  weeks?: WeeklyRunBlock[] | null;
+}
+
+const WEEKLY_INPUT_PAGE_LIMIT = 1000;
+const MAX_WEEKLY_FEATURES = 5000;
 
 interface GymIngestPayload {
   source?: string;
@@ -120,35 +129,65 @@ export function ingestRoutes(): Hono<{ Bindings: Env }> {
       }
     }
 
-    const recomputeWeeks = payload.recomputeWeeks !== false;
-    const weekCount = recomputeWeeks ? await recomputeWeeklyFeatures(c.env.lydiard) : null;
-    const latestDate = summaries.reduce<string | null>((latest, activity) => {
-      return !latest || activity.startDate > latest ? activity.startDate : latest;
-    }, null);
-    const result = {
+    return c.json({
+      ok: true,
       source: payload.source ?? 'external',
       replace: Boolean(payload.replace),
-      recomputeWeeks,
       upserted: summaries.length,
       streamsSaved,
-      weekCount,
       finishedAt: new Date().toISOString(),
-    };
+    });
+  });
 
-    if (recomputeWeeks) {
-      await updateSyncState(c.env.lydiard, {
-        last_sync_at: result.finishedAt,
-        last_activity_date: latestDate ?? undefined,
-        last_result: JSON.stringify(result),
-        last_error: null,
-      });
+  // Weekly features cover the whole history, which costs more CPU than the free
+  // Worker plan allows per request. Importers page through these inputs, derive
+  // the weeks with deriveStoredWeeklyFeatures, and post them to /weekly-features.
+  app.get('/weekly-feature-inputs', async (c) => {
+    const afterDate = c.req.query('afterDate');
+    const afterId = c.req.query('afterId');
+    const after = afterDate && afterId ? { date: afterDate, id: afterId } : null;
+    const activities = await getWeeklyFeatureInputPage(c.env.lydiard, after, WEEKLY_INPUT_PAGE_LIMIT);
+    const last = activities.length === WEEKLY_INPUT_PAGE_LIMIT ? activities[activities.length - 1] : undefined;
+    return c.json({ activities, next: last ? { afterDate: last.date, afterId: last.id } : null });
+  });
 
-      // The last batch in each Garmin import is the earliest useful point to
-      // review new evidence. Keep this off the response path; the daily Worker
-      // cron remains the backstop when no import runs on the review date.
-      c.executionCtx.waitUntil(refreshAdaptiveZones(c.env.lydiard));
+  // Ends an import: replaces derived weeks, records sync status, and lets the
+  // coach review the new evidence. A null `weeks` keeps the stored features.
+  app.post('/weekly-features', async (c) => {
+    let payload: WeeklyFeaturesPayload;
+    try {
+      payload = (await c.req.json()) as WeeklyFeaturesPayload;
+    } catch {
+      return c.json({ error: 'Request body must be JSON.' }, 400);
+    }
+    const weeks = payload.weeks ?? null;
+    if (weeks !== null) {
+      if (!Array.isArray(weeks) || weeks.length > MAX_WEEKLY_FEATURES) {
+        return c.json({ error: `weeks must be null or an array of at most ${MAX_WEEKLY_FEATURES} weeks.` }, 400);
+      }
+      const invalid = weeks.find((week) => typeof week?.weekStart !== 'string' || !validPlanDate(week.weekStart) || !Number.isInteger(week.year));
+      if (invalid) {
+        return c.json({ error: 'Every week requires a YYYY-MM-DD weekStart and an integer year.' }, 400);
+      }
+      await replaceWeeklyFeatures(c.env.lydiard, weeks);
     }
 
+    const range = await getDateRange(c.env.lydiard);
+    const result = {
+      source: payload.source ?? 'external',
+      weekCount: weeks?.length ?? null,
+      finishedAt: new Date().toISOString(),
+    };
+    await updateSyncState(c.env.lydiard, {
+      last_sync_at: result.finishedAt,
+      last_activity_date: range.last ?? undefined,
+      last_result: JSON.stringify(result),
+      last_error: null,
+    });
+
+    // Keep this off the response path; the daily Worker cron remains the
+    // backstop when no import runs on the review date.
+    c.executionCtx.waitUntil(refreshAdaptiveZones(c.env.lydiard));
     return c.json({ ok: true, ...result });
   });
 
