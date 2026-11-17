@@ -12665,6 +12665,12 @@ select {
   gap: 12px;
 }
 
+/* Keep the plot still as the selected day's comparisons change. */
+.rolling-load-stats small {
+  min-block-size: 3em;
+  line-height: 1.5;
+}
+
 .rolling-load-summary h3 {
   margin: 0 0 12px;
   color: var(--text-strong);

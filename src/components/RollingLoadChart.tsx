@@ -93,12 +93,12 @@ export function RollingLoadChart({
           <div>
             <span>Distance</span>
             <strong>{selected.distanceKm.toFixed(1)} km</strong>
-            <small>{formatVersusBase(selected.distanceKm, selected.baseDistanceKm)}</small>
+            <small>{formatVersusBase(selected.distanceKm, selected.baseDistanceKm)}<br />vs 4-wk avg</small>
           </div>
           <div>
             <span>Time</span>
             <strong>{formatHoursMinutes(selected.hours)}</strong>
-            <small>{formatVersusBase(selected.hours, selected.baseHours)}</small>
+            <small>{formatVersusBase(selected.hours, selected.baseHours)}<br />vs 4-wk avg</small>
           </div>
           <div>
             <span>Runs</span>
@@ -317,10 +317,10 @@ function panelValue(point: RollingDay, key: PanelKey): number {
 }
 
 function formatVersusBase(value: number, base: number): string {
-  if (base <= 0) return value > 0 ? 'no 4-week base yet' : 'no runs';
+  if (base <= 0) return value > 0 ? 'No baseline' : 'no runs';
   const change = Math.round(((value - base) / base) * 100);
-  if (change === 0) return 'level with 4-wk avg';
-  return `${change > 0 ? '+' : '−'}${Math.abs(change)}% vs 4-wk avg`;
+  if (change === 0) return '0%';
+  return `${change > 0 ? '+' : '−'}${Math.abs(change)}%`;
 }
 
 /** "7 days to Fri 25 Sep 2026" */
