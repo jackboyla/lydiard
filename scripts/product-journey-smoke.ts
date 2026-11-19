@@ -378,10 +378,21 @@ try {
   assert(await page.locator('.training-zone-panel').isVisible(), 'Training zones are missing from Progress.');
   assert(await page.locator('.zone-calibration-status').isVisible(), 'Adaptive-zone review status is missing from Progress.');
   assert((await page.locator('.zone-calibration-status').innerText()).includes('next routine review'), 'Adaptive-zone status does not explain the review cadence.');
-  assert(await page.locator('.progress-zone-ledger').isVisible(), 'Range-scoped zone ledger is missing from Progress.');
-  assert(await page.locator('.progress-zone-row').count() === 5, 'Progress zone ledger does not expose all five zones.');
+  assert(await page.locator('.progress-zone-ledger').count() === 0, 'Zone ledger still appears in Zones.');
   await page.getByRole('heading', { name: 'Bakken Golden Zone', exact: true }).waitFor();
   await progressTab('Load').click();
+  const ledger = page.locator('.progress-zone-ledger');
+  await ledger.waitFor();
+  const zoneRange = ledger.getByRole('group', { name: 'Zone ledger range' });
+  assert(await zoneRange.getByRole('button').count() === 4, 'Zone ledger ranges are incomplete.');
+  await zoneRange.getByRole('button', { name: '6 months' }).click();
+  if (await ledger.locator('.progress-zone-empty').count() === 0) {
+    assert(await ledger.locator('.progress-zone-row').count() === 5, 'Zone ledger does not expose all five zones.');
+    await ledger.getByLabel('Weekly trend zone').selectOption('threshold');
+    await page.waitForFunction(() =>
+      document.querySelectorAll('.zone-trend-chart .recharts-bar').length === 1 ||
+      document.querySelector('.progress-zone-method')?.textContent?.includes('No running time in Threshold'));
+  }
   const progressResolution = page.getByRole('group', { name: 'Progress block size' });
   assert(await progressResolution.getByRole('button').count() === 4, 'Progress block resolutions are incomplete.');
   assert(await progressResolution.getByRole('button', { name: '3m' }).getAttribute('class') === 'active', 'The default Progress block is not 3 months / 12 weeks.');

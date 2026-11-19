@@ -6799,6 +6799,7 @@ dd {
 
 .progress-zone-ledger {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 15px;
   overflow: hidden;
 }
@@ -6878,16 +6879,49 @@ dd {
 }
 
 .progress-zone-stack i { display: block; min-width: 2px; }
-.progress-zone-stack .zone-recovery,
-.progress-zone-row .zone-recovery { background: #3154db; }
-.progress-zone-stack .zone-easy,
-.progress-zone-row .zone-easy { background: #1fa8dc; }
-.progress-zone-stack .zone-steady,
-.progress-zone-row .zone-steady { background: #169c70; }
-.progress-zone-stack .zone-threshold,
-.progress-zone-row .zone-threshold { background: #e07a00; }
-.progress-zone-stack .zone-vo2,
-.progress-zone-row .zone-vo2 { background: #df2d32; }
+.progress-zone-ledger .zone-period {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  justify-self: start;
+  max-width: 100%;
+}
+
+.zone-period button {
+  min-width: 0;
+  padding-inline: clamp(5px, 1.5vw, 14px);
+}
+
+.zone-trend-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.zone-trend-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.zone-trend-head select {
+  padding: 5px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--surface-control);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.zone-trend-chart {
+  min-width: 0;
+  font-size: 0.72rem;
+}
+
+.zone-trend-chart .recharts-cartesian-axis-tick-value {
+  fill: var(--muted);
+}
 
 .progress-zone-table {
   display: grid;
@@ -7812,7 +7846,7 @@ dd {
 
   .progress-zone-table-head,
   .progress-zone-row {
-    grid-template-columns: minmax(118px, 1.4fr) minmax(62px, 0.7fr) minmax(65px, 0.8fr) 34px;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 0.8fr) 30px;
     gap: 7px;
   }
 

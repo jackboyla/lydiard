@@ -48,7 +48,7 @@ import { PLAN_TABS, PlanView } from './components/PlanView';
 import { PowerDurationChart } from './components/PowerDurationChart';
 import { HeartRateDurationChart } from './components/HeartRateDurationChart';
 import { BakkenZone, RecentBestEfforts } from './components/RecentBestEfforts';
-import { ProgressZoneBreakdown } from './components/ProgressZoneBreakdown';
+import type { ZonePeriod } from './components/ProgressZoneBreakdown';
 import { TrainingView, TrainingZoneSummary, type TrainingJumpApi } from './components/TrainingView';
 import { WeeklyTotalsChart } from './components/WeeklyTotalsChart';
 import { RollingLoadChart } from './components/RollingLoadChart';
@@ -121,6 +121,7 @@ const PROGRESS_TABS: ReadonlyArray<SectionTab<ProgressTab>> = [
 ];
 
 interface ProgressViewState {
+  zonePeriod: ZonePeriod;
   loadMetric: 'time' | 'distance';
   activeWeekId: string | null;
   armedWeekId: string | null;
@@ -158,6 +159,7 @@ const COLOR_OPTIONS: Array<{ key: ColorBy; label: string }> = [
 ];
 
 const LazyMapView = lazy(() => import('./components/MapView').then((module) => ({ default: module.MapView })));
+const ProgressZoneBreakdown = lazy(() => import('./components/ProgressZoneBreakdown'));
 const LazyAdvancedAnalysis = lazy(() => import('./components/AdvancedAnalysis'));
 
 export default function App() {
@@ -209,6 +211,7 @@ export default function App() {
   const [bestEffortScope, setBestEffortScope] = useState<BestEffortScope>('all');
   const [trainingJump, setTrainingJump] = useState<TrainingJumpApi | null>(null);
   const [progressViewState, setProgressViewState] = useState<ProgressViewState>({
+    zonePeriod: '30 days',
     loadMetric: 'time',
     activeWeekId: null,
     armedWeekId: null,
@@ -1404,6 +1407,15 @@ function ProgressView({
               untilDay={blockWeeks.length > 0 ? addDaysToDayId(lastItem(blockWeeks)!.weekId, 6) : ''}
             />
           </section>
+
+          <Suspense fallback={<div className="surface-loading">Loading zone ledger…</div>}>
+            <ProgressZoneBreakdown
+              sessions={loadModel.sessions}
+              today={localDateId(progressNow)}
+              period={viewState.zonePeriod}
+              onPeriodChange={(zonePeriod) => onViewStateChange((current) => ({ ...current, zonePeriod }))}
+            />
+          </Suspense>
         </>
       )}
 
@@ -1478,7 +1490,6 @@ function ProgressView({
             onOpenActivity={onOpenActivity}
           />
           {recentEffortsRefreshKey !== undefined && <BakkenZone refreshKey={recentEffortsRefreshKey} onOpenActivity={onOpenActivity} />}
-          <ProgressZoneBreakdown loadModel={scopedProgress.loadModel} />
         </section>
       )}
     </main>
