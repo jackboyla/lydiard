@@ -387,6 +387,7 @@ try {
   assert(await zoneRange.getByRole('button').count() === 4, 'Zone ledger ranges are incomplete.');
   await zoneRange.getByRole('button', { name: '6 months' }).click();
   if (await ledger.locator('.progress-zone-empty').count() === 0) {
+    assert(await ledger.evaluate((card) => card.clientHeight >= card.scrollHeight - 1), 'Load clips the zone ledger vertically.');
     assert(await ledger.locator('.progress-zone-row').count() === 5, 'Zone ledger does not expose all five zones.');
     await ledger.getByLabel('Weekly trend zone').selectOption('threshold');
     await page.waitForFunction(() =>

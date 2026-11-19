@@ -6801,7 +6801,7 @@ dd {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 15px;
-  overflow: hidden;
+  overflow: clip;
 }
 
 .progress-zone-ledger > header {
