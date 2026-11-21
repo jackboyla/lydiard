@@ -5,7 +5,8 @@ import type { PowerDurationPoint } from '../analysis/coachEngine';
 const X_TICKS = [10, 60, 300, 600, 1200, 3600] as const;
 const MIN_DURATION = 10;
 const MAX_DURATION = 3600;
-const SERIES_ORDER: PowerDurationPoint['freshness'][] = ['historic', 'building', 'recent'];
+type Freshness = PowerDurationPoint['freshness'];
+const SERIES_ORDER: Freshness[] = ['historic', 'building', 'recent'];
 
 export function PowerDurationChart({
   points,
@@ -25,6 +26,7 @@ export function PowerDurationChart({
   const shellRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(720);
   const [selectedPointKey, setSelectedPointKey] = useState<string | null>(null);
+  const [hiddenPeriods, setHiddenPeriods] = useState<ReadonlySet<Freshness>>(() => new Set());
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -37,7 +39,22 @@ export function PowerDurationChart({
   }, [loading, points?.length]);
 
   const chart = useMemo(() => buildChart(points ?? [], width), [points, width]);
-  const selected = points?.find((point) => pointKey(point) === selectedPointKey);
+  const selected = points?.find((point) => pointKey(point) === selectedPointKey && !hiddenPeriods.has(point.freshness));
+  const selectedPlot = selected && chart.points.find((point) => pointKey(point) === selectedPointKey);
+  // Draw the selected curve last so its points sit above overlapping curves.
+  const drawOrder = selected
+    ? [...SERIES_ORDER.filter((freshness) => freshness !== selected.freshness), selected.freshness]
+    : SERIES_ORDER;
+  const visibleCount = chart.series.filter((series) => !hiddenPeriods.has(series.freshness)).length;
+
+  const togglePeriod = (freshness: Freshness) => {
+    setHiddenPeriods((current) => {
+      const next = new Set(current);
+      if (next.has(freshness)) next.delete(freshness);
+      else if (visibleCount > 1) next.add(freshness);
+      return next;
+    });
+  };
 
   return (
     <section className="product-card power-duration-card" aria-labelledby="power-duration-title">
@@ -84,19 +101,29 @@ export function PowerDurationChart({
                 </g>
               ))}
               <text className="power-duration-y-unit" x={chart.left} y={15}>W</text>
-              {chart.series.map((series) => (
+              {selectedPlot && (
+                <line
+                  className="power-duration-guide"
+                  x1={selectedPlot.x}
+                  y1={chart.top}
+                  x2={selectedPlot.x}
+                  y2={chart.bottom}
+                />
+              )}
+              {drawOrder.flatMap((freshness) => chart.series.filter((series) => series.freshness === freshness)).map((series) => (
                 <path
                   key={series.freshness}
-                  className={`power-duration-segment freshness-${series.freshness}`}
+                  className={seriesClass('power-duration-segment', series.freshness, hiddenPeriods, selected?.freshness)}
                   d={series.linePath}
                 />
               ))}
-              {chart.points.map((point) => (
+              {drawOrder.flatMap((freshness) => chart.points.filter((point) => point.freshness === freshness)).map((point) => (
                 <g
                   key={pointKey(point)}
-                  className={`power-duration-point freshness-${point.freshness}${selectedPointKey === pointKey(point) ? ' selected' : ''}`}
+                  className={`${seriesClass('power-duration-point', point.freshness, hiddenPeriods, selected?.freshness)}${selectedPointKey === pointKey(point) ? ' selected' : ''}`}
                   role="button"
-                  tabIndex={0}
+                  tabIndex={hiddenPeriods.has(point.freshness) ? -1 : 0}
+                  aria-hidden={hiddenPeriods.has(point.freshness) || undefined}
                   aria-label={`${periodLabel(point.freshness)} curve, ${formatDuration(point.durationSec)}, ${point.watts} watts, set ${freshnessLabel(point.ageDays)}`}
                   onMouseEnter={() => setSelectedPointKey(pointKey(point))}
                   onFocus={() => setSelectedPointKey(pointKey(point))}
@@ -115,10 +142,24 @@ export function PowerDurationChart({
             </svg>
           </div>
 
-          <div className="power-duration-legend" aria-label="Power duration periods">
-            <span><i className="freshness-recent" />1–30 days</span>
-            <span><i className="freshness-building" />31–75 days</span>
-            <span><i className="freshness-historic" />76+ days</span>
+          <div className="power-duration-toggles" role="group" aria-label="Show or hide periods">
+            {[...SERIES_ORDER].reverse().map((freshness) => {
+              const available = chart.series.some((series) => series.freshness === freshness);
+              const shown = available && !hiddenPeriods.has(freshness);
+              return (
+                <button
+                  key={freshness}
+                  type="button"
+                  className={`freshness-${freshness}`}
+                  aria-pressed={shown}
+                  disabled={!available || (shown && visibleCount === 1)}
+                  title={shown && visibleCount === 1 ? 'At least one period stays visible' : undefined}
+                  onClick={() => togglePeriod(freshness)}
+                >
+                  <i aria-hidden="true" />{periodLabel(freshness).replace(' day', ' days')}
+                </button>
+              );
+            })}
           </div>
 
           <div className="power-duration-detail" aria-live="polite">
@@ -193,11 +234,23 @@ function buildChart(points: PowerDurationPoint[], width: number) {
   };
 }
 
+function seriesClass(
+  base: string,
+  freshness: Freshness,
+  hidden: ReadonlySet<Freshness>,
+  selectedFreshness: Freshness | undefined,
+): string {
+  const state = hidden.has(freshness)
+    ? ' is-hidden'
+    : selectedFreshness && selectedFreshness !== freshness ? ' is-muted' : '';
+  return `${base} freshness-${freshness}${state}`;
+}
+
 function pointKey(point: PowerDurationPoint): string {
   return `${point.freshness}:${point.durationSec}`;
 }
 
-function periodLabel(freshness: PowerDurationPoint['freshness']): string {
+function periodLabel(freshness: Freshness): string {
   if (freshness === 'recent') return '1–30 day';
   if (freshness === 'building') return '31–75 day';
   return '76+ day';

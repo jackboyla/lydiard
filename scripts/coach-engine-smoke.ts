@@ -7,6 +7,7 @@ import {
   buildLydiardWeek,
   buildPowerDurationCurve,
   estimatePhysiology,
+  powerPeakEfforts,
   evaluatePlannedVsActual,
   scoreLydiardSession,
   type AthleteFeedback,
@@ -243,6 +244,14 @@ for (const [freshness, watts] of [['recent', 320], ['building', 310], ['historic
   assert(series.length === 9, `${freshness} power-duration series should include all nine durations`);
   assert(series.every((point) => point.watts === watts), `${freshness} power-duration series should use its own period maximum`);
 }
+
+const surgeRun = constantRun('power-surge', '2026-07-02T08:00:00.000Z', 3600, CS, 280, 165, 'workout');
+surgeRun.streams!.powerWatts = surgeRun.streams!.powerWatts!.map((watts, second) => second >= 900 && second < 960 ? 450 : watts);
+const runPeaks = powerPeakEfforts(surgeRun.streams!);
+const sessionPeaks = scoreLydiardSession({ activity: surgeRun, criticalPowerHistory: cpHistory, physiology, hrCostBaseline: baseline }).peaks;
+assert(runPeaks.every((peak) => sessionPeaks.find((session) => session.durationSec === peak.durationSec)?.watts === peak.watts), 'run-page power peaks must match the peaks behind the power duration curve');
+const minutePeak = runPeaks.find((peak) => peak.durationSec === 60);
+assert(minutePeak?.watts === 450 && minutePeak.startSec >= 895 && minutePeak.startSec <= 905, 'the 1-minute peak must locate the surge in the stream');
 
 const plan = buildLydiardWeek({
   weekStart: '2026-07-13',

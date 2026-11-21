@@ -1,5 +1,5 @@
 import { GymSessionEditor } from './GymSessionEditor';
-import { lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   Activity,
   ArrowLeft,
@@ -27,7 +27,7 @@ import {
   type TrainingLoadModel,
   type WeekLoadSummary,
 } from '../analysis/loadModel';
-import type { PhysiologyEstimate, PracticalZone } from '../analysis/coachEngine';
+import { powerPeakEfforts, type PhysiologyEstimate, type PowerPeakEffort, type PracticalZone } from '../analysis/coachEngine';
 import { getActivity, getActivityWeather } from '../data/api';
 import type { AdaptiveZoneReviewHistoryEntry } from '../data/coachTypes';
 import {
@@ -1381,6 +1381,9 @@ function ActivityDetailPage({
     timeSec: detail.streams?.timeSec,
     distanceM: detail.streams?.distanceM,
   }) : [];
+  const powerPeaks = detail?.streams
+    ? powerPeakEfforts({ timeSec: detail.streams.timeSec, powerWatts: detail.streams.power })
+    : [];
   const runKind = classifyRun(session);
   const plannedText = planDay?.plannedText.trim() || planDay?.legacyPlannedText.trim();
 
@@ -1420,7 +1423,7 @@ function ActivityDetailPage({
             <ActivityNoteEditor activityId={activity.id} note={activity.activityNote ?? ''} onSave={onSaveNote} />
             <ActivityWeatherPanel activity={activity} />
             <ActivityEffortStrip totals={hrZoneTotals} loading={loading} />
-            <ActivityBestEfforts groups={bestEfforts} loading={loading} />
+            <ActivityBestEfforts groups={bestEfforts} powerPeaks={powerPeaks} loading={loading} />
             <section className="activity-analysis-panel" aria-labelledby="activity-analysis-heading">
               <header className="activity-analysis-heading">
                 <div><span>Run data</span><h2 id="activity-analysis-heading">Splits and load analysis</h2></div>
@@ -1596,39 +1599,83 @@ function windCompass(degrees: number): string {
   return directions[Math.round(normalized / 45) % directions.length];
 }
 
-function ActivityBestEfforts({ groups, loading }: { groups: ReturnType<typeof streamBestEffortsForActivity>; loading: boolean }) {
-  if (loading && groups.length === 0) {
-    return <section className="activity-best-efforts"><p>Calculating best efforts from the distance stream…</p></section>;
+function ActivityBestEfforts({
+  groups,
+  powerPeaks,
+  loading,
+}: {
+  groups: ReturnType<typeof streamBestEffortsForActivity>;
+  powerPeaks: PowerPeakEffort[];
+  loading: boolean;
+}) {
+  if (loading && groups.length === 0 && powerPeaks.length === 0) {
+    return <section className="activity-best-efforts"><p>Calculating best efforts from the run streams…</p></section>;
   }
-  if (groups.length === 0) {
+  if (groups.length === 0 && powerPeaks.length === 0) {
     return null;
   }
   return (
-    <section className="activity-best-efforts" aria-labelledby="activity-best-efforts-heading">
-      <header>
-        <div>
-          <span>Best efforts in this run</span>
-          <h3 id="activity-best-efforts-heading">Fastest distance segments</h3>
-        </div>
-        <small>Measured from the continuous distance stream</small>
-      </header>
-      <div>
-        {groups.map((group) => {
-          const effort = group.efforts[0];
-          return (
-            <article key={group.label}>
-              <span>{group.label}</span>
-              <strong>{formatDuration(effort.seconds)}</strong>
-              <small>{formatPace(effort.paceSecPerKm)}</small>
-              {effort.segmentStartSec !== undefined && effort.segmentEndSec !== undefined && (
-                <em>{formatDuration(effort.segmentStartSec)}–{formatDuration(effort.segmentEndSec)} into run</em>
-              )}
-            </article>
-          );
-        })}
-      </div>
+    <section className="activity-best-efforts" aria-label="Best efforts in this run">
+      {groups.length > 0 && (
+        <>
+          <header>
+            <div>
+              <span>Best efforts in this run</span>
+              <h3>Fastest distance segments</h3>
+            </div>
+            <small>Measured from the continuous distance stream</small>
+          </header>
+          <div>
+            {groups.map((group) => {
+              const effort = group.efforts[0];
+              return (
+                <article key={group.label}>
+                  <span>{group.label}</span>
+                  <strong>{formatDuration(effort.seconds)}</strong>
+                  <small>{formatPace(effort.paceSecPerKm)}</small>
+                  {effort.segmentStartSec !== undefined && effort.segmentEndSec !== undefined && (
+                    <em>{formatDuration(effort.segmentStartSec)}–{formatDuration(effort.segmentEndSec)} into run</em>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </>
+      )}
+      {powerPeaks.length > 0 && <ActivityPowerPeaks peaks={powerPeaks} showKicker={groups.length === 0} />}
     </section>
   );
+}
+
+function ActivityPowerPeaks({ peaks, showKicker }: { peaks: PowerPeakEffort[]; showKicker: boolean }) {
+  const maxWatts = Math.max(...peaks.map((peak) => peak.watts));
+  return (
+    <section className="activity-power-peaks" aria-label="Peak power">
+      <header>
+        <div>
+          {showKicker && <span>Best efforts in this run</span>}
+          <h3>Peak power</h3>
+        </div>
+        <small>Best rolling average, matching the power duration curve</small>
+      </header>
+      <ol>
+        {peaks.map((peak) => (
+          <li key={peak.durationSec} style={{ '--peak-share': `${(peak.watts / maxWatts) * 100}%` } as CSSProperties}>
+            <span>{formatPeakDuration(peak.durationSec)}</span>
+            <div className="activity-power-peak-track" aria-hidden="true"><i /></div>
+            <strong>{peak.watts}<small> W</small></strong>
+            <em>{formatDuration(peak.startSec)}–{formatDuration(peak.endSec)} into run</em>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function formatPeakDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${seconds / 60}m`;
+  return `${seconds / 3600}h`;
 }
 
 function RunRead({ classification, session }: { classification: RunClassification; session: SessionLoad }) {

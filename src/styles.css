@@ -4245,6 +4245,139 @@ dd {
   white-space: nowrap;
 }
 
+.activity-power-peaks {
+  display: grid;
+  gap: 10px;
+}
+
+.activity-best-efforts > div + .activity-power-peaks {
+  margin-top: 6px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.activity-power-peaks > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.activity-power-peaks > header div {
+  display: grid;
+  gap: 3px;
+}
+
+.activity-power-peaks > header span {
+  color: var(--subtle);
+  font-size: 0.66rem;
+  font-weight: 790;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.activity-power-peaks > header h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1rem;
+}
+
+.activity-power-peaks > header small {
+  max-width: 230px;
+  margin: 0;
+  color: var(--subtle);
+  font-size: 0.7rem;
+  text-align: right;
+}
+
+.activity-power-peaks ol {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-power-peaks li {
+  display: grid;
+  grid-template-columns: 2.6rem minmax(0, 1fr) 4.4rem;
+  grid-template-areas:
+    'label track watts'
+    '. range .';
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 0;
+  padding: 6px 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.activity-power-peaks li:first-child {
+  border-top: 0;
+}
+
+.activity-power-peaks li > span {
+  grid-area: label;
+  color: var(--warning);
+  font-size: 0.74rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-power-peak-track {
+  grid-area: track;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-soft);
+}
+
+/* One gradient spans the full track, so shorter efforts stay amber and the
+   hardest reach coral. Clipping reveals only this effort's share. */
+.activity-power-peak-track i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #8a6a2c, var(--warning) 55%, var(--accent));
+  clip-path: inset(0 calc(100% - var(--peak-share)) 0 0 round 999px);
+  animation: activity-power-peak-reveal 520ms var(--ease-out) both;
+}
+
+@keyframes activity-power-peak-reveal {
+  from { clip-path: inset(0 100% 0 0 round 999px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-power-peak-track i {
+    animation: none;
+  }
+}
+
+.activity-power-peaks li > strong {
+  grid-area: watts;
+  color: var(--text-strong);
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  text-align: right;
+}
+
+.activity-power-peaks li > strong small {
+  color: var(--subtle);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.activity-power-peaks li > em {
+  grid-area: range;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .activity-analysis-panel {
   display: grid;
   gap: 14px;
@@ -7793,6 +7926,17 @@ dd {
 
   .activity-best-efforts > div {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .activity-power-peaks > header {
+    align-items: start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .activity-power-peaks > header small {
+    max-width: none;
+    text-align: left;
   }
 
   .activity-analysis-panel {
@@ -11813,6 +11957,28 @@ select {
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
+  transition: opacity 180ms ease;
+}
+
+.power-duration-point {
+  transition: opacity 180ms ease;
+}
+
+.power-duration-segment.is-muted,
+.power-duration-point.is-muted {
+  opacity: 0.3;
+}
+
+.power-duration-segment.is-hidden,
+.power-duration-point.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.power-duration-guide {
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
 }
 
 .power-duration-segment.freshness-recent,
@@ -11869,6 +12035,64 @@ select {
 .power-duration-legend .freshness-recent { background: var(--power-recent); }
 .power-duration-legend .freshness-building { background: var(--power-building); }
 .power-duration-legend .freshness-historic { background: var(--power-historic); }
+
+.power-duration-toggles {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.power-duration-toggles button {
+  --swatch: var(--power-recent);
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 13px 0 11px;
+  border: 1px solid color-mix(in srgb, var(--swatch) 55%, transparent);
+  border-radius: 999px;
+  color: #eef6f1;
+  background: color-mix(in srgb, var(--swatch) 14%, transparent);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.power-duration-toggles button.freshness-building { --swatch: var(--power-building); }
+.power-duration-toggles button.freshness-historic { --swatch: var(--power-historic); }
+
+.power-duration-toggles i {
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--swatch);
+  border-radius: 999px;
+  background: var(--swatch);
+  transition: background 160ms ease;
+}
+
+.power-duration-toggles button[aria-pressed='false'] {
+  border-color: rgba(185, 203, 191, 0.18);
+  color: #7f978b;
+  background: transparent;
+}
+
+.power-duration-toggles button[aria-pressed='false'] i {
+  background: transparent;
+}
+
+.power-duration-toggles button:disabled {
+  cursor: default;
+}
+
+.power-duration-toggles button:focus-visible {
+  outline: 2px solid var(--swatch);
+  outline-offset: 2px;
+}
 
 .power-duration-detail {
   display: flex;
@@ -11993,6 +12217,18 @@ select {
   .power-duration-legend i {
     width: 13px;
     height: 3px;
+  }
+
+  .power-duration-toggles {
+    gap: 6px;
+  }
+
+  .power-duration-toggles button {
+    flex: 1 1 0;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 8px;
+    font-size: 0.68rem;
   }
 
   .power-duration-detail {

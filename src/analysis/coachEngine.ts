@@ -1406,7 +1406,7 @@ export function scoreLydiardSession(input: SessionScoringInput): SessionStressAs
   // CP remains mandatory for stress, zones, and percentage-of-CP calculations.
   if (series?.power && powerCoverage >= 0.6) {
     peaks = POWER_PEAK_DURATIONS.map((peakDuration) => {
-      const watts = bestRollingAverage(series.time, series.power as number[], peakDuration, usefulPower);
+      const watts = bestRollingAverage(series.time, series.power as number[], peakDuration, usefulPower)?.average;
       return {
         durationSec: peakDuration,
         watts: watts ? Math.round(watts) : undefined,
@@ -1513,6 +1513,29 @@ export function buildPowerDurationCurve(
       }];
     }),
   );
+}
+
+export interface PowerPeakEffort {
+  durationSec: PowerPeak['durationSec'];
+  watts: number;
+  startSec: number;
+  endSec: number;
+}
+
+/**
+ * Best rolling power for one run at the power-curve durations, located in the
+ * stream. Uses the same gate and windows as session peaks so the run page and
+ * the power duration curve agree.
+ */
+export function powerPeakEfforts(streams: Pick<CoachActivityStreams, 'timeSec' | 'powerWatts'>): PowerPeakEffort[] {
+  const time = sanitizeTime(streams.timeSec);
+  if (!time) return [];
+  const power = alignedSeries(streams.powerWatts, time.length, usefulPower);
+  if (!power || seriesCoverage(time, power, usefulPower) < 0.6) return [];
+  return POWER_PEAK_DURATIONS.flatMap((durationSec) => {
+    const best = bestRollingAverage(time, power, durationSec, usefulPower);
+    return best ? [{ durationSec, watts: Math.round(best.average), startSec: best.startSec, endSec: best.endSec }] : [];
+  });
 }
 
 function scorePowerSeries(time: number[], power: number[], cp: number): {
@@ -2763,17 +2786,19 @@ function bestRollingAverage(
   values: number[],
   durationSec: number,
   validator: (value: unknown) => boolean,
-): number | undefined {
+): { average: number; startSec: number; endSec: number } | undefined {
   if (time[time.length - 1] - time[0] < durationSec * 0.98) return undefined;
   const integral = buildIntegral(time, values, validator);
-  let best: number | undefined;
+  let best: { average: number; startSec: number; endSec: number } | undefined;
   const step = Math.max(1, Math.floor(time.length / 800));
   for (let start = 0; start < time.length - 1; start += step) {
     const end = lowerBound(time, time[start] + durationSec);
     if (end >= time.length) break;
     const actualDuration = time[end] - time[start];
     const average = windowAverage(integral, start, end, actualDuration, 0.75);
-    if (average !== undefined && (best === undefined || average > best)) best = average;
+    if (average !== undefined && (best === undefined || average > best.average)) {
+      best = { average, startSec: time[start], endSec: time[end] };
+    }
   }
   return best;
 }
