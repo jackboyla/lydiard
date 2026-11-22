@@ -3,6 +3,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import type { SessionLoad } from '../analysis/loadModel';
 import { addDays } from '../analysis/recoveryTrend';
 import { toWeekIdUtc } from '../data/mapRoutes';
+import { chartWeeks, formatShortDate, trailingMonthsStart } from './chartDates';
 
 const PERIODS = ['7 days', '30 days', '3 months', '6 months'] as const;
 export type ZonePeriod = typeof PERIODS[number];
@@ -126,16 +127,10 @@ export default function ProgressZoneBreakdown({ sessions, today, period, onPerio
 
 export function buildProgressZoneLedger(sessions: SessionLoad[], today: string, period: ZonePeriod) {
   const start = periodStart(today, period);
-  const weeks = [];
-  for (let monday = toWeekIdUtc(start); monday <= today; monday = addDays(monday, 7)) {
-    const sunday = addDays(monday, 6);
-    weeks.push({
-      monday,
-      from: monday < start ? start : monday,
-      to: sunday > today ? today : sunday,
-      minutes: { recovery: 0, easy: 0, steady: 0, threshold: 0, vo2: 0 },
-    });
-  }
+  const weeks = chartWeeks(start, today).map((week) => ({
+    ...week,
+    minutes: { recovery: 0, easy: 0, steady: 0, threshold: 0, vo2: 0 },
+  }));
   const byMonday = new Map(weeks.map((week) => [week.monday, week]));
   const totals = ZONES.map((zone) => ({ ...zone, distanceKm: 0, durationSec: 0 }));
   let runCount = 0;
@@ -163,10 +158,7 @@ export function buildProgressZoneLedger(sessions: SessionLoad[], today: string, 
 function periodStart(today: string, period: ZonePeriod): string {
   if (period === '7 days') return addDays(today, -6);
   if (period === '30 days') return addDays(today, -29);
-  const [year, month, day] = today.split('-').map(Number);
-  const targetMonth = month - 1 - (period === '3 months' ? 3 : 6);
-  const lastDay = new Date(Date.UTC(year, targetMonth + 1, 0)).getUTCDate();
-  return new Date(Date.UTC(year, targetMonth, Math.min(day, lastDay) + 1)).toISOString().slice(0, 10);
+  return trailingMonthsStart(today, period === '3 months' ? 3 : 6);
 }
 
 function formatZoneDuration(seconds: number): string {
@@ -175,9 +167,4 @@ function formatZoneDuration(seconds: number): string {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return hours > 0 ? `${hours}h ${String(rest).padStart(2, '0')}m` : `${rest}m`;
-}
-
-const shortDate = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-function formatShortDate(day: string): string {
-  return shortDate.format(new Date(day));
 }

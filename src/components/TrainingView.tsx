@@ -22,6 +22,7 @@ import { formatPace } from '../analysis/fatigue';
 import { streamBestEffortsForActivity } from '../analysis/bestEfforts';
 import {
   buildTrainingLoadModel,
+  weeklyIntensityMinutes,
   type CanonicalActivityMetric,
   type SessionLoad,
   type TrainingLoadModel,
@@ -34,7 +35,6 @@ import {
   buildActivityLaps,
   buildDerivedKilometreLaps,
   buildLapProfileFromCompact,
-  intensitySecondsFromLapProfile,
   type ActivityLapView,
 } from '../data/activityLaps';
 import { localWeekId, millisecondsUntilNextLocalWeek } from '../data/calendar';
@@ -984,15 +984,6 @@ function WeekTotalReadout({
       <small>{runCount} {runCount === 1 ? 'run' : 'runs'}</small>
     </div>
   );
-}
-
-export function weeklyIntensityMinutes(sessions: SessionLoad[], thresholdPaceSecPerKm: number): number {
-  const seconds = sessions.reduce((total, session) => total + intensitySecondsFromLapProfile(
-    session.activity.lapProfile,
-    thresholdPaceSecPerKm,
-    activityPaceSecPerKm(session.activity),
-  ), 0);
-  return Math.round(seconds / 60);
 }
 
 // The diary is a continuous calendar. Gym-only and fully empty weeks retain

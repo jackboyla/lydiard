@@ -1,3 +1,6 @@
+import { addDays } from '../analysis/recoveryTrend';
+import { toWeekIdUtc } from '../data/mapRoutes';
+
 const DAY_MS = 86_400_000;
 
 export function utcDayTimestamp(day: string): number {
@@ -37,4 +40,29 @@ export function formatChartDate(timestamp: number): string {
     year: 'numeric',
     timeZone: 'UTC',
   }).format(new Date(timestamp));
+}
+
+const shortDate = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+export function formatShortDate(day: string): string {
+  return shortDate.format(new Date(day));
+}
+
+export function trailingMonthsStart(today: string, months: number): string {
+  const [year, month, day] = today.split('-').map(Number);
+  const targetMonth = month - 1 - months;
+  const lastDay = new Date(Date.UTC(year, targetMonth + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, targetMonth, Math.min(day, lastDay) + 1)).toISOString().slice(0, 10);
+}
+
+export function chartWeeks(start: string, today: string) {
+  const weeks = [];
+  for (let monday = toWeekIdUtc(start); monday <= today; monday = addDays(monday, 7)) {
+    const sunday = addDays(monday, 6);
+    weeks.push({
+      monday,
+      from: monday < start ? start : monday,
+      to: sunday > today ? today : sunday,
+    });
+  }
+  return weeks;
 }

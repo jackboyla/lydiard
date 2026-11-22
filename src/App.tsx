@@ -38,6 +38,7 @@ import type { PhysiologyEstimate } from './analysis/coachEngine';
 import { intensitySecondsFromLapProfile } from './data/activityLaps';
 import {
   buildTrainingLoadModel,
+  weeklyIntensityMinutes,
   type CanonicalActivityMetric,
   type SessionLoad,
   type TrainingLoadModel,
@@ -159,6 +160,7 @@ const COLOR_OPTIONS: Array<{ key: ColorBy; label: string }> = [
 ];
 
 const LazyMapView = lazy(() => import('./components/MapView').then((module) => ({ default: module.MapView })));
+const WeeklyIntensityChart = lazy(() => import('./components/WeeklyIntensityChart'));
 const ProgressZoneBreakdown = lazy(() => import('./components/ProgressZoneBreakdown'));
 const LazyAdvancedAnalysis = lazy(() => import('./components/AdvancedAnalysis'));
 
@@ -1304,7 +1306,7 @@ function ProgressView({
                 <tr><th scope="row">Runs</th><td>{latestWeek ? latestWeek.activityCount : '-'}</td><td>{lastSevenDays.activityCount}</td></tr>
                 <tr><th scope="row">Time</th><td>{latestWeek ? formatHours(latestWeek.durationHours) : '-'}</td><td>{formatHours(lastSevenDays.durationHours)}</td></tr>
                 <tr><th scope="row">Load</th><td>{latestWeek ? latestWeek.load.toFixed(0) : '-'}</td><td>{lastSevenDays.load.toFixed(0)}</td></tr>
-                <tr><th scope="row">Intensity</th><td>{latestWeek ? `${intensityMinutesForSessions(latestWeek.sessions, loadModel.thresholds.thresholdPaceSecPerKm)} min` : '-'}</td><td>{`${Math.round(lastSevenDays.intensityMinutes)} min`}</td></tr>
+                <tr><th scope="row">Intensity</th><td>{latestWeek ? `${weeklyIntensityMinutes(latestWeek.sessions, loadModel.thresholds.thresholdPaceSecPerKm)} min` : '-'}</td><td>{`${Math.round(lastSevenDays.intensityMinutes)} min`}</td></tr>
                 <tr><th scope="row">Gym</th><td>{latestWeekGymCount}</td><td>{lastSevenDaysGymCount}</td></tr>
               </tbody>
             </table>
@@ -1408,7 +1410,8 @@ function ProgressView({
             />
           </section>
 
-          <Suspense fallback={<div className="surface-loading">Loading zone ledger…</div>}>
+          <Suspense fallback={<div className="surface-loading">Loading weekly charts…</div>}>
+            <WeeklyIntensityChart loadModel={loadModel} today={progressNow.toISOString().slice(0, 10)} />
             <ProgressZoneBreakdown
               sessions={loadModel.sessions}
               today={localDateId(progressNow)}
@@ -2142,14 +2145,6 @@ function summarizeRollingSessions(
     ) / 60;
     return total;
   }, { activityCount: 0, distanceKm: 0, durationHours: 0, load: 0, intensityMinutes: 0 });
-}
-
-function intensityMinutesForSessions(sessions: SessionLoad[], thresholdPaceSecPerKm: number): number {
-  return Math.round(sessions.reduce((total, session) => total + intensitySecondsFromLapProfile(
-    session.activity.lapProfile,
-    thresholdPaceSecPerKm,
-    session.paceSecPerKm,
-  ), 0) / 60);
 }
 
 function countRollingGymSessions(gymSessions: GymSession[], days: number, now = new Date()): number {

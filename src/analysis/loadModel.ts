@@ -1,3 +1,4 @@
+import { intensitySecondsFromLapProfile } from '../data/activityLaps';
 import { toWeekIdUtc } from '../data/mapRoutes';
 import type { ActivitySummary, Severity } from '../types';
 
@@ -288,6 +289,14 @@ function buildDailyLoad(sessions: SessionLoad[]): DailyLoadPoint[] {
   }
 
   return out;
+}
+
+export function weeklyIntensityMinutes(sessions: SessionLoad[], thresholdPaceSecPerKm: number): number {
+  return Math.round(sessions.reduce((total, session) => total + intensitySecondsFromLapProfile(
+    session.activity.lapProfile,
+    thresholdPaceSecPerKm,
+    session.paceSecPerKm,
+  ), 0) / 60);
 }
 
 function buildWeeklySummaries(sessions: SessionLoad[], daily: DailyLoadPoint[]): WeekLoadSummary[] {

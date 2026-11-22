@@ -7032,6 +7032,17 @@ dd {
   gap: 8px;
 }
 
+.weekly-intensity-range {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.weekly-intensity-range button {
+  min-width: 0;
+  padding-inline: 8px;
+}
+
+.zone-trend-head h2,
 .zone-trend-head h3 {
   margin: 0;
   font-size: 1rem;
