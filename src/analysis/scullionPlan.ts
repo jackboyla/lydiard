@@ -1,3 +1,5 @@
+import { isHardTrainingRun } from './coachEngine';
+import { hrvLoadGuidance } from './recoveryTrend';
 import type { GymSession } from '../types';
 import type { CoachContextData, CoachPhase, CoachProfileRecord } from '../data/coachTypes';
 
@@ -85,11 +87,14 @@ export function buildScullionPlanRead(
     ? context.profile.targetWeeklyDurationMin * 60 / recentPace
     : undefined;
   const eventCeiling = eventWeeklyCeiling(goal.distanceKm);
+  const hrvGuidance = hrvLoadGuidance(context.recovery?.summary.hrvTrend?.status);
   const progressionCap = recentWeeklyKm > 0
-    ? recentWeeklyKm * (context.observedState.state === 'green' ? 1.06 : context.observedState.state === 'amber' ? 1 : 0.82)
+    ? recentWeeklyKm * (context.observedState.state === 'red' ? 0.82 : context.observedState.state === 'amber' || hrvGuidance ? 1 : 1.06)
     : Math.min(eventCeiling, Math.max(20, goal.distanceKm * 3));
+  const lastWeek = fourWeeks.at(-1);
+  const heldKm = hrvGuidance && lastWeek ? lastWeek.distanceKm : progressionCap;
   const desiredCurrentDose = explicitWeeklyKm ?? eventCeiling;
-  const weeklyTargetKm = round(Math.max(1, Math.min(desiredCurrentDose, progressionCap)), 1);
+  const weeklyTargetKm = round(Math.min(heldKm, Math.max(1, Math.min(desiredCurrentDose, progressionCap))), 1);
   const fourWeekKm = round(recentRuns.reduce((sum, run) => sum + run.distanceKm, 0), 1);
   const goalPaceSecPerKm = goal.timeSeconds / goal.distanceKm;
   const phase = context.profile.currentPhase;
@@ -101,7 +106,8 @@ export function buildScullionPlanRead(
     return Number.isFinite(time) && time >= cutoffMs && time <= asOfMs;
   });
   const longestRunMin = Math.max(0, ...recentRuns.map((run) => run.movingTimeSec / 60));
-  const longRunTargetMin = currentLongRunTarget(goal.distanceKm, context.profile.longRunToleranceMin, longestRunMin);
+  const earnedLongRun = currentLongRunTarget(goal.distanceKm, context.profile.longRunToleranceMin, longestRunMin);
+  const longRunTargetMin = hrvGuidance && lastWeek ? Math.min(earnedLongRun, lastWeek.longRunMinutes) : earnedLongRun;
   const raceSpecificMinutes = recentRuns.reduce((sum, run) => {
     if (run.distanceKm <= 0 || run.movingTimeSec < 10 * 60) return sum;
     const pace = run.movingTimeSec / run.distanceKm;
@@ -149,14 +155,14 @@ export function buildScullionPlanRead(
           `${protectedRecoveryDays} of ${recoveryTarget} hard exposures were followed by a rest day or genuinely low-intensity running.`,
           'Protect the day after every threshold, VO₂, race-specific, or hard long-run exposure.',
         ),
-    bucket('steady', 'Steady / LT1', zones.steady, steadyTarget, 'min', `${Math.round(zones.steady)} minutes of controlled steady/LT1 work were detected.`, 'Add steady work inside an aerobic run before turning whole days into medium-hard training.'),
+    bucket('steady', 'Steady / LT1', zones.steady, steadyTarget, 'min', `${Math.round(zones.steady)} minutes of controlled steady/LT1 work were detected.`, hrvGuidance ? 'Keep steady work at the current dose.' : 'Add steady work inside an aerobic run before turning whole days into medium-hard training.'),
     thresholdTarget === 0
       ? plannedLater('threshold', 'Threshold / LT2', zones.threshold, 'min', 'Threshold is intentionally suppressed during recovery and regeneration.', 'Reintroduce only after normal energy, mechanics, and recovery return.')
       : bucket('threshold', 'Threshold / LT2', zones.threshold, thresholdTarget, 'min', `${Math.round(zones.threshold)} minutes near the threshold domain were detected.`, 'Keep it repeatable: controlled breathing, stable reps, and enough reserve for one more.'),
     phase === 'recovery_regeneration'
       ? plannedLater('vo2', 'Speed / VO₂ access', zones.vo2, 'min', 'High-intensity work is intentionally absent while recovery overrides performance.', 'Resume with relaxed strides or short hills before a full VO₂ session.')
       : bucket('vo2', 'Speed / VO₂ access', zones.vo2, vo2Target, 'min', `${Math.round(zones.vo2)} minutes in the severe/VO₂ domain were detected. Short strides without stream evidence may be under-counted.`, phase === 'aerobic_conditioning' || phase === 'hill_resistance' ? 'Retain access with strides or short hills; a VO₂ block must replace, not join, another hard stimulus.' : 'Use an even, bounded injection every 7–10 days; stop before pace or posture deteriorates.'),
-    bucket('long_run', 'Long run / durability', longestRunMin, longRunTargetMin, 'min', `The longest run in the window was ${Math.round(longestRunMin)} minutes; this block's earned durability target is ${Math.round(longRunTargetMin)} minutes.`, 'Extend duration before adding progression or goal-pace complexity.'),
+    bucket('long_run', 'Long run / durability', longestRunMin, longRunTargetMin, 'min', `The longest run in the window was ${Math.round(longestRunMin)} minutes; this block's earned durability target is ${Math.round(longRunTargetMin)} minutes.`, hrvGuidance ? 'Keep the long run within the last completed week’s duration.' : 'Extend duration before adding progression or goal-pace complexity.'),
     bucket('strength', 'Strength / chassis', recentGym.length, Math.max(1, context.profile.strengthSessionsTarget * 4), 'sessions', `${recentGym.length} strength sessions were recorded in the last 28 days.`, 'Prefer short, frequent work for calf/soleus, posterior chain, single-leg control, and trunk.'),
     specificityActive
       ? bucket('specificity', 'Goal-pace specificity', raceSpecificMinutes, specificityTarget, 'min', `${Math.round(raceSpecificMinutes)} minutes had a whole-run average within 6% of goal pace; interval-level work may be under-counted.`, 'Practise exact rhythm in controlled repetitions. Earn longer continuous blocks only when mechanics and recovery hold.')
@@ -171,7 +177,7 @@ export function buildScullionPlanRead(
     : needs.length > 0
       ? 'work_to_do'
       : 'on_track';
-  const mission = missionCopy(context, needs, building);
+  const mission = context.observedState.state === 'green' && hrvGuidance ? hrvGuidance : missionCopy(context, needs, building);
   const evidenceCount = assessments.filter((assessment) => assessment.externalStress.reliability !== 'low').length;
 
   return {
@@ -231,11 +237,7 @@ function hardSessionDates(
 ): string[] {
   return runs.flatMap((run) => {
     const assessment = assessmentById.get(run.id);
-    const hardSeconds = assessment?.powerZoneTime
-      .filter((zone) => zone.zone === 'threshold' || zone.zone === 'vo2_anaerobic')
-      .reduce((sum, zone) => sum + zone.seconds, 0) ?? 0;
-    const hard = hardSeconds >= 8 * 60 || (assessment?.externalStress.intensityFactor ?? 0) >= 0.88 || (assessment?.externalStress.hardStress ?? 0) > 0;
-    return hard ? [(run.startDateLocal ?? run.startDate).slice(0, 10)] : [];
+    return assessment && isHardTrainingRun(assessment) ? [(run.startDateLocal ?? run.startDate).slice(0, 10)] : [];
   });
 }
 

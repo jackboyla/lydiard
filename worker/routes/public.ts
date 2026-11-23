@@ -118,7 +118,7 @@ export function publicRoutes(): Hono<{ Bindings: Env }> {
     });
     const nights: RecoveryNight[] = recoveries
       .filter((night) => night.sleepDurationMin !== undefined || night.hrvRmssdMs !== undefined)
-      .map((night) => ({ day: night.day, sleepMin: night.sleepDurationMin, hrvMs: night.hrvRmssdMs }));
+      .map((night) => ({ day: night.day, source: night.source, sleepMin: night.sleepDurationMin, hrvMs: night.hrvRmssdMs }));
     return c.json({ nights });
   });
 

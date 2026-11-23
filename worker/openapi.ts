@@ -206,6 +206,15 @@ export function buildOpenApiDocument(origin: string): unknown {
         hrvStatus: str,
       },
     },
+    HrvTrend: {
+      type: 'object',
+      description: 'Seven-day mean overnight RMSSD versus the preceding 84 days from the same source. Range is the personal mean ± half a sample standard deviation.',
+      properties: {
+        asOf: str, source: str, acuteNights: int, baselineNights: int,
+        status: { type: 'string', enum: ['insufficient', 'below_range', 'below_midpoint', 'at_or_above_midpoint'] },
+        acuteMs: num, midpointMs: num, lowerMs: num, upperMs: num,
+      },
+    },
     RecoveryDaily: {
       type: 'object',
       description: 'One night: raw observation plus state derived against the runner\'s own rolling baseline.',
@@ -265,6 +274,7 @@ export function buildOpenApiDocument(origin: string): unknown {
           type: 'object',
           description: 'As-of latest-in-window recovery state for planning.',
           properties: {
+            hrvTrend: ref('HrvTrend'),
             asOf: str,
             state: {
               type: 'string',
@@ -640,6 +650,7 @@ export function buildOpenApiDocument(origin: string): unknown {
             summary: {
               type: 'object',
               properties: {
+                hrvTrend: ref('HrvTrend'),
                 asOf: str,
                 state: str,
                 confidence: str,

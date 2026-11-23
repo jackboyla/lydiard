@@ -11,6 +11,7 @@
 // population thresholds — except SpO₂, where an absolute floor is more sensible.
 
 import type { RecoveryObservation, RecoveryState } from '../types';
+import { computeHrvTrend, type HrvTrend } from './recoveryTrend';
 import { median, robustSpread } from './fatigue';
 
 /** Rolling window of prior nights used to build a personal baseline. */
@@ -75,6 +76,7 @@ export interface RecoveryDaily {
 }
 
 export interface RecoverySummary {
+  hrvTrend: HrvTrend;
   asOf: string | null;
   state: RecoveryState | null;
   confidence: RecoveryConfidence | null;
@@ -122,10 +124,12 @@ export function latestRecovery(dailies: RecoveryDaily[]): RecoveryDaily | null {
   return dailies.length > 0 ? dailies[dailies.length - 1] : null;
 }
 
-export function summarizeRecovery(dailies: RecoveryDaily[]): RecoverySummary {
+export function summarizeRecovery(dailies: RecoveryDaily[], asOf?: string): RecoverySummary {
   const latest = latestRecovery(dailies);
+  const hrvTrend = computeHrvTrend(dailies.map(day => day.observation), asOf ?? latest?.day ?? new Date().toISOString().slice(0, 10));
   if (!latest) {
     return {
+      hrvTrend,
       asOf: null,
       state: null,
       confidence: null,
@@ -141,6 +145,7 @@ export function summarizeRecovery(dailies: RecoveryDaily[]): RecoverySummary {
   const systemicIllnessSignal =
     latest.illnessPattern || (previous ? previous.illnessPattern && isAdjacent(previous.day, latest.day) : false);
   return {
+    hrvTrend,
     asOf: latest.day,
     state: latest.state,
     confidence: latest.confidence,
@@ -176,7 +181,7 @@ interface PartialDay {
 }
 
 function computeDay(observation: RecoveryObservation, window: RecoveryObservation[]): PartialDay {
-  const hrvBase = baselineFor(window, (obs) => obs.hrvRmssdMs);
+  const hrvBase = baselineFor(window, obs => obs.source === observation.source ? obs.hrvRmssdMs : undefined);
   const rhrBase = baselineFor(window, (obs) => obs.restingHrBpm);
   const tempBase = baselineFor(window, (obs) => obs.skinTempDeltaC);
   const respBase = baselineFor(window, (obs) => obs.respiratoryRate);

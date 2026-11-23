@@ -13815,6 +13815,29 @@ select {
   border-top: 1.5px dashed var(--muted);
 }
 
+.recovery-chart-band {
+  fill: var(--recovery-colour);
+  fill-opacity: 0.15;
+}
+
+.recovery-chart-key b {
+  width: 16px;
+  height: 8px;
+  background: var(--recovery-colour);
+  opacity: 0.3;
+}
+
+.hrv-training-read {
+  display: grid;
+  gap: 3px;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.hrv-training-read small {
+  color: var(--subtle);
+}
+
 /* The same two numbers beside a run, for the night before it. */
 .run-recovery {
   display: grid;

@@ -3,7 +3,7 @@
 // but persistence must), the systemic illness override, and the readiness
 // cross-check. Run: npm run recovery:smoke
 import { analyzeRecovery, summarizeRecovery } from '../src/analysis/recovery';
-import { averageBefore, formatVersusAverage } from '../src/analysis/recoveryTrend';
+import { computeHrvTrend, averageBefore, formatVersusAverage } from '../src/analysis/recoveryTrend';
 import type { RecoveryObservation } from '../src/types';
 
 const START = '2026-06-01';
@@ -93,16 +93,45 @@ assert(empty.state === null && empty.asOf === null, 'empty series should summari
 
 // The Log charts and run page compare a night with the seven before it, never itself.
 const trendNights = new Map([
-  ['2026-06-01', { day: '2026-06-01', sleepMin: 400, hrvMs: 50 }],
-  ['2026-06-02', { day: '2026-06-02', sleepMin: 420 }],
-  ['2026-06-03', { day: '2026-06-03', sleepMin: 440, hrvMs: 60 }],
-  ['2026-06-08', { day: '2026-06-08', sleepMin: 300, hrvMs: 99 }],
+  ['2026-06-01', { source: 'garmin', day: '2026-06-01', sleepMin: 400, hrvMs: 50 }],
+  ['2026-06-02', { source: 'garmin', day: '2026-06-02', sleepMin: 420 }],
+  ['2026-06-03', { source: 'garmin', day: '2026-06-03', sleepMin: 440, hrvMs: 60 }],
+  ['2026-06-08', { source: 'garmin', day: '2026-06-08', sleepMin: 300, hrvMs: 99 }],
 ]);
 assert(averageBefore(trendNights, '2026-06-08', 'sleep') === 420, 'sleep average should cover the 7 nights before, excluding the night itself');
 assert(averageBefore(trendNights, '2026-06-08', 'hrv') === undefined, 'two HRV nights are too few for an average');
 assert(averageBefore(trendNights, '2026-06-10', 'sleep') === undefined, 'nights older than 7 days fall out of the average');
 assert(formatVersusAverage(390, 420, 'sleep') === '−30 min vs 7-night avg', 'sleep difference reads in minutes');
 assert(formatVersusAverage(55, 50, 'hrv') === '+10% vs 7-night avg', 'HRV difference reads in percent');
+
+trendNights.set('2026-06-05', { day: '2026-06-05', source: 'garmin', sleepMin: 420, hrvMs: 55 });
+assert(averageBefore(trendNights, '2026-06-08', 'hrv') === 55, 'use matching nightly sources for run details');
+trendNights.set('2026-06-08', { day: '2026-06-08', source: 'fitbit', sleepMin: 300, hrvMs: 99 });
+assert(averageBefore(trendNights, '2026-06-08', 'hrv') === undefined, 'the first night on a new source has no comparable prior average');
+
+// Alternating baseline nights have midpoint 60 and sample SD just over 10.
+const hrvHistory = buildBaseline(84).map((night, i) => ({ ...night, hrvRmssdMs: i % 2 ? 70 : 50 }));
+const asOf = addDaysStr(START, 90);
+const weekAt = (ms: number) => Array.from({ length: 7 }, (_, i) =>
+  normalNight(addDaysStr(START, 84 + i), { hrvRmssdMs: ms }));
+const lowWeek = computeHrvTrend([...hrvHistory, ...weekAt(54), normalNight(addDaysStr(asOf, 1))], asOf);
+assert(lowWeek.status === 'below_range' && lowWeek.midpointMs === 60 && lowWeek.acuteMs === 54 &&
+  Math.abs(lowWeek.lowerMs! - (60 - 5 * Math.sqrt(84 / 83))) < 1e-9,
+  'compare separate calendar windows using half the baseline sample standard deviation');
+assert(computeHrvTrend([...hrvHistory, ...weekAt(59)], asOf).status === 'below_midpoint', 'hold even within the range below the midpoint');
+assert(computeHrvTrend([...hrvHistory, ...weekAt(60)], asOf).status === 'at_or_above_midpoint', 'equality reaches the midpoint');
+assert(computeHrvTrend([...hrvHistory, ...weekAt(59)].map(n => ({ ...n, hrvRmssdMs: 40.3 })), asOf).status === 'at_or_above_midpoint',
+  'a flat decimal-valued series reaches its midpoint');
+const sourceSwitch = weekAt(59);
+sourceSwitch[6].source = 'fitbit';
+const switched = computeHrvTrend([...hrvHistory, ...sourceSwitch], asOf);
+assert(switched.status === 'insufficient' && switched.acuteNights === 1 && switched.baselineNights === 0,
+  'a new source starts its own baseline');
+assert(computeHrvTrend([...hrvHistory, ...weekAt(59).slice(0, 4)], asOf).status === 'insufficient' &&
+  computeHrvTrend([...hrvHistory.slice(25), ...weekAt(59)], asOf).status === 'insufficient',
+  'sparse recent or baseline coverage withholds load guidance');
+assert(summarizeRecovery(analyzeRecovery([...hrvHistory, ...weekAt(54)]), addDaysStr(asOf, 7)).hrvTrend.status === 'insufficient',
+  'a missing week cannot carry forward old load guidance');
 
 console.log(
   JSON.stringify(

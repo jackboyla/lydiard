@@ -94,6 +94,7 @@ export type RecoveryState =
 /** One night's sleep and HRV, filed under the local date the runner woke up. */
 export interface RecoveryNight {
   day: string;
+  source?: string;
   sleepMin?: number;
   hrvMs?: number;
 }

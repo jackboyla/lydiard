@@ -1,3 +1,4 @@
+import { hrvLoadGuidance, type HrvTrend } from './recoveryTrend';
 import { buildHeartRateDurationProfile } from './heartRateDuration';
 
 /**
@@ -403,12 +404,15 @@ export interface RecentTrainingWeek {
   distanceKm: number;
   stress: number;
   hardStress: number;
+  qualitySessionCount?: number;
   longRunMinutes: number;
   absorbed: boolean;
   emergencyReduction?: boolean;
 }
 
 export interface PlanningStateInput {
+  hrvTrendStatus?: HrvTrend['status'];
+  observedState?: { state: 'green' | 'amber' | 'red'; reasons: string[] };
   weekStart: string;
   profile: CoachProfile;
   physiology?: PhysiologyEstimate;
@@ -1701,15 +1705,23 @@ export function buildLydiardWeek(input: PlanningStateInput): LydiardWeekPlan {
     ? 'Red symptoms or response evidence override performance progression until normal gait, health, and energy return.'
     : undefined;
   const targetMinutes = targetWeeklyMinutes(input, readiness, phase);
-  const qualityCap = readiness.state === 'red'
+  const stateQualityCap = readiness.state === 'red'
     ? 0
     : readiness.state === 'amber'
       ? Math.min(1, input.profile.maxQualitySessions ?? 2)
       : Math.min(2, input.profile.maxQualitySessions ?? 2);
+  const hrvGuidance = hrvLoadGuidance(input.hrvTrendStatus);
+  const previousWeek = input.recentWeeks.at(-1);
+  const qualityCap = hrvGuidance ? Math.min(stateQualityCap, previousWeek?.qualitySessionCount ?? 0) : stateQualityCap;
+  const longRunLimit = hrvGuidance && previousWeek
+    ? 5 * Math.floor(Math.min(input.profile.longRunToleranceMinutes, previousWeek.longRunMinutes) / 5)
+    : input.profile.longRunToleranceMinutes;
   const canUseSteady = input.profile.allowControlledSteadyInBase === true && readiness.absorbedWeeks >= 2 && readiness.state === 'green';
   const templates = weeklyTemplates(phase, qualityCap, canUseSteady);
-  const selectedTemplates = selectRunDays(templates, clamp(Math.round(input.profile.runningDaysPerWeek), 3, 7));
-  const durations = allocateRunDurations(selectedTemplates, targetMinutes, input.profile.longRunToleranceMinutes);
+  const usualRunDays = clamp(Math.round(input.profile.runningDaysPerWeek), 3, 7);
+  const runDays = hrvGuidance ? Math.min(usualRunDays, Math.max(1, Math.floor(targetMinutes / 20))) : usualRunDays;
+  const selectedTemplates = targetMinutes > 0 ? selectRunDays(templates, runDays) : [];
+  const durations = allocateRunDurations(selectedTemplates, targetMinutes, longRunLimit);
   const days: PlannedDay[] = Array.from({ length: 7 }, (_, dayIndex) => ({
     date: addDays(weekStart, dayIndex),
     sessions: [],
@@ -1727,6 +1739,7 @@ export function buildLydiardWeek(input: PlanningStateInput): LydiardWeekPlan {
       physiology,
       input.profile,
       readiness,
+      Boolean(hrvGuidance),
     );
     days[template.dayIndex].sessions.push(session);
   }
@@ -1758,7 +1771,7 @@ export function buildLydiardWeek(input: PlanningStateInput): LydiardWeekPlan {
     weekStart,
     status: 'proposed',
     currentState: readiness.state,
-    currentStateExplanation: readiness.explanation,
+    currentStateExplanation: hrvGuidance && readiness.state === 'green' ? hrvGuidance : readiness.explanation,
     phase,
     phaseOverrideReason,
     goalPriority: goalPriority(input.profile, physiology),
@@ -1834,6 +1847,7 @@ export function buildLydiardBlock(input: BlockPlanningInput): LydiardBlockPlan {
           (plan.qualitySessionCount > 0 ? Math.max(recentHardShare, 0.08) : 0),
         1,
       ),
+      qualitySessionCount: plan.qualitySessionCount,
       longRunMinutes: plan.longRunMinutes,
       absorbed: false,
     });
@@ -1885,7 +1899,8 @@ function assessPlanningReadiness(input: PlanningStateInput): PlanningReadiness {
   if (maxPain >= 5) redReasons.push(`pain reached ${maxPain}/10`);
   if (illness) redReasons.push('illness is suspected');
   if (recentExcessive >= 2) redReasons.push('two recent runs combined very high HR cost with late deterioration');
-  if (redReasons.length > 0) {
+  if (input.observedState?.state === 'red' && !redReasons.length) redReasons.push(...input.observedState.reasons);
+  if (redReasons.length > 0 || input.observedState?.state === 'red') {
     return {
       state: 'red',
       explanation: `Recovery takes priority because ${redReasons.join(', ')}. No fitness target overrides these signals.`,
@@ -1903,7 +1918,8 @@ function assessPlanningReadiness(input: PlanningStateInput): PlanningReadiness {
   if (deterioratingRuns >= 2) amberReasons.push('late-run durability deteriorated repeatedly');
   if (stressRatio !== undefined && stressRatio > 1.3) amberReasons.push(`7-day/42-day stress ratio is ${round(stressRatio, 2)}`);
   if (input.recentWeeks.slice(-2).some((week) => week.emergencyReduction)) amberReasons.push('a recent week needed emergency reduction');
-  if (amberReasons.length > 0) {
+  if (input.observedState?.state === 'amber' && !amberReasons.length) amberReasons.push(...input.observedState.reasons);
+  if (amberReasons.length > 0 || input.observedState?.state === 'amber') {
     return {
       state: 'amber',
       explanation: `Training can continue conservatively, but ${amberReasons.join(', ')}. Intensity and duration are constrained.`,
@@ -1942,7 +1958,8 @@ function targetWeeklyMinutes(
   else if (readiness.absorbedWeeks >= 2) factor = 1.04;
   if (phase === 'coordination') factor = Math.min(factor, 0.82);
   if (phase === 'recovery_regeneration') factor = Math.min(factor, 0.65);
-  return Math.max(90, roundToFive(Math.min(maximum, stableBase * factor)));
+  const proposed = Math.max(90, roundToFive(Math.min(maximum, stableBase * factor)));
+  return hrvLoadGuidance(input.hrvTrendStatus) ? Math.min(proposed, 5 * Math.floor((input.recentWeeks.at(-1)?.runningMinutes ?? latest) / 5)) : proposed;
 }
 
 function weeklyTemplates(
@@ -1985,7 +2002,7 @@ function weeklyTemplates(
 }
 
 function selectRunDays(templates: DayTemplate[], requestedDays: number): DayTemplate[] {
-  const removeOrder = [0, 3, 5, 2];
+  const removeOrder = [0, 3, 5, 2, 4, 6];
   const removed = new Set<number>();
   for (const day of removeOrder) {
     if (templates.length - removed.size <= requestedDays) break;
@@ -1999,12 +2016,14 @@ function allocateRunDurations(
   targetMinutes: number,
   longRunTolerance: number,
 ): Map<number, number> {
+  if (templates.length === 1) return new Map([[templates[0].dayIndex, targetMinutes]]);
   const weights = sum(templates.map((template) => template.weight));
   const result = new Map<number, number>();
   for (const template of templates) {
     let duration = targetMinutes * template.weight / weights;
     if (template.type === 'long_aerobic') duration = Math.min(duration, longRunTolerance, targetMinutes * 0.3);
-    result.set(template.dayIndex, roundToFive(Math.max(20, duration)));
+    const rounded = roundToFive(Math.max(20, duration));
+    result.set(template.dayIndex, template.type === 'long_aerobic' ? Math.min(rounded, longRunTolerance) : rounded);
   }
   let difference = targetMinutes - sum([...result.values()]);
   const adjustable = templates.filter((template) => template.type !== 'long_aerobic').sort((a, b) => b.weight - a.weight);
@@ -2012,7 +2031,7 @@ function allocateRunDurations(
   while (Math.abs(difference) >= 5 && adjustable.length > 0 && cursor < 100) {
     const template = adjustable[cursor % adjustable.length];
     const current = result.get(template.dayIndex) ?? 20;
-    const change = difference > 0 ? 5 : current > 25 ? -5 : 0;
+    const change = difference > 0 ? 5 : current > 20 ? -5 : 0;
     if (change !== 0) {
       result.set(template.dayIndex, current + change);
       difference -= change;
@@ -2031,6 +2050,7 @@ function makePlannedRun(
   physiology: PhysiologyEstimate | undefined,
   profile: CoachProfile,
   readiness: PlanningReadiness,
+  holdLoad: boolean,
 ): PlannedSession {
   const baseTarget = intensityTargetFor(template.type, physiology);
   const goalPace = template.type === 'race_specific' || template.type === 'coordination'
@@ -2043,6 +2063,24 @@ function makePlannedRun(
         guidance: 'Use the goal-event rhythm only inside the prescribed repetitions; current race-equivalent evidence caps the target when needed.',
       }
     : baseTarget;
+  const structure = structureFor(template.type, durationMin, target, physiology, profile);
+  if (holdLoad) {
+    const workMinutes = sum(structure.map(step => (step.durationMin ?? 0) +
+      ((step.count ?? 0) * (step.repetitionDurationSec ?? 0) +
+      Math.max(0, (step.count ?? 0) - 1) * (step.recoveryDurationSec ?? 0)) / 60));
+    const excess = workMinutes - durationMin;
+    if (excess > 0) {
+      const adjustable = structure.find(step => step.kind === 'continuous' || step.kind === 'cooldown');
+      const minimum = template.type === 'hill_circuit' ? 12 : 10;
+      if (adjustable?.durationMin !== undefined && adjustable.durationMin - excess >= minimum) {
+        adjustable.durationMin -= excess;
+      } else {
+        // Keep the whole session inside the held dose, including recoveries.
+        const easy: DayTemplate = { ...template, type: 'recovery', title: 'Easy recovery run' };
+        return makePlannedRun(id, date, easy, durationMin, phase, physiology, profile, readiness, false);
+      }
+    }
+  }
   const paceForDistance = representativePace(baseTarget.gapPace, profile.recentEasyPaceSecPerKm);
   const distance = paceForDistance ? durationMin * 60 / paceForDistance : undefined;
   return {
@@ -2055,7 +2093,7 @@ function makePlannedRun(
     targetDurationMin: durationMin,
     approximateDistanceKm: distance ? { low: round(distance * 0.92, 1), high: round(distance * 1.08, 1) } : undefined,
     target,
-    structure: structureFor(template.type, durationMin, target, physiology, profile),
+    structure,
     purpose: purposeFor(template.type),
     fallbackPlan: fallbackFor(template.type, durationMin, readiness),
     coachReasoning: reasoningFor(template.type, phase, readiness),
@@ -2191,6 +2229,7 @@ function purposeFor(type: PlannedSessionType): string {
 
 function fallbackFor(type: PlannedSessionType, durationMin: number, readiness: PlanningReadiness): string {
   if (readiness.state === 'red') return 'Do not start if walking gait, illness, or pain is abnormal; rest and seek appropriate assessment.';
+  if (durationMin <= 30) return 'Stop early or rest if the session feels harder than expected.';
   if (isConsequentialQualityType(type)) return `If warm-up response is abnormal, replace the work with ${Math.max(25, roundToFive(durationMin * 0.65))} minutes easy; do not move the session later to cram it in.`;
   if (type === 'long_aerobic' || type === 'medium_long') return `Stop at ${Math.max(30, roundToFive(durationMin * 0.7))} minutes if HR cost, form, knee, or Achilles response deteriorates.`;
   return `Shorten to ${Math.max(20, roundToFive(durationMin * 0.7))} minutes and keep below the HR ceiling if recovery is not normal.`;
@@ -2255,6 +2294,8 @@ function buildPlanDecisions(
     `${qualityCount} consequential session${qualityCount === 1 ? '' : 's'} fit the ${phase.replaceAll('_', ' ')} phase and current ${readiness.state} state.`,
     'Power defines external stress when valid; HR is interpreted as cost, and GAP/pace is used only as the external fallback.',
   ];
+  const hrvGuidance = hrvLoadGuidance(input.hrvTrendStatus);
+  if (hrvGuidance) decisions.push(hrvGuidance);
   if (readiness.absorbedWeeks < 2) decisions.push('Volume was not progressed because two consecutive absorbed weeks were not demonstrated.');
   if (input.profile.weekInLoadCycle === 3) decisions.push('A consolidation week was selected using the two-up/one-down prior.');
   if (readiness.reasons.length) decisions.push(`Conservative constraints: ${readiness.reasons.join('; ')}.`);
@@ -2397,6 +2438,13 @@ function formatTargetZone(zone: PracticalZone | undefined): string {
 
 function isRunningPlanSession(session: PlannedSession): boolean {
   return session.sessionType !== 'rest' && session.sessionType !== 'strength';
+}
+
+export function isHardTrainingRun(assessment: SessionStressAssessment): boolean {
+  const hardSeconds = assessment.powerZoneTime
+    .filter((zone) => zone.zone === 'threshold' || zone.zone === 'vo2_anaerobic')
+    .reduce((total, zone) => total + zone.seconds, 0);
+  return hardSeconds >= 8 * 60 || (assessment.externalStress.intensityFactor ?? 0) >= 0.88 || (assessment.externalStress.hardStress ?? 0) > 0;
 }
 
 function isConsequentialQuality(session: PlannedSession): boolean {

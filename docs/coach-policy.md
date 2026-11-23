@@ -93,6 +93,8 @@ Reduce load deliberately after a race, demanding block, illness, or excessive re
 
 Progress phases by evidence of absorption rather than elapsed weeks: stable/improving output at comparable HR/power, acceptable drift, no persistent within-week deterioration, normal long-run recovery, stable mechanics, manageable symptoms, and strides without residual soreness.
 
+For overnight HRV, compare the mean RMSSD over the last seven calendar days with the same source’s mean over the preceding 84 days. The personal range extends half a sample standard deviation on either side of that midpoint. Lydiard requires five recent readings and 60 baseline readings. Hold increases in training load while the weekly mean is below the midpoint. Below the range, check recent intensity, sleep, symptoms, travel and life stress before deciding whether to reduce training. A week at or above the midpoint still needs support from symptoms and performance. This adapts Jim Galanes’s morning chest-strap method to overnight readings. [Galanes on HRV-guided training](https://fasterskier.com/2026/01/using-heart-rate-variability-to-guide-training/)
+
 ## Session controls
 
 - Recovery/easy: breathing, RPE, and HR ceiling primary; power secondary; pace is an outcome.

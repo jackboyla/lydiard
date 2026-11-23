@@ -10,6 +10,7 @@ import {
   powerPeakEfforts,
   evaluatePlannedVsActual,
   scoreLydiardSession,
+  type PlanningStateInput,
   type AthleteFeedback,
   type CoachActivitySummary,
   type CriticalPowerHistoryRecord,
@@ -253,7 +254,7 @@ assert(runPeaks.every((peak) => sessionPeaks.find((session) => session.durationS
 const minutePeak = runPeaks.find((peak) => peak.durationSec === 60);
 assert(minutePeak?.watts === 450 && minutePeak.startSec >= 895 && minutePeak.startSec <= 905, 'the 1-minute peak must locate the surge in the stream');
 
-const plan = buildLydiardWeek({
+const planInput: PlanningStateInput = {
   weekStart: '2026-07-13',
   profile: {
     currentPhase: 'aerobic_conditioning',
@@ -281,11 +282,44 @@ const plan = buildLydiardWeek({
   recentFeedback: [],
   sevenDayStress: 400,
   fortyTwoDayStress: 380,
-});
+};
+const plan = buildLydiardWeek(planInput);
 assert(plan.currentState === 'green', 'two absorbed weeks without warnings should be green');
 assert(plan.longRunMinutes <= 105, 'long run must respect known tolerance');
 assert(plan.qualitySessionCount <= 2, 'quality must remain capped at two');
 assert(plan.strengthSessionCount === 2, 'durability plan should preserve twice-weekly strength');
+
+for (const hrvTrendStatus of ['below_midpoint', 'below_range'] as const) {
+  const held = buildLydiardWeek({ ...planInput, hrvTrendStatus });
+  assert(held.totalRunningMinutes === 410 && held.qualitySessionCount === 0, 'low HRV should hold the last dose and avoid introducing quality');
+  assert(held.currentState === 'green' && held.phase === plan.phase, 'an HRV hold alone must preserve phase and readiness');
+}
+const shortWeek = { ...planInput.recentWeeks[1], runningMinutes: 75, longRunMinutes: 25 };
+const heldShortWeek = buildLydiardWeek({ ...planInput, hrvTrendStatus: 'below_midpoint', recentWeeks: [shortWeek] });
+assert(heldShortWeek.totalRunningMinutes <= 75, 'minimum session durations must not break the HRV load hold');
+
+const idleWeek = { ...shortWeek, runningMinutes: 0, qualitySessionCount: 0, longRunMinutes: 0 };
+const idleHold = buildLydiardWeek({ ...planInput, hrvTrendStatus: 'below_midpoint', recentWeeks: [shortWeek, idleWeek] });
+assert(idleHold.totalRunningMinutes === 0, 'an older active week must not replace an empty week during a hold');
+const heldWorkout = buildLydiardWeek({
+  ...planInput, profile: { ...planInput.profile, currentPhase: 'anaerobic_development' },
+  hrvTrendStatus: 'below_midpoint', recentWeeks: [{ ...shortWeek, runningMinutes: 30, qualitySessionCount: 1 }],
+});
+assert(heldWorkout.totalRunningMinutes === 30 && heldWorkout.qualitySessionCount === 0,
+  'a short held week cannot fit a threshold session including warmup, recoveries and cooldown');
+
+for (const hrvTrendStatus of ['insufficient', 'at_or_above_midpoint'] as const) {
+  const normal = buildLydiardWeek({ ...planInput, hrvTrendStatus });
+  assert(normal.totalRunningMinutes === plan.totalRunningMinutes, 'HRV alone cannot justify a larger dose');
+  const illness = buildLydiardWeek({ ...planInput, hrvTrendStatus, recentFeedback: [{ date: plan.weekStart, illnessSuspected: true }] });
+  assert(illness.currentState === 'red', 'normal or unavailable HRV must never clear illness');
+}
+
+const systemic = buildLydiardWeek({
+  ...planInput, hrvTrendStatus: 'at_or_above_midpoint',
+  observedState: { state: 'red', reasons: ['overnight signals show a systemic illness pattern'] },
+});
+assert(systemic.currentState === 'red' && systemic.qualitySessionCount === 0, 'the weekly plan must respect the observed illness signal');
 
 const halfMarathonGoalSeconds = 60 * 60;
 const goalAwarePlan = buildLydiardWeek({

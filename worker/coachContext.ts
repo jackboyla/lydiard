@@ -8,6 +8,7 @@ import {
   buildHrCostBaseline,
   buildPowerDurationCurve,
   estimatePhysiology,
+  isHardTrainingRun,
   scoreLydiardSession,
   type AthleteFeedback,
   type CoachActivitySummary,
@@ -40,6 +41,7 @@ import {
   type PlannedSession,
   type PhysiologyEstimate as StoredPhysiologyEstimate,
 } from './db';
+import { HRV_LOOKBACK_DAYS, hrvLoadGuidance } from '../src/analysis/recoveryTrend';
 import { analyzeRecovery, summarizeRecovery, type RecoveryDaily, type RecoverySummary } from '../src/analysis/recovery';
 
 const DAY_MS = 86_400_000;
@@ -213,7 +215,7 @@ export async function loadCoachRuntime(
     getCoachActivitiesWithStreams(db, from, asOf),
     getPlannedSessions(db, { from: weekStart, to: planningHorizonEnd }),
     getDailyCheckins(db, { from: from.slice(0, 10), to: asOf.slice(0, 10) }),
-    getDailyRecoveries(db, { from: from.slice(0, 10), to: asOf.slice(0, 10) }),
+    getDailyRecoveries(db, { from: addDays(asOf.slice(0, 10), -Math.max(lookbackDays, HRV_LOOKBACK_DAYS)), to: asOf.slice(0, 10) }),
     getCoachDecisions(db, { to: asOf, limit: 30 }),
     getAdaptiveZoneEstimateAsOf(db, asOf),
     getPhysiologyEstimates(db, { to: asOf }),
@@ -296,15 +298,24 @@ export async function loadCoachRuntime(
     ...feedback.map((item) => feedbackToEngine(item, activities.find((activity) => activity.id === item.activityId))),
     ...checkins.map(checkinToEngine),
   ];
-  const recentWeeks = buildRecentWeeks(activities, sessionAssessments, feedbackByActivity, asOf);
   const backgroundLoad = buildBackgroundLoad(sessionAssessments, asOf, lookbackDays);
   const recoveryDaily = analyzeRecovery(recoveries);
-  const recoverySummary = summarizeRecovery(recoveryDaily);
+  const recoverySummary = summarizeRecovery(recoveryDaily, asOf.slice(0, 10));
+  const recentWeeks = buildRecentWeeks(activities, sessionAssessments, feedbackByActivity, asOf);
+  // An empty completed week has no activity group. During a load hold it still
+  // sets the running dose, even if an older week had several long runs.
+  const lastCompletedWeek = addDays(mondayOf(asOf.slice(0, 10)), -7);
+  if (hrvLoadGuidance(recoverySummary.hrvTrend.status) && recentWeeks.at(-1)?.weekStart !== lastCompletedWeek) {
+    recentWeeks.push({ weekStart: lastCompletedWeek, runningMinutes: 0, distanceKm: 0, stress: 0,
+      hardStress: 0, qualitySessionCount: 0, longRunMinutes: 0, absorbed: false });
+  }
   const observedState = buildObservedState(sessionAssessments, feedback, checkins, recoverySummary, asOf);
   const engineProfile = profileToEngine(profile, activities, recentWeeks, checkins);
   const planningInput: PlanningStateInput = {
     weekStart,
     profile: engineProfile,
+    hrvTrendStatus: recoverySummary.hrvTrend.status,
+    observedState,
     physiology,
     recentWeeks,
     recentSessions: sessionAssessments.slice(-28),
@@ -624,6 +635,7 @@ function buildRecentWeeks(
         distanceKm: round(sum(weekActivities.map((activity) => activity.distanceKm)), 1),
         stress: round(sum(weekAssessments.map((assessment) => assessment.externalStress.totalStress ?? 0)), 1),
         hardStress: round(sum(weekAssessments.map((assessment) => assessment.externalStress.hardStress ?? 0)), 1),
+        qualitySessionCount: weekAssessments.filter(isHardTrainingRun).length,
         longRunMinutes: Math.round(Math.max(0, ...weekActivities.map((activity) => activity.movingTimeSec)) / 60),
         absorbed: maxPain < 3 && !weekFeedback.some((item) => item.alteredGait) && adverseResponses < 2,
         emergencyReduction: weekFeedback.some((item) => /emergency|cut short|aborted/i.test(item.note)),
@@ -705,13 +717,8 @@ function buildObservedState(
   const worseningNiggles = hasWorseningNiggles(recentCheckins, asOf);
   const freshnessFallingWithDeterioration = lowFreshnessStreak >= 2 && deteriorating >= 1;
 
-  // Objective overnight recovery. Low-confidence (sparse) data must not move the
-  // light. The multi-day guard already lives in the recovery analysis — a single
-  // off-baseline night never reaches 'suppressed' — so escalating on
-  // 'suppressed'/'high_stress' here is inherently multi-day. Pairing this with
-  // maxPain lets the coach separate LOCAL musculoskeletal load (pain high,
-  // recovery normal) from SYSTEMIC fatigue (recovery suppressed) or ILLNESS.
-  const recoveryActionable = recovery.confidence !== null && recovery.confidence !== 'low' && recovery.state !== null;
+  const currentNight = recovery.asOf !== null && recovery.asOf >= addDays(asOf.slice(0, 10), -1);
+  const recoveryActionable = currentNight && recovery.confidence !== null && recovery.confidence !== 'low' && recovery.state !== null;
   const recoveryRed =
     recoveryActionable &&
     (recovery.systemicIllnessSignal ||
@@ -731,6 +738,8 @@ function buildObservedState(
       `overnight recovery ${recovery.state.replace('_', ' ')} for ${Math.max(1, recovery.suppressedStreak)} night(s)`,
     );
   }
+  const hrvGuidance = hrvLoadGuidance(recovery.hrvTrend.status);
+  if (hrvGuidance) reasons.push(hrvGuidance);
   if (elevated >= 2) reasons.push(`${elevated} recent runs had elevated HR cost for power`);
   if (deteriorating >= 2) reasons.push(`${deteriorating} recent runs showed late deterioration`);
   if (lowFreshnessStreak >= 3) reasons.push(`leg freshness has been 2/5 or lower for ${lowFreshnessStreak} days`);
@@ -754,9 +763,9 @@ function buildObservedState(
     maxRecentPain: maxPain,
     alteredGait,
     illnessSuspected,
-    recoveryState: recovery.state,
-    recoverySuppressedDays: recovery.suppressedStreak,
-    systemicIllnessSignal: recovery.systemicIllnessSignal,
+    recoveryState: currentNight ? recovery.state : null,
+    recoverySuppressedDays: currentNight ? recovery.suppressedStreak : 0,
+    systemicIllnessSignal: Boolean(currentNight && recovery.systemicIllnessSignal),
     lowFreshnessStreak,
     worseningNiggles,
   };

@@ -3,6 +3,9 @@ import { HeartPulse, Moon } from 'lucide-react';
 import {
   addDays,
   averageBefore,
+  computeHrvTrend,
+  hrvLoadGuidance,
+  type HrvTrend,
   formatSleep,
   formatVersusAverage,
   nightValue,
@@ -22,6 +25,7 @@ interface ChartPoint {
   day: string;
   value?: number;
   average?: number;
+  hrvTrend?: HrvTrend;
 }
 
 export function useRecoveryByDay(nights: RecoveryNight[]): Map<string, RecoveryNight> {
@@ -56,16 +60,23 @@ function RecoveryChart({ byDay, metric }: { byDay: ReadonlyMap<string, RecoveryN
   }, []);
 
   const points = useMemo<ChartPoint[]>(
-    () => Array.from({ length: period }, (_, index) => {
-      const day = addDays(today, index - period + 1);
-      return { day, value: nightValue(byDay.get(day), metric), average: averageBefore(byDay, day, metric) };
-    }),
+    () => {
+      const observations = metric === 'hrv' ? [...byDay.values()].flatMap(night =>
+        night.source && night.hrvMs !== undefined ? [{ day: night.day, source: night.source, hrvRmssdMs: night.hrvMs }] : [],
+      ) : [];
+      return Array.from({ length: period }, (_, index) => {
+        const day = addDays(today, index - period + 1);
+        const hrvTrend = metric === 'hrv' ? computeHrvTrend(observations, day) : undefined;
+        const average = hrvTrend ? hrvTrend.acuteMs : averageBefore(byDay, day, 'sleep');
+        return { day, value: nightValue(byDay.get(day), metric), average, hrvTrend };
+      });
+    },
     [byDay, metric, period, today],
   );
   const chart = useMemo(() => buildChart(points, width, metric), [points, width, metric]);
 
   const latestWithValue = [...points].reverse().find((point) => point.value !== undefined);
-  const selectedIndex = Math.max(0, points.findIndex((point) => point.day === (activeDay ?? latestWithValue?.day ?? today)));
+  const selectedIndex = Math.max(0, points.findIndex((point) => point.day === (activeDay ?? (metric === 'hrv' ? today : latestWithValue?.day) ?? today)));
   const selected = points[selectedIndex];
   const { title, icon: Icon } = METRICS[metric];
 
@@ -106,9 +117,9 @@ function RecoveryChart({ byDay, metric }: { byDay: ReadonlyMap<string, RecoveryN
       </header>
 
       <div className="recovery-chart-readout" aria-live="polite">
-        <small>{selected.day === today ? 'Today' : formatDay(selected.day)}</small>
+        <small>{metric === 'hrv' ? 'Night ending ' : ''}{selected.day === today ? 'Today' : formatDay(selected.day)}</small>
         <strong>{selected.value === undefined ? 'No reading' : formatValue(selected.value, metric)}</strong>
-        {selected.value !== undefined && (
+        {metric === 'sleep' && selected.value !== undefined && (
           <span className={`recovery-chart-delta tone-${tone}`}>{formatVersusAverage(selected.value, selected.average, metric)}</span>
         )}
       </div>
@@ -126,6 +137,13 @@ function RecoveryChart({ byDay, metric }: { byDay: ReadonlyMap<string, RecoveryN
             if (event.key === 'ArrowRight') { event.preventDefault(); moveBy(1); }
           }}
         >
+          {points.map((point, index) => {
+            const band = point.hrvTrend;
+            if (band?.lowerMs === undefined || band.upperMs === undefined) return null;
+            return <rect key={point.day} className="recovery-chart-band"
+              x={chart.x(index) - chart.step / 2} width={chart.step}
+              y={chart.y(band.upperMs)} height={Math.max(1, chart.y(band.lowerMs) - chart.y(band.upperMs))} />;
+          })}
           {chart.gridLines.map((line) => (
             <g key={line.label} className="recovery-chart-grid">
               <line x1={chart.left} y1={line.y} x2={chart.right} y2={line.y} />
@@ -185,8 +203,25 @@ function RecoveryChart({ byDay, metric }: { byDay: ReadonlyMap<string, RecoveryN
           />
         </svg>
       </div>
-      <p className="recovery-chart-key"><i aria-hidden="true" /> 7-night average</p>
+      <p className="recovery-chart-key"><i aria-hidden="true" /> {metric === 'sleep' ? 'Prior 7-night average' : '7-day average'}{metric === 'hrv' && <> <b aria-hidden="true" /> Personal range</>}</p>
+      {selected.hrvTrend && <HrvReadout trend={selected.hrvTrend} />}
     </article>
+  );
+}
+
+function HrvReadout({ trend }: { trend: HrvTrend }) {
+  const guidance = hrvLoadGuidance(trend.status);
+  return (
+    <div className="hrv-training-read" aria-live="polite">
+      {trend.acuteMs !== undefined && <strong>7-day average {trend.acuteMs.toFixed(1)} ms</strong>}
+      {trend.midpointMs !== undefined && trend.lowerMs !== undefined && trend.upperMs !== undefined && (
+        <span>Midpoint {trend.midpointMs.toFixed(1)} ms · Range {trend.lowerMs.toFixed(1)}–{trend.upperMs.toFixed(1)} ms</span>
+      )}
+      <span>{guidance ?? (trend.status === 'insufficient'
+        ? 'Waiting for 5 recent nights and 60 baseline nights from the same source.'
+        : 'At or above your midpoint. Check how you feel and how recent runs went before adding load.')}</span>
+      <small>{trend.acuteNights}/7 recent nights · {trend.baselineNights}/84 prior nights{trend.source && ` · ${trend.source}`}</small>
+    </div>
   );
 }
 
@@ -219,7 +254,7 @@ function buildChart(points: ChartPoint[], width: number, metric: RecoveryMetric)
   const right = width - 40;
   const step = (right - left) / Math.max(points.length, 1);
   const x = (index: number) => round(left + step * (index + 0.5));
-  const values = points.flatMap((point) => [point.value, point.average]).filter((value): value is number => value !== undefined);
+  const values = points.flatMap((point) => [point.value, point.average, point.hrvTrend?.lowerMs, point.hrvTrend?.upperMs]).filter((value): value is number => value !== undefined);
 
   let low: number;
   let high: number;

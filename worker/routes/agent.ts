@@ -21,7 +21,8 @@ const RECOVERY_INSTRUCTIONS =
   '`summary.state` is the actionable latent recovery state; a single off-baseline night is deliberately held at ' +
   '"slightly_suppressed" — only multi-day agreement or a systemic illness pattern (skin-temp + respiration + autonomic) ' +
   'escalates it to suppressed/high_stress. Use this as the recovery + illness layer alongside training load and ' +
-  'performance response; treat readiness (readinessCrossCheck) as a cross-check only, never as an independent input.';
+  'performance response; treat readiness (readinessCrossCheck) as a cross-check only, never as an independent input. ' +
+  'For load progression, use summary.hrvTrend. Hold increases below the personal midpoint and review sleep, life stress and intensity if below range. Other recovery and performance evidence still governs any increase.';
 
 export function agentRoutes(): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>();
@@ -90,10 +91,14 @@ export function agentRoutes(): Hono<{ Bindings: Env }> {
   app.get('/daily-recovery', async (c) => {
     const from = normalizeFrom(c.req.query('from'));
     const to = normalizeTo(c.req.query('to'));
-    // Analyze the full history so personal baselines are correct, then scope the
-    // returned rows (mirrors loadAnalyses for the weekly risk endpoint).
-    const analyzed = analyzeRecovery(await getDailyRecoveries(c.env.lydiard));
-    const summary = summarizeRecovery(to ? analyzed.filter((day) => day.day <= to) : analyzed);
+    const asOf = (to ?? new Date().toISOString()).slice(0, 10);
+    const parsed = Date.parse(asOf);
+    if (!Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0, 10) !== asOf) {
+      return c.json({ error: 'Invalid recovery end date.' }, 400);
+    }
+    // Include prior history for the baseline, even when the response starts later.
+    const analyzed = analyzeRecovery(await getDailyRecoveries(c.env.lydiard, { to: asOf }));
+    const summary = summarizeRecovery(analyzed, asOf);
     const inRange = analyzed.filter((day) => (!from || day.day >= from) && (!to || day.day <= to));
     const scoped = from || to ? inRange : analyzed.slice(-35);
     return c.json({
