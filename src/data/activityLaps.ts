@@ -79,11 +79,6 @@ export function buildLapProfileFromCompact(
   });
 }
 
-/**
- * Sum time spent at threshold pace or faster from the compact recorded laps.
- * This includes threshold, high-intensity, and short stride laps; easier laps
- * never contribute.
- */
 export function intensitySecondsFromLapProfile(
   points: LapProfilePoint[] | undefined,
   thresholdPaceSecPerKm: number,
@@ -91,7 +86,7 @@ export function intensitySecondsFromLapProfile(
 ): number {
   if (!points?.length || thresholdPaceSecPerKm <= 0) return 0;
   return Math.round(buildLapProfileFromCompact(points, thresholdPaceSecPerKm, activityAveragePaceSecPerKm)
-    .filter((lap) => ['threshold', 'high-intensity', 'strides'].includes(lap.zone.key))
+    .filter((lap) => lap.zone.key === 'threshold' || lap.zone.key === 'high-intensity')
     .reduce((total, lap) => total + lap.durationSec, 0));
 }
 

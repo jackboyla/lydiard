@@ -30,13 +30,14 @@ const workoutLaps: ActivityLap[] = [
   { index: 1, distanceM: 2000, durationSec: 660, averageSpeedMps: 2000 / 660 }, // ~5:30 warmup
   { index: 2, distanceM: 400, durationSec: 84, averageSpeedMps: 400 / 84 },     // 3:30 rep
   { index: 3, distanceM: 200, durationSec: 66, averageSpeedMps: 200 / 66 },     // ~5:30 recovery
-  { index: 4, distanceM: 400, durationSec: 84, averageSpeedMps: 400 / 84 },     // 3:30 rep
+  { index: 4, distanceM: 400, durationSec: 96, averageSpeedMps: 400 / 96 },     // 4:00 threshold rep
   { index: 5, distanceM: 200, durationSec: 66, averageSpeedMps: 200 / 66 },     // recovery
-  { index: 6, distanceM: 1500, durationSec: 495, averageSpeedMps: 1500 / 495 }, // ~5:30 cooldown
+  { index: 6, distanceM: 100, durationSec: 20, averageSpeedMps: 100 / 20 },     // stride
+  { index: 7, distanceM: 1500, durationSec: 495, averageSpeedMps: 1500 / 495 }, // ~5:30 cooldown
 ];
 const workout = compactLapProfile(JSON.stringify(workoutLaps));
 assert.ok(workout, 'workout should yield a profile');
-assert.equal(workout.length, 6);
+assert.equal(workout.length, workoutLaps.length);
 const paces = workout.map((p) => p.paceSecPerKm);
 assert.ok(Math.max(...paces) - Math.min(...paces) > 90, 'workout should have a clear pace spread');
 
@@ -65,10 +66,11 @@ assert.ok(
   ['recovery', 'easy', 'steady'].includes(views[0].zone.key),
   `5:30 warmup should be an aerobic zone, got ${views[0].zone.key}`,
 );
+assert.equal(views[5].zone.key, 'strides');
 assert.equal(
   intensitySecondsFromLapProfile(workout, thresholdPaceSecPerKm, 330),
-  168,
-  'only the two 84-second threshold-or-faster reps should count as intensity time',
+  180,
+  'intensity time includes the 84-second fast rep and the 96-second threshold rep',
 );
 assert.equal(intensitySecondsFromLapProfile(undefined, thresholdPaceSecPerKm), 0);
 

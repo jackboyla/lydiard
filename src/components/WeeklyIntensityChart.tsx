@@ -62,7 +62,7 @@ export default function WeeklyIntensityChart({ loadModel, today }: { loadModel: 
       ) : (
         <p className="progress-zone-empty">No recorded running laps in this range.</p>
       )}
-      <p className="progress-zone-method">Counts time in recorded threshold, high-intensity and stride laps. Weeks start on Monday (UTC).</p>
+      <p className="progress-zone-method">Counts time in recorded threshold and high-intensity laps. Weeks start on Monday (UTC).</p>
     </section>
   );
 }

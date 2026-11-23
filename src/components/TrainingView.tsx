@@ -978,7 +978,7 @@ function WeekTotalReadout({
       <div><span>Distance</span><strong>{distanceKm.toFixed(1)} km</strong></div>
       <div><span>Time</span><strong>{formatHoursMinutes(durationHours)}</strong></div>
       <div><span>Gym</span><strong>{gymCount}</strong></div>
-      <div title="Recorded lap time in threshold, VO₂/high-intensity, or stride zones">
+      <div title="Recorded lap time in threshold and VO₂/high-intensity zones">
         <span>Intensity</span><strong>{intensityMinutes} min</strong>
       </div>
       <small>{runCount} {runCount === 1 ? 'run' : 'runs'}</small>
