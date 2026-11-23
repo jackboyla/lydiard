@@ -7032,14 +7032,9 @@ dd {
   gap: 8px;
 }
 
-.weekly-intensity-range {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.weekly-intensity-range button {
-  min-width: 0;
-  padding-inline: 8px;
+/* Let the chart wrapper read touch coordinates without snapping taps to nearby SVG marks. */
+.weekly-intensity-line .recharts-surface {
+  pointer-events: none;
 }
 
 .zone-trend-head h2,
